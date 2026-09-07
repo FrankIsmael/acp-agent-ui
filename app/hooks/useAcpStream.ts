@@ -143,10 +143,16 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     });
     es.addEventListener('error', (e) => {
       const data = (e as MessageEvent).data;
-      if (data) setError(JSON.parse(data).message);
+      if (data) {
+        setError(JSON.parse(data).message);
+        setBusy(false);
+        streaming.current = false;
+      }
     });
     es.addEventListener('closed', () => {
       setConnected(false);
+      setBusy(false);
+      streaming.current = false;
       es.close();
     });
 

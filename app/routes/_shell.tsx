@@ -5,6 +5,7 @@
 import { Outlet, useLoaderData } from "react-router";
 import { AppLayout } from "~/components/Layout/AppLayout";
 import { listConversations } from "~/.server/acp";
+import { ArtifactProvider } from "~/components/artifacts/ArtifactContext";
 
 export async function loader() {
   return { conversations: listConversations() };
@@ -13,8 +14,10 @@ export async function loader() {
 export default function Shell() {
   const { conversations } = useLoaderData<typeof loader>();
   return (
-    <AppLayout conversations={conversations}>
-      <Outlet />
-    </AppLayout>
+    <ArtifactProvider>
+      <AppLayout conversations={conversations}>
+        <Outlet />
+      </AppLayout>
+    </ArtifactProvider>
   );
 }

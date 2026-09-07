@@ -2,7 +2,7 @@
  * La conversación. El loader entrega los mensajes ya ocurridos (por si
  * recargas), y de ahí en adelante el hilo lo alimenta el SSE.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import {
   Brain,
@@ -12,6 +12,7 @@ import {
   FolderInput,
   Globe,
   Loader2,
+  PanelRightOpen,
   Search,
   Terminal,
   Trash2,
@@ -29,6 +30,10 @@ import { MessageUsageStats } from "~/components/MessageUsageStats";
 import { ConnectingState } from "~/components/ConnectingState";
 import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
 import { config, getConversation, getMessages } from "~/.server/acp";
+import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
+import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
+import { useArtifacts } from "~/components/artifacts/ArtifactContext";
+import { artifactKey, parseArtifacts, type Artifact, type ArtifactPart } from "~/lib/artifacts";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const conversation = getConversation(params.id);
@@ -47,7 +52,7 @@ export async function loader({ params }: Route.LoaderArgs) {
   };
 }
 
-function Bubble({ turn }: { turn: Turn }) {
+function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: Turn; parts: ArtifactPart[]; conversationId: string; turnIndex: number; streaming: boolean }) {
   if (turn.role === "user") {
     return (
       <div className="flex flex-col items-end gap-2">
@@ -90,7 +95,11 @@ function Bubble({ turn }: { turn: Turn }) {
           ))}
         </ul>
       )}
-      {turn.text && <Markdown>{turn.text}</Markdown>}
+      {parts.map((part, index) => part.kind === "text" ? (
+        <Markdown key={index}>{part.text}</Markdown>
+      ) : (
+        <ArtifactCard key={index} artifact={part.artifact} artifactKey={artifactKey(conversationId, turnIndex, part.index)} streaming={streaming && !part.artifact.complete} />
+      ))}
       {turn.usage && <MessageUsageStats {...turn.usage} />}
     </div>
   );
@@ -215,6 +224,22 @@ function ChatView() {
     turns, busy, connected, phase, error, send,
     configOptions, imageSupport, visionModels, configBusy, setConfig,
   } = useAcpStream(id, messages as Turn[]);
+  const { artifacts, ready, ingest, open } = useArtifacts();
+  const parsedTurns = useMemo(() => turns.map((turn, index) => turn.role === "assistant" ? parseArtifacts(turn.text, busy && index === turns.length - 1) : []), [turns, busy]);
+  const generated = useMemo(() => parsedTurns.flatMap((parts, turnIndex) => parts.flatMap((part): Artifact[] => part.kind === "artifact" ? [{
+    ...part.artifact, key: artifactKey(id, turnIndex, part.index), conversationId: id, turnIndex, updatedAt: Date.now(),
+  }] : [])), [parsedTurns, id]);
+  const seen = useRef(new Set<string>());
+  useEffect(() => {
+    if (!ready) return;
+    ingest(generated);
+    const additions = generated.filter(artifact => !seen.current.has(artifact.key));
+    generated.forEach(artifact => seen.current.add(artifact.key));
+    // Once closed, further tokens must not reopen the panel. A new revision can.
+    if (additions.length) open(additions[additions.length - 1].key);
+  }, [generated, ready, ingest, open]);
+  const conversationArtifacts = artifacts.filter(artifact => artifact.conversationId === id);
+  const streamingArtifact = busy ? [...generated].reverse().find(artifact => artifact.turnIndex === turns.length - 1 && !artifact.complete) : undefined;
   const sentFirst = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -232,50 +257,58 @@ function ChatView() {
 
   return (
     <MainPanelLayout>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
-            {!connected && turns.length === 0 && (
-              <ConnectingState phase={phase} error={error} />
-            )}
-            {turns.map((turn, i) => (
-              <Bubble key={i} turn={turn} />
-            ))}
+      <div className="flex h-full min-h-0 min-w-0">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+          {conversationArtifacts.length > 0 && (
+            <div className="flex justify-end px-4 pt-2">
+              <button onClick={() => open(conversationArtifacts[conversationArtifacts.length - 1].key)} className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"><PanelRightOpen className="h-4 w-4" />Artifacts · {conversationArtifacts.length}</button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
+              {!connected && turns.length === 0 && (
+                <ConnectingState phase={phase} error={error} />
+              )}
+              {turns.map((turn, i) => (
+                <Bubble key={i} turn={turn} parts={parsedTurns[i]} conversationId={id} turnIndex={i} streaming={busy && i === turns.length - 1} />
+              ))}
 
-            {busy && turns[turns.length - 1]?.role === "user" && (
-              <div className="flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="h-1.5 w-1.5 animate-pulse rounded-full bg-text-tertiary"
-                    style={{ animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
-            )}
-            {error && (connected || turns.length > 0) && (
-              <p className="text-sm text-text-danger">{error}</p>
-            )}
-            <div ref={bottom} />
+              {busy && turns[turns.length - 1]?.role === "user" && (
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="h-1.5 w-1.5 animate-pulse rounded-full bg-text-tertiary"
+                      style={{ animationDelay: `${i * 150}ms` }}
+                    />
+                  ))}
+                </div>
+              )}
+              {error && (connected || turns.length > 0) && (
+                <p className="text-sm text-text-danger">{error}</p>
+              )}
+              <div ref={bottom} />
+            </div>
+          </div>
+
+          <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6 sm:pb-6">
+            <ChatInputCard>
+              <ChatInput
+                onSubmit={send}
+                busy={busy}
+                workingDir={cwd}
+                imageSupport={imageSupport}
+                visionModels={visionModels}
+                configOptions={configOptions}
+                configBusy={configBusy}
+                onConfigChange={setConfig}
+                disabled={!connected}
+                placeholder={connected ? "Sigue la conversación…" : "Conectando con el agente…"}
+              />
+            </ChatInputCard>
           </div>
         </div>
-
-        <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6 sm:pb-6">
-          <ChatInputCard>
-            <ChatInput
-              onSubmit={send}
-              busy={busy}
-              workingDir={cwd}
-              imageSupport={imageSupport}
-              visionModels={visionModels}
-              configOptions={configOptions}
-              configBusy={configBusy}
-              onConfigChange={setConfig}
-              disabled={!connected}
-              placeholder={connected ? "Sigue la conversación…" : "Conectando con el agente…"}
-            />
-          </ChatInputCard>
-        </div>
+        <ArtifactPanel artifacts={conversationArtifacts} streamingKey={streamingArtifact?.key} />
       </div>
     </MainPanelLayout>
   );

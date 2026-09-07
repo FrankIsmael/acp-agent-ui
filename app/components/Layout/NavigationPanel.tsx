@@ -31,6 +31,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "home", path: "/", label: "Nueva conversación", icon: MessageSquarePlus },
+  { id: "artifacts", path: "/artifacts", label: "Artifacts", icon: AppWindow },
   { id: "recipes", path: "/recipes", label: "Recetas", icon: FileText },
   { id: "skills", path: "/skills", label: "Habilidades", icon: Zap },
   { id: "apps", path: "/apps", label: "Apps", icon: AppWindow },

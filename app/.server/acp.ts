@@ -11,6 +11,7 @@ import { client, type ClientConnection } from "@agentclientprotocol/sdk";
 import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client";
 import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
+import { ARTIFACT_INSTRUCTIONS } from "./artifact-instructions";
 
 // Sin URL no se inventa una: un fallback hardcodeado manda la sesión a la caja de otro y el
 // fallo se ve como "el agente no responde" en vez de "te falta configurar esto".
@@ -502,7 +503,10 @@ class GooseSession extends EventEmitter {
       // El prompt deja de ser una cadena en cuanto hay adjuntos: ACP manda una
       // lista de bloques, y las imágenes van como `image` con el base64 crudo
       // (sin el `data:…;base64,` del navegador) más su mimeType.
-      const content: any[] = [{ type: "text", text: turn.text }];
+      const content: any[] = [
+        { type: "text", text: ARTIFACT_INSTRUCTIONS },
+        { type: "text", text: turn.text },
+      ];
       for (const img of turn.images) {
         content.push({ type: "image", mimeType: img.mimeType, data: img.data });
       }

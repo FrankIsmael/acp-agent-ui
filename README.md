@@ -75,6 +75,9 @@ Node ≥ 22.22. `react-router dev` no lee `.env` por su cuenta: los scripts pasa
 
 ## Cómo está armado
 
+El chat incluye [Artifacts](docs/artifacts.md): un panel con vista previa, edición,
+descarga y biblioteca local para código, documentos, gráficos SVG y apps HTML.
+
 | Ruta | Qué es |
 |---|---|
 | `app/.server/acp.ts` | El motor: una conexión ACP por conversación, ciclo de vida de la caja. |

@@ -6,7 +6,9 @@
     "dev": "node --env-file=.env node_modules/.bin/react-router dev",
     "build": "react-router build",
     "start": "node --env-file=.env server.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "test:artifacts": "node --experimental-strip-types --test scripts/artifacts.test.mjs",
+    "test:artifacts:browser": "node scripts/artifacts.browser.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
