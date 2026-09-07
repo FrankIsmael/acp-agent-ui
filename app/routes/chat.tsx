@@ -3,6 +3,22 @@
  * recargas), y de ahí en adelante el hilo lo alimenta el SSE.
  */
 import { useEffect, useRef } from "react";
+import { motion } from "motion/react";
+import {
+  Brain,
+  Check,
+  FilePen,
+  FileText,
+  FolderInput,
+  Globe,
+  Loader2,
+  Search,
+  Terminal,
+  Trash2,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useLocation, useLoaderData } from "react-router";
 import type { Route } from "./+types/chat";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
@@ -23,17 +39,37 @@ export async function loader({ params }: Route.LoaderArgs) {
     id: params.id,
     cwd: config.cwd,
     title: conversation.title,
-    messages: getMessages(params.id).map((m) => ({ role: m.role, text: m.text })),
+    messages: getMessages(params.id).map((m) => ({
+      role: m.role,
+      text: m.text,
+      images: m.images,
+    })),
   };
 }
 
 function Bubble({ turn }: { turn: Turn }) {
   if (turn.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
-          {turn.text}
-        </div>
+      <div className="flex flex-col items-end gap-2">
+        {turn.images && turn.images.length > 0 && (
+          <ul className="flex max-w-[80%] flex-wrap justify-end gap-2">
+            {turn.images.map((img, i) => (
+              <li key={i}>
+                <img
+                  src={`data:${img.mimeType};base64,${img.data}`}
+                  alt={img.name ?? "Imagen adjunta"}
+                  title={img.name}
+                  className="h-24 w-24 rounded-xl border border-border-secondary object-cover"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {turn.text && (
+          <div className="max-w-[80%] rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
+            {turn.text}
+          </div>
+        )}
       </div>
     );
   }
@@ -48,7 +84,7 @@ function Bubble({ turn }: { turn: Turn }) {
         </details>
       )}
       {turn.tools && turn.tools.length > 0 && (
-        <ul className="mb-3 flex flex-col gap-1">
+        <ul className="mb-3 divide-y divide-border-secondary overflow-hidden rounded-xl border border-border-secondary">
           {turn.tools.map((tool) => (
             <ToolRow key={tool.id} tool={tool} />
           ))}
@@ -62,38 +98,105 @@ function Bubble({ turn }: { turn: Turn }) {
 
 // Una herramienta del agente, con su estado según ACP:
 // pending → in_progress → completed | failed.
-const STATUS_ICON: Record<string, string> = {
-  pending: "⏳",
-  in_progress: "●",
-  completed: "✓",
-  failed: "✗",
+// Cada `kind` de ACP tiene su icono: se reconoce de un vistazo qué hizo el
+// agente sin leer el título, que es lo que uno hace al barrer la lista.
+const KIND_ICON: Record<string, LucideIcon> = {
+  read: FileText,
+  edit: FilePen,
+  delete: Trash2,
+  move: FolderInput,
+  search: Search,
+  execute: Terminal,
+  think: Brain,
+  fetch: Globe,
+  other: Wrench,
 };
+
+const KIND_LABEL: Record<string, string> = {
+  read: "Leer",
+  edit: "Editar",
+  delete: "Borrar",
+  move: "Mover",
+  search: "Buscar",
+  execute: "Ejecutar",
+  think: "Pensar",
+  fetch: "Traer",
+  other: "Herramienta",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "En cola",
+  in_progress: "Ejecutando",
+  completed: "Listo",
+  failed: "Falló",
+};
+
+/** El indicador de la derecha: spinner mientras corre, palomita al terminar. */
+function StatusDot({ status }: { status: string }) {
+  if (status === "in_progress") {
+    return <Loader2 className="h-3.5 w-3.5 animate-spin text-text-primary" />;
+  }
+  if (status === "completed") {
+    return <Check className="h-3.5 w-3.5 text-text-success" strokeWidth={3} />;
+  }
+  if (status === "failed") {
+    return <X className="h-3.5 w-3.5 text-text-danger" strokeWidth={3} />;
+  }
+  return <span className="h-1.5 w-1.5 rounded-full bg-border-primary" />;
+}
 
 function ToolRow({ tool }: { tool: ToolEntry }) {
   const status = tool.status ?? "pending";
-  const color =
-    status === "failed"
-      ? "text-text-danger"
-      : status === "completed"
-        ? "text-text-success"
-        : "text-text-warning";
+  const running = status === "in_progress";
+  const failed = status === "failed";
+  const kind = tool.kind ?? "other";
+  const Icon = KIND_ICON[kind] ?? Wrench;
+  // Del path importa el final (el archivo), no el prefijo: se trunca por la
+  // izquierda para que `…/routes/chat.tsx` siga siendo legible en móvil.
+  const path = tool.path;
+
   return (
-    <li className="flex min-w-0 items-baseline gap-2 text-xs">
-      <span className={`shrink-0 ${color}`} aria-label={status}>
-        {STATUS_ICON[status] ?? "•"}
+    <motion.li
+      layout
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={`group flex min-w-0 items-center gap-2.5 px-3 py-2 transition-colors ${
+        failed ? "bg-background-danger/40" : running ? "bg-background-secondary/60" : ""
+      }`}
+      title={path ? `${KIND_LABEL[kind] ?? kind}: ${tool.title ?? tool.id}\n${path}` : undefined}
+    >
+      <span
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
+          failed
+            ? "border-border-danger text-text-danger"
+            : running
+              ? "border-border-primary text-text-primary"
+              : "border-border-secondary text-text-tertiary"
+        }`}
+        aria-hidden
+      >
+        <Icon className="h-3.5 w-3.5" />
       </span>
-      {tool.kind && (
-        <span className="shrink-0 rounded bg-background-secondary px-1 font-mono text-text-secondary">
-          {tool.kind}
+
+      <div className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span
+          className={`truncate text-xs ${failed ? "text-text-danger" : "text-text-primary"}`}
+        >
+          {tool.title ?? tool.id}
         </span>
-      )}
-      <span className="min-w-0 truncate text-text-primary">{tool.title ?? tool.id}</span>
-      {tool.path && (
-        <span className="hidden min-w-0 truncate font-mono text-text-tertiary sm:inline">
-          {tool.path}
-        </span>
-      )}
-    </li>
+        {path && (
+          <span dir="rtl" className="truncate text-left font-mono text-[11px] text-text-tertiary">
+            &#x2066;{path}&#x2069;
+          </span>
+        )}
+      </div>
+
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        <StatusDot status={status} />
+      </span>
+      <span className="sr-only">{STATUS_LABEL[status] ?? status}</span>
+    </motion.li>
   );
 }
 
@@ -108,10 +211,10 @@ function ChatView() {
   const { id, cwd, messages } = useLoaderData<typeof loader>();
   const location = useLocation();
   const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
-  const { turns, busy, connected, phase, error, send } = useAcpStream(
-    id,
-    messages as Turn[]
-  );
+  const {
+    turns, busy, connected, phase, error, send,
+    configOptions, imageSupport, visionModels, configBusy, setConfig,
+  } = useAcpStream(id, messages as Turn[]);
   const sentFirst = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -163,6 +266,12 @@ function ChatView() {
               onSubmit={send}
               busy={busy}
               workingDir={cwd}
+              imageSupport={imageSupport}
+              visionModels={visionModels}
+              configOptions={configOptions}
+              configBusy={configBusy}
+              onConfigChange={setConfig}
+              disabled={!connected}
               placeholder={connected ? "Sigue la conversación…" : "Conectando con el agente…"}
             />
           </ChatInputCard>

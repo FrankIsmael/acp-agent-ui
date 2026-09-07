@@ -19,7 +19,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const encoder = new TextEncoder();
-  let unsubscribe: (() => void) | null = null;
+  let cleanup = () => {};
 
   const stream = new ReadableStream({
     start(controller) {
@@ -34,31 +34,44 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       write(": connected\n\n");
       openSse();
 
+      // Latido: mantiene viva la conexión frente a proxies impacientes.
+      const beat = setInterval(() => write(": ping\n\n"), 25_000);
+      let unsubscribe: (() => void) | null = null;
+
+      // Las tres salidas (sesión cerrada, cliente desconectado, stream
+      // cancelado) pueden solaparse: el desmontaje corre una sola vez.
+      let done = false;
+      cleanup = () => {
+        if (done) return;
+        done = true;
+        clearInterval(beat);
+        unsubscribe?.();
+        unsubscribe = null;
+        closeSse();
+      };
+
       unsubscribe = subscribe(params.id, (e: AcpEvent) => {
         const { type, ...rest } = e;
         write(`event: ${type}\ndata: ${JSON.stringify(rest)}\n\n`);
+        // "done" cierra un turno; solo "closed" cierra la sesión — y con ella
+        // la respuesta, porque el emisor ya no volverá a hablar.
         if (type === "closed") {
+          cleanup();
           try {
             controller.close();
           } catch {}
         }
       });
 
-      // Latido: mantiene viva la conexión frente a proxies impacientes.
-      const beat = setInterval(() => write(": ping\n\n"), 25_000);
-
       request.signal.addEventListener("abort", () => {
-        clearInterval(beat);
-        unsubscribe?.();
-        closeSse();
+        cleanup();
         try {
           controller.close();
         } catch {}
       });
     },
     cancel() {
-      unsubscribe?.();
-      closeSse();
+      cleanup();
     },
   });
 
