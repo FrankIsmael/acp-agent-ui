@@ -7,6 +7,7 @@
     "build": "react-router build",
     "start": "node --env-file=.env server.js",
     "typecheck": "react-router typegen && tsc",
+    "test:chat:browser": "node scripts/chat.browser.mjs",
     "test:artifacts": "node --experimental-strip-types --test scripts/artifacts.test.mjs",
     "test:artifacts:browser": "node scripts/artifacts.browser.mjs"
   },

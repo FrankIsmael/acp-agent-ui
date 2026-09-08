@@ -10,6 +10,7 @@ export default [
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id/events", "routes/api.conversations.$id.events.ts"),
   route("api/conversations/:id/messages", "routes/api.conversations.$id.messages.ts"),
+  route("api/conversations/:id/cancel", "routes/api.conversations.$id.cancel.ts"),
   route("api/conversations/:id/config", "routes/api.conversations.$id.config.ts"),
 
   layout("routes/_shell.tsx", [

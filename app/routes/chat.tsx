@@ -221,7 +221,7 @@ function ChatView() {
   const location = useLocation();
   const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
   const {
-    turns, busy, connected, phase, error, send,
+    turns, busy, connected, phase, error, send, stop,
     configOptions, imageSupport, visionModels, configBusy, setConfig,
   } = useAcpStream(id, messages as Turn[]);
   const { artifacts, ready, ingest, open } = useArtifacts();
@@ -241,7 +241,10 @@ function ChatView() {
   const conversationArtifacts = artifacts.filter(artifact => artifact.conversationId === id);
   const streamingArtifact = busy ? [...generated].reverse().find(artifact => artifact.turnIndex === turns.length - 1 && !artifact.complete) : undefined;
   const sentFirst = useRef(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const scrollArea = useRef<HTMLDivElement>(null);
+  const scrollContent = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+
 
   // El primer mensaje viene del Hub; se manda una sola vez y en cuanto el
   // agente terminó de conectarse.
@@ -252,8 +255,16 @@ function ChatView() {
   }, [firstMessage, connected, send]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns]);
+    const area = scrollArea.current;
+    const content = scrollContent.current;
+    if (!area || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (follow.current) area.scrollTop = area.scrollHeight;
+    });
+    observer.observe(content);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <MainPanelLayout>
@@ -264,8 +275,13 @@ function ChatView() {
               <button onClick={() => open(conversationArtifacts[conversationArtifacts.length - 1].key)} className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"><PanelRightOpen className="h-4 w-4" />Artifacts · {conversationArtifacts.length}</button>
             </div>
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
+          <div ref={scrollArea} aria-label="Mensajes" className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onScroll={(event) => {
+              const area = event.currentTarget;
+              follow.current = area.scrollHeight - area.clientHeight - area.scrollTop < 48;
+            }}
+          >
+            <div ref={scrollContent} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
               {!connected && turns.length === 0 && (
                 <ConnectingState phase={phase} error={error} />
               )}
@@ -287,14 +303,14 @@ function ChatView() {
               {error && (connected || turns.length > 0) && (
                 <p className="text-sm text-text-danger">{error}</p>
               )}
-              <div ref={bottom} />
             </div>
           </div>
 
-          <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6 sm:pb-6">
+          <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
             <ChatInputCard>
               <ChatInput
-                onSubmit={send}
+                onSubmit={(text, images) => { follow.current = true; return send(text, images); }}
+                onStop={stop}
                 busy={busy}
                 workingDir={cwd}
                 imageSupport={imageSupport}

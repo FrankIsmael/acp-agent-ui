@@ -195,6 +195,7 @@ export interface ConfigOption {
 
 export type AcpEvent =
   | { type: "started"; sessionId: string }
+  | { type: "busy"; busy: boolean }
   | { type: "chunk"; text: string }
   | { type: "thought"; text: string }
   | {
@@ -492,9 +493,19 @@ class GooseSession extends EventEmitter {
     this.pump();
   }
 
+  async cancel() {
+    this.queue = [];
+    if (this.busy && this.conn && this.sessionId) {
+      await this.conn.agent.notify("session/cancel", { sessionId: this.sessionId });
+    } else {
+      this.emit("event", { type: "done", stopReason: "cancelled", usage: null });
+    }
+  }
+
   private pump() {
     if (!this.ready || this.busy || this.queue.length === 0) return;
     this.busy = true;
+    this.emit("event", { type: "busy", busy: true });
     const turn = this.queue.shift()!;
     let turnUsage: unknown = null;
     let answer = "";
@@ -680,6 +691,7 @@ export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
   if (s.ready && s.sessionId && !s.closed) {
     onEvent({ type: "started", sessionId: s.sessionId });
     onEvent(s.configEvent());
+    onEvent({ type: "busy", busy: s.busy });
   } else if (!s.closed) {
     onEvent({ type: "status", phase: s.phase });
     if (s.lastError) onEvent({ type: "error", message: s.lastError });

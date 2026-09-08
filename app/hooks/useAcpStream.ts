@@ -103,6 +103,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
         return { ...t, tools };
       });
 
+    es.addEventListener('busy', (e) => setBusy(JSON.parse((e as MessageEvent).data).busy));
     es.addEventListener('started', () => setConnected(true));
     es.addEventListener('config', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
@@ -164,21 +165,44 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       setTurns((prev) => [...prev, { role: 'user', text, images }]);
       setBusy(true);
       streaming.current = false;
-      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, images }),
-      });
-      // Un turno rechazado (imagen enorme, conversación muerta) dejaba el input
-      // en "pensando" para siempre: sin `done` por SSE, nadie apagaba el busy.
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error ?? 'No pude mandar el mensaje');
+      setError(null);
+      try {
+        const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, images }),
+        });
+        // Un turno rechazado (imagen enorme, conversación muerta) dejaba el input
+        // en "pensando" para siempre: sin `done` por SSE, nadie apagaba el busy.
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          setError(body?.error ?? 'No pude mandar el mensaje');
+          setBusy(false);
+        }
+      } catch {
+        setError('No pude mandar el mensaje. Inténtalo de nuevo.');
         setBusy(false);
       }
     },
     [conversationId],
   );
+
+  const stop = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/cancel`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'No pude detener la respuesta. Inténtalo de nuevo.');
+      }
+      // Keep consuming final updates until ACP confirms the cancelled turn.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No pude detener la respuesta. Inténtalo de nuevo.');
+    }
+  }, [conversationId]);
 
   const setConfig = useCallback(
     async (configId: string, value: string | boolean) => {
@@ -212,6 +236,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     error,
     usage,
     send,
+    stop,
     configOptions,
     imageSupport,
     visionModels,

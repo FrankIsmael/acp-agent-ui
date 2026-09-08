@@ -70,7 +70,7 @@ function AppLayoutContent({
   const toggleTitle = open ? "Cerrar navegación" : "Abrir navegación";
 
   return (
-    <div className="relative flex h-dvh w-full flex-1 flex-row bg-background-primary">
+    <div className="relative flex h-dvh w-full overflow-hidden flex-1 flex-row bg-background-primary">
       <div className="absolute left-4 top-[11px] z-40 ml-1.5 flex items-center gap-1">
         <Button
           onClick={toggle}
