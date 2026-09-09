@@ -9,7 +9,10 @@ const MAX_IMAGES = 8;
 const MAX_BYTES = 8 * 1024 * 1024;
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const body = (await request.json()) as { text?: string; images?: PromptImage[] };
+  if (request.method !== "POST") return data({ error: "method not allowed" }, { status: 405 });
+  if (request.headers.get("sec-fetch-site") === "cross-site") return data({ error: "forbidden" }, { status: 403 });
+  const body = (await request.json().catch(() => null)) as { text?: string; images?: PromptImage[] };
+  if (!body || (body.text !== undefined && typeof body.text !== "string")) return data({ error: "invalid content" }, { status: 400 });
   const images = Array.isArray(body.images) ? body.images : [];
   // Sin texto pero con imágenes es un turno válido ("¿qué ves aquí?" se
   // sobreentiende); sin nada de nada, no.
@@ -26,6 +29,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
   }
   const ok = askConversation(params.id, String(body.text ?? ""), images);
-  if (!ok) return data({ error: "conversation not found" }, { status: 404 });
+  if (!ok) return data({ error: "La conversación no está disponible o ya está respondiendo." }, { status: 409 });
   return data({ queued: true });
 }

@@ -103,6 +103,14 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
         return { ...t, tools };
       });
 
+    es.addEventListener('snapshot', (e) => {
+      const snapshot = JSON.parse((e as MessageEvent).data);
+      setTurns(snapshot.messages);
+      setBusy(snapshot.busy);
+      streaming.current = snapshot.busy && snapshot.messages.at(-1)?.role === 'assistant';
+      setError(null);
+    });
+    es.addEventListener('title', () => window.dispatchEvent(new Event('conversations-changed')));
     es.addEventListener('busy', (e) => setBusy(JSON.parse((e as MessageEvent).data).busy));
     es.addEventListener('started', () => setConnected(true));
     es.addEventListener('config', (e) => {
@@ -139,11 +147,13 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       });
     });
     es.addEventListener('done', () => {
+      window.dispatchEvent(new Event('conversations-changed'));
       streaming.current = false;
       setBusy(false);
     });
     es.addEventListener('error', (e) => {
       const data = (e as MessageEvent).data;
+      if (!data) { setConnected(false); return; }
       if (data) {
         setError(JSON.parse(data).message);
         setBusy(false);

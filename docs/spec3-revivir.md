@@ -1,7 +1,8 @@
 # Spec 3 — Lo matas a media tarea y revive justo donde iba
 
 > **Plan, no bitácora.** Las sesiones 1 y 2 están hechas y verificadas; ésta todavía no.
-> Aquí va lo que ya se sabe y lo que falta decidir.
+> Aquí va lo que ya se sabe y lo que falta decidir. Todo lo que dice este documento está probado
+> contra la caja, no sacado de la documentación: donde las dos se contradicen, gana la caja.
 
 ## El problema
 
@@ -21,22 +22,363 @@ No hay que inventar persistencia: el agente ya la tiene.
 | Renombrar | `goose.sessionRename_unstable` |
 | Cortar el historial | `goose.sessionConversationTruncate_unstable` |
 
+goose 1.48.0 anuncia en `initialize`:
+
+```json
+{ "loadSession": true,
+  "sessionCapabilities": { "list": {}, "delete": {}, "close": {} } }
+```
+
+Dos cosas que costaron encontrar:
+
+- **La app tiraba esa respuesta.** `ctx.request("initialize", …)` se llamaba sin guardar el
+  resultado, así que nunca supimos qué sabía hacer el agente. Ya se captura en
+  `agentCapabilities`.
+- **La doc de ACP dice que no existe listar.** Miente, o va atrás: `session/list` responde con
+  `sessionId`, `cwd`, `title`, `updatedAt` y un `_meta` con `messageCount`, `providerId` y
+  `modelId`. Suficiente para pintar `/sessions` sin tocar ninguna base de datos.
+
 La consecuencia importante: **la fuente de verdad puede ser el agente, no una base de datos
 nuestra.** El `Map` deja de ser el registro y pasa a ser un caché.
 
+## Dónde vive la memoria del agente
+
+El hilo son filas en SQLite, y el archivo no está donde uno cree.
+
+| | goose (`dev-box`) | ghosty-lite |
+|---|---|---|
+| motor | goose 1.48.0 | **el mismo**: `agentInfo` dice `ghosty-lite` 1.48.0 |
+| capacidades ACP | `loadSession`, `session/list`, `delete`, `close` | **idénticas**, verificadas por `initialize` |
+| dónde manda la ruta | `$HOME` (XDG) | `GHOSTY_PATH_ROOT`, su propia variable |
+| sesiones | `/root/.local/share/goose/sessions/sessions.db` | `/data/ghosty/data/sessions/sessions.db` |
+| ¿sobrevive a la caja? | **no**, cuelga del `$HOME` | **sí**, el template lo trae horneado |
+| `sqlite3` | sí | sí en el template actual; **no** en cajas viejas (`lite-vision`) |
+
+Los dos agentes son el mismo binario. Lo único que cambia es quién decidió dónde escribir:
+en `ghosty-lite-start` la línea `export GHOSTY_PATH_ROOT="${GHOSTY_PATH_ROOT:-/data/ghosty}"`
+ya resolvió el problema que en goose hay que resolver a mano.
+
+Otras diferencias del template ghosty-lite:
+
+- El token del agente **se genera en cada boot** y nunca sale de la caja; el ACP escucha sólo en
+  loopback `:3284` y el front en `:3000` lo reexpone.
+- `/data/ghosty/state/logs/llm_request.N.jsonl`: traza cruda de cada llamada al modelo, con el
+  system prompt completo (811 KB uno solo). Es traza, no memoria; se puede tirar.
+- Los hints viven en `.goosehints` y **se pisan en cada boot** desde la copia horneada.
+
+- El `cwd` que pide el Cliente **no manda aquí**: son dos raíces distintas. `sessions.db` cuelga de
+  `$HOME`, no del directorio de trabajo. Una línea lo mueve: `XDG_DATA_HOME=/data/state`
+  (la config es aparte: `XDG_CONFIG_HOME`).
+- Esquema: `sessions`, `messages`, `usage_ledger`, `provider_inventory_*`. El hilo son filas en
+  `messages`, no un blob.
+- **`goose session list` no ve las sesiones de la app.** Son `session_type='acp'` y el CLI sólo
+  lista las suyas. Para verificar por fuera se cuentan filas, no se usa el CLI.
+
+## Respaldar: `.backup`, nunca `cp`
+
+Con la base abierta y en modo WAL, copiar el archivo da una base
+**sin la tabla siquiera** — todo lo reciente vive en el `-wal`:
+
+```
+demo.bak.db   (.backup)  →  filas = 3
+demo.cp.db    (cp)       →  ERROR: no such table: notas
+```
+
+Con el agente **cerrado** no hay `-wal` colgando y el `cp` parecería funcionar; con el agente
+**vivo** —que es cuando uno respalda— no. Por eso la regla es siempre `.backup`, no "depende".
+Si falta el binario `sqlite3` (cajas viejas), `python3` lo hace igual con `con.backup(dst)`.
+
+Y el respaldo lo corre alguien **de afuera** — el agente no puede respaldarse a sí mismo: escribe
+en esa base mientras corre, y si el proceso muere no queda quien ejecute nada.
+
+## El bootstrap de la caja
+
+`POST /api/v2/sandboxes/:id/bootstrap` con `{"script": "..."}`.
+
+- La referencia de EasyBits decía `PATCH`; la ruta sólo acepta `POST`. Es un bug de la doc.
+- El script queda en `metadata.eb_boot`; corre en cada despertar con `EB_RESUME=1`.
+- **Es asíncrono**: la caja despertó en 0.7 s y el primer `exec` le ganó al script. No asumir
+  que terminó; hay dedupe de 5 s entre despertares.
+- Si corrió y cómo salió se lee en el metadata, no se adivina: `eb_boot_last`, `eb_boot_exit`
+  (0 bien, −1 ni arrancó), `eb_boot_err`.
+
+## `session/load`: el agente repite el hilo
+
+`session/load` con `{sessionId, cwd, mcpServers}` devuelve modos y opciones
+de configuración — **los mensajes no vienen en la respuesta**. Llegan antes, como notificaciones
+`session/update`. Reanudando `20260904_6`:
+
+```json
+{ "user_message_chunk": 2, "agent_thought_chunk": 1, "agent_message_chunk": 1,
+  "usage_update": 1, "available_commands_update": 1 }
+```
+
+Se repite todo: los mensajes, el pensamiento y el gasto de tokens.
+
+**El hueco está en el Cliente, no en el agente.** El handler de `session/update` en `acp.ts` sólo
+atiende `config_option_update` y descarta el resto en silencio. El chat ya sabe pintar
+`agent_message_chunk` y `agent_thought_chunk`; basta con dejar de tirarlos.
+
+Detalle del transporte: por HTTP, `/acp` exige la cabecera `Acp-Connection-Id` para hilar varias
+llamadas; sin ella responde `Acp-Connection-Id header required`. Por WebSocket la conexión ya es
+el hilo.
+
+**El hot-reload de Vite mata la conexión ACP.** Al tocar `app/.server/acp.ts` el módulo se recarga,
+el `Map` se vacía y el log escupe `Got response to unknown request null`; hay que reiniciar el dev
+server y volver a abrir una conversación. Es, en miniatura, el problema de esta sesión.
+
 ## Lo que hay que hacer
 
-1. Que `/sessions` liste `session/list` del agente en vez del `Map` del proceso.
-2. Que `/c/:id` haga `session/load` cuando no tiene la sesión en memoria.
-3. Reconectar el SSE a una sesión que ya existía, sin crear una nueva. Si la caja se durmió en
-   medio, el reconnect del WSS la despierta solo: no hace falta llamar a `ensureAgentBox` aquí.
+0. `XDG_DATA_HOME=/data/state` en el bootstrap, para que el `sessions.db` de goose deje de colgar
+   del home y sobreviva a la caja.
+1. Que la lista salga de `session/list` del agente, no del `Map` del proceso.
+2. Que abrir un hilo sea `session/close` del anterior + `session/load` del nuevo.
+3. Que `close()` mande `session/close` de verdad, para devolver la ranura.
 4. Matar el server a media respuesta y comprobar qué sobrevive: ¿el turno se pierde, se reanuda, o
    queda a medias en el historial del agente?
 
-## Lo que falta decidir
+El resultado es que **el Cliente deja de ser el registro**:
+
+| | antes | ahora |
+|---|---|---|
+| la lista | el `Map` del proceso, vacío en cada reinicio | `session/list` del agente |
+| abrir un hilo viejo | 404 | `session/load`, y el agente repite la conversación |
+| el historial | se perdía con el proceso | vive en la caja |
+
+## Una sola sesión viva
+
+Esta app es un alumno, una caja, un hilo a la vez. Nadie conversa en paralelo. Conviene construirla
+así desde el principio, porque el diseño alternativo —varias conversaciones vivas, cada una con su
+conexión— arrastra un problema en cadena: la caja atiende un número fijo de sesiones, leer el
+historial empieza a competir con conversar, y para arreglarlo aparece un desalojo que le cierra la
+conversación en la cara a quien la está leyendo.
+
+```
+una conexión ACP, reutilizada
+abrir un hilo  =  session/close del anterior  +  session/load del nuevo
+```
+
+**La conexión es del agente, no del hilo.** Abrir el WebSocket y hacer `initialize` cuesta segundos;
+hacerlo en cada cambio de hilo es pagar ese peaje por pasear por el historial. Se abre una vez y las
+sesiones van y vienen por dentro — es lo que hace Zed, que cachea una conexión por agente y
+multiplexa. Medido aquí: cambiar de hilo pasó de 3.2 s a 1.3 s, y 1.25 s de eso es el `session/load`
+del propio agente. (El otro segundo se iba en preguntarle al host si la caja estaba despierta, con
+una conexión viva encima.)
+
+Leer y seguir dejan de ser cosas distintas: abres un hilo, es *el* hilo, y escribes.
+
+**No es una limitación de esta app, es lo que hace la industria.** Cline llama `endActiveSession()`
+antes de abrir otra tarea; Continue aborta el stream al cargar una sesión; los CLIs (Claude Code,
+Codex, Gemini) son un proceso por conversación. Los dos que permiten varias las acotan con un tope
+pequeño: Zed retiene **5** hilos inactivos y sólo desaloja los que sabe re-hidratar con
+`session/load`; goose usa un LRU de agentes. Nadie mantiene una sesión viva por fila del historial.
+
+Y aquí pesa el doble: **una sesión abierta impide que la microVM hiberne**. Por eso el relay de la
+caja tiene un tope —`ACP_MAX_SESSIONS`, que por cierto es una variable de entorno, no una ley del
+protocolo— y por eso `close()` tiene que mandar `session/close` de verdad: colgar el WebSocket no le
+dice nada al agente, la sesión sigue contando, y la caja no se duerme.
+
+### La URL es el hilo
+
+Con una sesión viva sobra la doble identidad (un id local del Cliente + el `sessionId` del agente),
+que es de donde salen los redirects y los mapas de correspondencia. La ruta es `/c/<sessionId>`
+directamente. Un hilo sin estrenar vive en `/c/nuevo` hasta que el agente lo bautiza.
+
+### La lista
+
+Se le pregunta al agente con `session/list`, con un caché corto para no llamar en cada pantalla. Es
+lo que hace el escritorio de goose, que es el caso idéntico: la base de sesiones ya es del agente,
+así que llevar un índice propio sólo añade algo que desincronizar. Zed y Codex sí guardan índice
+—`sidebar_threads`, `state.sqlite`— porque manejan varios agentes y proyectos.
+
+**No va al navegador.** La memoria vive en la caja: ése es justo el asunto de esta sesión.
+
+Pero la pantalla no puede depender de que haya una sesión abierta para pintarla: si lo hace, la
+lista aparece, desaparece y baila según qué esté conectado en ese instante. Se guarda la última
+lista conocida y se refresca por detrás.
+
+### El selector de modelos
+
+**ACP no tiene forma de listar modelos sin sesión**: los `configOptions` sólo viajan en las
+respuestas de `session/new`, `load`, `resume` y `set_config_option`; ni `initialize` ni las
+capacidades traen catálogo. Zed vive con eso creando la sesión por adelantado, que es lo mismo que
+hacíamos con una conexión "tibia" — sólo que Zed no paga una microVM despierta.
+
+La salida es guardar la última lista conocida y pintarla mientras no haya sesión; se refresca sola
+al abrir cualquier hilo. Lo que de verdad importa que sobreviva es la **elección** del humano, no el
+catálogo. (goose ofrece además `_goose/unstable/providers/list`, que no lleva `sessionId`, pero es
+extensión propietaria: detrás de un adaptador si se usa.)
+
+## El título lo pone el agente
+
+Es el error natural: ver `New Chat` en toda la lista y concluir que el Cliente tiene que inventar
+el nombre. En ACP el título viaja **del agente al Cliente**, en la notificación `session/update` con
+`sessionUpdate: "session_info_update"` y su campo `title`. goose lo genera con un LLM leyendo los
+primeros mensajes del hilo y lo empuja por ahí.
+
+Si la lista dice `New Chat` para siempre, casi seguro el Cliente está tirando esa variante de
+`session/update` sin darse cuenta. Fue exactamente el caso aquí.
+
+- **No existe rename en la spec.** Los métodos de sesión son `new`, `load`, `prompt`, `cancel`,
+  `close`, `list`, `delete`, `resume`, `set_mode`, `set_config_option`. Ninguno fija el título:
+  `session/rename` responde *Method not found*.
+- goose sí trae uno propietario, fuera del estándar: `_goose/unstable/session/rename`.
+- También acepta un nombre desde el arranque: `_meta.client_title` en `session/new`.
+- El Cliente igual guarda el título que recibe, porque `session/list` sólo lo trae si el agente ya
+  lo generó, y porque un renombre del usuario tiene que sobrevivir. Zed hace justo esto: acepta el
+  título del agente y guarda aparte un `title_override` local.
+
+## Nada de esto es de goose
+
+Todo lo que sostiene el historial es ACP estándar: `session/list`, `session/load`, `session/close` y
+el `session_info_update` que trae el título. Cambiar de agente es cambiar la URL.
+
+Comprobado apuntando el mismo Cliente, sin tocar una línea, a una caja `ghosty-lite`: listó su hilo,
+lo abrió y lo siguió. Los dos agentes anuncian exactamente las
+mismas capacidades en `initialize` — de hecho son el mismo binario con distinta configuración.
+
+Aun así, el Cliente no debe dar por hecho lo que no le dijeron. `initialize` responde qué sabe hacer
+el agente, y de ahí salen tres degradaciones:
+
+| Si falta | Qué se hace |
+|---|---|
+| `sessionCapabilities.list` | la lista enseña sólo las conversaciones vivas de este proceso |
+| `loadSession` | no se ofrece reabrir hilos guardados |
+| `sessionCapabilities.close` | no se pide cerrar; se recicla la conexión entera |
+
+Y una trampa que no es del protocolo: una caja recién creada puede traer el agente vivo **sin
+proveedor de modelo**. Acepta la sesión y revienta con `Internal error` al primer turno. Se ve en
+`/etc/<agente>-runtime/.env` vacío, no en el Cliente.
+
+## Subirlo: las llaves no entran a la caja
+
+El respaldo se sube a la cuenta de EasyBits del propio alumno, y el reparto es el que enseña el
+tutorial de memoria procedural: *lo que necesita llave pasa por una tool*.
+
+```
+respaldar:   POST /api/v2/files            →  putUrl firmado + fileId
+             exec en la caja:  python3 .backup  +  curl -T "<putUrl>"
+
+restaurar:   GET /api/v2/files/:fileId     →  readUrl
+             exec en la caja nueva:  curl -o /data/state/goose/sessions/sessions.db
+```
+
+Quien tiene la llave es el script, que corre fuera. La caja recibe una URL **ya firmada** y ni sabe
+ni necesita saber la credencial. Scripts: `scripts/backup-sessions.mjs` y
+`scripts/restore-sessions.mjs`.
+
+Detalles que hay que saber:
+
+- La caja de goose **no trae** `aws`, `rclone`, `sqlite3` ni `boto3`. Sí `curl`, `python3`, `node` y
+  `openssl`: el `.backup` se hace con `python3` (`con.backup(dst)`).
+- `POST /files` responde `{ file: { id, … }, putUrl }` y el archivo ya nace en `status: DONE`;
+  `GET /files/:id` devuelve la descarga en **`readUrl`**, no en `url` (que viene vacío).
+- **El `fileId` es parte del respaldo.** Sin ese dato el archivo existe y no se encuentra.
+- Al restaurar se para el agente antes de tocarle la base debajo de los pies, y se verifica
+  **contando filas**: un 200 no dice que el archivo sirva.
+- Por defecto no se pisa una base que ya esté en la caja; para eso está `--force`.
+
+Probado de punta a punta: caja con dos hilos → respaldo (90 KB) → `DELETE` de la caja → caja nueva →
+restaurar → la app lista los dos hilos con sus títulos.
+
+Y para la pregunta de "¿y en producción?": `sandbox-host` ya hace esto a escala de flota, con restic
+contra un bucket aparte (`internal/api/backup_offsite.go`) y `VACUUM INTO` para el SQLite
+(`backup_sqld.go`). Lo que se construye en clase es la versión que se entiende de una sentada.
+
+## La procedimental: no se respalda porque se regenera
+
+Es la otra mitad de "a S3 va lo que no puedes regenerar". Las skills viven en el repo, versionadas,
+y llegan a la caja con un `git clone`. Si la caja muere, no hay nada que restaurar.
+
+**Dónde las busca goose** (verificado poniendo una skill de prueba en cinco sitios y viendo cuáles
+aparecen en `ghosty skills list`):
+
+| ruta | ¿la lee? |
+|---|---|
+| `<cwd>/.agents/skills/`, `<cwd>/.goose/skills/`, `<cwd>/.claude/skills/` | sí — del proyecto |
+| `~/.agents/skills/`, `~/.claude/skills/`, `<config>/skills/` | sí, pero son **globales**: no viajan |
+| `$XDG_DATA_HOME/goose/skills/` | no |
+
+Son **relativas al directorio de trabajo**, que es justo el del repo clonado. Por eso "viaja con el
+código" es literal.
+
+### La demo, en diez segundos
+
+Con una skill que dice "identificadores en inglés, comentarios en español", el mismo prompt da:
+
+```
+con la skill:   export function greet(name: string)     + comentario en español
+sin la skill:   export function despedirse(nombre: string)
+```
+
+Mismo agente, mismo modelo, mismo prompt. Lo único que cambió fue un archivo del repo.
+
+### El bootstrap la trae, y el agente puede escribirla
+
+El bootstrap clona el repo del taller en `/data/repo` —aparte, para no pisar el trabajo que el
+agente tenga en `/data/work`— y **enlaza** las skills a donde él las lee:
+
+```sh
+git clone --depth 1 -b <rama> <repo> /data/repo      # o fetch + checkout -B si ya está
+ln -sfn /data/repo/.goose/skills /data/work/.goose/skills
+```
+
+`fetch` + `checkout -B` en vez de `pull`, y `ln -sfn` en vez de `ln -s`: esto corre en cada
+despertar y no puede fallar la segunda vez. Probado: se borra la skill, se duerme la caja, y al
+despertar vuelve sola desde el repo (`eb_boot_exit: 0`).
+
+**Y como es un enlace, el agente puede escribir sus propias skills.** Si le pides que apunte una
+convención, la escribe en su directorio de trabajo y acaba **dentro del repo clonado**:
+`git status` la muestra como archivo nuevo. La usa en el turno siguiente… y muere con la caja si
+nadie hace commit.
+
+Ahí está el paralelo que cierra la sesión: **la episódica se salva subiéndola; la procedimental,
+commiteándola.** El agente puede aprender solo; recordar es un commit.
+
+### Cómo las pide el Cliente
+
+En la spec de ACP no hay nada de skills, pero **goose sí las expone — con otro nombre**:
+`_goose/unstable/sources/{list,create,update,delete,export,import}`. Buscar "skills" en el binario
+no encuentra nada; se llaman *sources*. Están ya en 1.48, y el `list` devuelve nombre, descripción,
+ruta y **el contenido entero**.
+
+`SourceType` separa `builtinSkill` (las del binario) de `skill` (las del proyecto), que es
+exactamente la distinción que importa en pantalla. Y `create` acepta
+`{scope:"projectDir", projectDir:"/data/work"}`, así que se pueden crear por el mismo canal, sin
+`exec` ni tocar el disco.
+
+Es extensión propietaria, así que el Cliente la pide y, si el agente no la entiende, la pantalla se
+queda vacía en vez de romperse.
+
+Un aviso para más adelante: goose **lee** de `.goose/skills` y `.claude/skills` por compatibilidad,
+pero **escribe** en `.agents/skills`. Si un día se crean desde la UI, aparecerán ahí.
+
+### La trampa: autodescubrible ≠ leída
+
+Está escrita en el propio `.goosehints` de la caja y vale para toda la memoria procedimental:
+
+> Las rutas van EXACTAS a propósito. Ni goose ni ghostycode autodescubren el SDK… Una sugerencia
+> del tipo «lista el directorio y lee el que aplique» se ignora siempre.
+
+Que un archivo esté donde el agente *podría* encontrarlo no significa que lo abra. Lo que se carga
+solo es lo que el agente indexa (las skills, por su `description`) o lo que va en el prompt de
+sistema (`.goosehints`). Todo lo demás hay que nombrarlo por ruta exacta.
+
+Y una más del template: el `.goosehints` **se pisa en cada arranque** desde la copia horneada. Si se
+edita dentro de la caja, se pierde en el siguiente despertar — la copia buena es la del repo.
+
+## Lo que falta
 
 - **Qué pasa con un turno interrumpido.** Es la pregunta de la sesión y hay que responderla con la
   prueba, no con la doc.
 - **`session/cancel`.** El botón de parar está dibujado y no interrumpe; toca aquí.
 - **Si la caja se suspende a media tarea.** La despierta el propio `Upgrade` del WebSocket al
-  reconectar (verificado el 1 sep 2026), pero el turno en vuelo ya murió con la suspensión.
+  reconectar, pero el turno en vuelo murió con la suspensión.
+- **Replay parcial.** goose acepta `_meta.replayTail` en `session/load`: replica sólo la cola del
+  hilo, cortando en frontera de turno para no partir un par tool-request/response. Hoy el
+  `session/load` completo tarda ~1.1 s; en un hilo muy largo, esto es la salida.
+
+Decidido y ya construido, para que no se vuelva a discutir: se sube **el archivo entero**, no un
+json por hilo (más barato, pero obliga a reconstruir la base al recrear la caja). Y **S3 no se lee
+para pintar la pantalla**: va atrás de la realidad, se lee una sola vez al levantar una caja nueva;
+la pantalla siempre le pregunta al agente.

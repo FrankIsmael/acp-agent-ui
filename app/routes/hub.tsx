@@ -7,10 +7,16 @@ import { useNavigate } from "react-router";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
 import { ChatInputCard } from "~/components/ChatInputCard";
 import { ChatInput } from "~/components/ChatInput";
-import { config } from "~/.server/acp";
+import type { Route } from "./+types/hub";
+import type { ConfigOption } from "~/hooks/useAcpStream";
+import { readModelPreference } from "~/.server/model-preference";
+import { config, getLastConfigOptions } from "~/.server/acp";
 
-export async function loader() {
-  return { cwd: config.cwd, wsUrl: config.wsUrl };
+export async function loader({ request }: Route.LoaderArgs) {
+  const preference = await readModelPreference(request);
+  const options = getLastConfigOptions();
+  const model = options.find(option => option.category === "model" || option.id === "model");
+  return { cwd: config.cwd, model: model ? { ...model, currentValue: preference ?? model.currentValue } as ConfigOption : null, preference };
 }
 
 function useClock() {
@@ -32,9 +38,12 @@ function useClock() {
   };
 }
 
-export default function Hub({ loaderData }: { loaderData: { cwd: string } }) {
+export default function Hub({ loaderData }: { loaderData: { cwd: string; model: ConfigOption | null; preference: string | null } }) {
   const navigate = useNavigate();
   const clock = useClock();
+  const [model, setModel] = useState(loaderData.model);
+  const [configBusy, setConfigBusy] = useState<string | null>(null);
+  useEffect(() => setModel(loaderData.model), [loaderData.model]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,15 +55,28 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string } }) {
         ? "Buenas tardes"
         : "Buenas noches";
 
+  const chooseModel = async (_id: string, value: string) => {
+    if (!model) return;
+    setConfigBusy(model.id); setError(null);
+    try {
+      const response = await fetch("/api/model-preference", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "No pude guardar el modelo.");
+      setModel({ ...model, currentValue: body.value });
+    } catch (error) { setError(error instanceof Error ? error.message : "No pude guardar el modelo."); }
+    finally { setConfigBusy(null); }
+  };
+
   const handleSubmit = async (text: string) => {
-    if (creating) return;
+    if (creating || configBusy) return;
     setCreating(true);
     setError(null);
     try {
       const res = await fetch("/api/conversations", { method: "POST" });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "no se pudo abrir la conversación");
-      navigate(`/c/${body.conversationId}`, { state: { firstMessage: text } });
+      window.dispatchEvent(new Event("conversations-changed"));
+      navigate(`/c/${encodeURIComponent(body.conversationId)}`, { state: { firstMessage: text } });
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);
@@ -79,11 +101,16 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string } }) {
             <ChatInput
               onSubmit={handleSubmit}
               busy={creating}
+              disabled={!!configBusy}
+              configOptions={model ? [model] : []}
+              configBusy={configBusy}
+              onConfigChange={chooseModel}
               workingDir={loaderData.cwd}
               placeholder="Pídele algo al agente que vive en la caja…"
             />
           </ChatInputCard>
 
+          {!model && loaderData.preference && <p className="mt-2 text-xs text-text-secondary">Modelo: {loaderData.preference}</p>}
           {error && <p className="mt-3 text-sm text-text-danger">{error}</p>}
           {creating && (
             <p className="mt-3 text-sm text-text-secondary">

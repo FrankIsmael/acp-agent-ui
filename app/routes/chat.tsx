@@ -20,7 +20,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useLocation, useLoaderData } from "react-router";
+import { useLocation, useLoaderData, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/chat";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
 import { ChatInputCard } from "~/components/ChatInputCard";
@@ -29,14 +29,17 @@ import { Markdown } from "~/components/Markdown";
 import { MessageUsageStats } from "~/components/MessageUsageStats";
 import { ConnectingState } from "~/components/ConnectingState";
 import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
-import { config, getConversation, getMessages } from "~/.server/acp";
+import { config, loadConversation, getMessages } from "~/.server/acp";
 import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
 import { useArtifacts } from "~/components/artifacts/ArtifactContext";
 import { artifactKey, parseArtifacts, type Artifact, type ArtifactPart } from "~/lib/artifacts";
 
-export async function loader({ params }: Route.LoaderArgs) {
-  const conversation = getConversation(params.id);
+export async function loader({ params, request }: Route.LoaderArgs) {
+  const tail = new URL(request.url).searchParams.get("tail");
+  const replayTail = tail === null ? undefined : Number(tail);
+  if (replayTail !== undefined && (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)) throw new Response("Cola de historial inválida", { status: 400 });
+  const conversation = await loadConversation(params.id, { replayTail });
   if (!conversation) {
     throw new Response("Esa conversación ya no existe", { status: 404 });
   }
@@ -44,10 +47,14 @@ export async function loader({ params }: Route.LoaderArgs) {
     id: params.id,
     cwd: config.cwd,
     title: conversation.title,
+    replayLimited: conversation.replayTail !== undefined,
     messages: getMessages(params.id).map((m) => ({
       role: m.role,
       text: m.text,
       images: m.images,
+      thought: m.thought,
+      tools: m.tools,
+      usage: m.usage,
     })),
   };
 }
@@ -217,8 +224,9 @@ export default function Chat() {
 }
 
 function ChatView() {
-  const { id, cwd, messages } = useLoaderData<typeof loader>();
+  const { id, cwd, messages, replayLimited } = useLoaderData<typeof loader>();
   const location = useLocation();
+  const navigate = useNavigate();
   const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
   const {
     turns, busy, connected, phase, error, send, stop,
@@ -251,6 +259,7 @@ function ChatView() {
   useEffect(() => {
     if (!firstMessage || sentFirst.current || !connected) return;
     sentFirst.current = true;
+    navigate(location.pathname, { replace: true, state: null });
     void send(firstMessage);
   }, [firstMessage, connected, send]);
 
@@ -282,6 +291,7 @@ function ChatView() {
             }}
           >
             <div ref={scrollContent} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
+              {replayLimited && <p className="text-center text-xs text-text-secondary">Se muestran los últimos turnos. <Link to={`/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">Cargar historial completo</Link></p>}
               {!connected && turns.length === 0 && (
                 <ConnectingState phase={phase} error={error} />
               )}

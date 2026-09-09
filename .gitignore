@@ -11,3 +11,5 @@ build/
 *.log
 
 .ghosty
+# Manifiestos privados de respaldo (no contienen URLs firmadas).
+.memory-backups/

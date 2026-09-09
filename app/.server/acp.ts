@@ -1,16 +1,16 @@
 /**
  * Motor ACP del lado servidor — portado de web/server.mjs (SPEC-2).
  *
- * Una conversación = una conexión ACP contra el goose que corre dentro de la
+ * Una conexión ACP compartida; el agente conserva las conversaciones en la
  * caja de EasyBits. El navegador nunca habla ACP: consume los eventos por SSE.
  */
-import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { client, type ClientConnection } from "@agentclientprotocol/sdk";
 import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client";
 import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
+import { parseSkills, replayMetadata } from "./goose-adapter";
 import { ARTIFACT_INSTRUCTIONS } from "./artifact-instructions";
 
 // Sin URL no se inventa una: un fallback hardcodeado manda la sesión a la caja de otro y el
@@ -27,7 +27,6 @@ const TOKEN = process.env.ACP_TOKEN ?? process.env.ACP_SECRET ?? "";
 
 // `/data/work` es lo que existe en una caja ghosty-lite y lo único que sobrevive al sueño.
 const CWD = process.env.ACP_CWD ?? "/data/work";
-const MAX_CONVERSATIONS = Number(process.env.MAX_CONVERSATIONS ?? 10);
 
 /**
  * Qué modelos ven imágenes.
@@ -194,6 +193,8 @@ export interface ConfigOption {
 }
 
 export type AcpEvent =
+  | { type: "snapshot"; messages: StoredMessage[]; busy: boolean }
+  | { type: "title"; title: string }
   | { type: "started"; sessionId: string }
   | { type: "busy"; busy: boolean }
   | { type: "chunk"; text: string }
@@ -227,65 +228,112 @@ export type AcpEvent =
   | { type: "closed" };
 
 
-// Un handshake que no responde no debe dejar la UI esperando para siempre:
-// un 401 del WSS (secret ausente) o una caja que no contesta se ven así.
 const CONNECT_TIMEOUT_MS = Number(process.env.ACP_CONNECT_TIMEOUT_MS ?? 60_000);
 
 export interface StoredMessage {
   role: "user" | "assistant";
   text: string;
   images?: PromptImage[];
+  thought?: string;
+  tools?: { id: string; title?: string; kind?: string; status?: string; path?: string }[];
+  usage?: { used: number; size: number; cost: number };
   at: number;
 }
 
-/** Lo que espera en la cola: el texto y sus adjuntos, juntos. */
-interface QueuedTurn {
-  text: string;
-  images: PromptImage[];
+interface Capabilities {
+  loadSession?: boolean;
+  sessionCapabilities?: { list?: unknown; close?: unknown };
+  promptCapabilities?: { image?: boolean };
 }
 
-// ---------------------------------------------------------------------------
-// GooseSession — una conexión ACP por conversación.
-// ---------------------------------------------------------------------------
+let connection: ClientConnection | undefined;
+let connecting: Promise<ClientConnection> | undefined;
+let agentCapabilities: Capabilities = {};
+let agentName = "";
+let active: GooseSession | undefined;
+let lastConfigOptions: ConfigOption[] = [];
+let history: ConversationSummary[] = [];
+let historyAt = 0;
+let historyError: string | null = null;
+let refreshing: Promise<void> | undefined;
+let transition = Promise.resolve();
+
+// Serializa cambios de hilo, sin bloquear session/cancel detrás de un prompt.
+function exclusive<T>(operation: () => Promise<T>): Promise<T> {
+  const result = transition.then(operation);
+  transition = result.then(() => {}, () => {});
+  return result;
+}
+
+async function connectAgent(): Promise<ClientConnection> {
+  if (connection && !connection.signal.aborted) return connection;
+  if (connecting) return connecting;
+  connecting = (async () => {
+    if (!WS_URL) throw new Error("Falta ACP_WS_URL en el servidor.");
+    await ensureAgentBox();
+    const target = new URL(WS_URL);
+    if (TOKEN && !target.searchParams.has("token")) target.searchParams.set("token", TOKEN);
+    const app = client({ name: "acp-web3" } as any);
+    app.onNotification("session/update", ({ params }: any) => {
+      if (active && params.sessionId === active.sessionId) active.update(params.update);
+    });
+    app.onRequest("session/request_permission", ({ params }: any) => {
+      const allow = (params.options ?? []).find((o: any) => o.kind === "allow_once");
+      return { outcome: allow ? { outcome: "selected", optionId: allow.optionId } : { outcome: "cancelled" } };
+    });
+    const conn = app.connect(createWebSocketStream(target.toString(), {
+      WebSocket, headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
+    } as any));
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const init: any = await Promise.race([
+        conn.agent.request("initialize", {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { configOptions: { boolean: {} } } },
+        }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("El agente no respondió a tiempo.")), CONNECT_TIMEOUT_MS); }),
+      ]);
+      agentCapabilities = init.agentCapabilities ?? {};
+      agentName = init.agentInfo?.name ?? "";
+      connection = conn;
+      conn.closed.then(() => {
+        if (connection !== conn) return;
+        connection = undefined;
+        if (active && !active.closed) active.disconnected();
+      }).catch(() => {});
+      return conn;
+    } catch {
+      conn.close();
+      throw new Error("No pude conectar con el agente. Revisa la conexión y la configuración del servidor.");
+    } finally { clearTimeout(timer); }
+  })().finally(() => { connecting = undefined; });
+  return connecting;
+}
+
 class GooseSession extends EventEmitter {
-  sessionId: string | null = null;
+  sessionId: string;
   busy = false;
   ready = false;
   closed = false;
-  phase: ConnectPhase = "waking";
+  phase: ConnectPhase = "session";
   lastError: string | null = null;
   cost = 0;
   tokens = 0;
   contextSize = 0;
   title = "Nueva conversación";
-  // Los selectores que expone el agente y si acepta imágenes. Ambos se saben
-  // hasta el handshake: antes de eso la UI no pinta ni el clip ni el select.
+  cwd: string;
   configOptions: ConfigOption[] = [];
   imageSupport = false;
   createdAt = Date.now();
   updatedAt = Date.now();
   messages: StoredMessage[] = [];
+  private assistant: StoredMessage | undefined;
+  private running: Promise<void> | undefined;
+  private replaying = false;
+  replayTail: number | undefined;
 
-  private conn: ClientConnection | undefined;
-  private session: any = null;
-  private queue: QueuedTurn[] = [];
-  private idleTimer: NodeJS.Timeout | null = null;
-  private current: string | null = null;
+  constructor(id: string, cwd: string) { super(); this.sessionId = id; this.cwd = cwd; }
 
-  constructor(
-    private wsUrl: string,
-    private secret: string,
-    private cwd: string
-  ) {
-    super();
-  }
-
-  /**
-   * Guarda los selectores del agente y les añade los modelos extra. Pasa por
-   * aquí TODO cambio de configOptions —sesión nueva, respuesta a un cambio,
-   * aviso del agente— porque cada uno trae la lista completa y volvería a
-   * perder lo añadido.
-   */
   private setConfigOptions(list: ConfigOption[] | undefined | null) {
     const options = list ?? [];
     if (EXTRA_MODELS.length > 0) {
@@ -309,416 +357,319 @@ class GooseSession extends EventEmitter {
       }
     }
     this.configOptions = options;
+    lastConfigOptions = structuredClone(options);
   }
 
-  private resetIdle() {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.closed) return;
-    this.idleTimer = setTimeout(() => this.close(), IDLE_MS);
-    this.idleTimer.unref?.();
-  }
 
-  private setPhase(phase: ConnectPhase) {
-    this.phase = phase;
-    this.emit("event", { type: "status", phase });
-  }
-
-  async connect() {
+  async initialize(load: boolean, replayTail?: number) {
+    const conn = await connectAgent();
+    this.imageSupport = agentCapabilities.promptCapabilities?.image === true;
+    this.replaying = load;
+    this.replayTail = load && replayMetadata(agentName, replayTail)._meta ? replayTail : undefined;
     try {
-      // Sin URL no se intenta nada: el error dice qué falta, en vez de dejar al usuario
-      // mirando un spinner y luego un timeout genérico.
-      if (!this.wsUrl) {
-        throw new Error(
-          "Falta ACP_WS_URL. Es el `agentUrl` del agente (wss://…/acp); ponlo en el .env."
-        );
+      const response: any = load
+        ? await conn.agent.request("session/load", { sessionId: this.sessionId, cwd: this.cwd, mcpServers: [], ...replayMetadata(agentName, replayTail) })
+        : await conn.agent.request("session/new", { cwd: this.cwd, mcpServers: [] });
+      if (!load) this.sessionId = response.sessionId;
+      this.setConfigOptions(response.configOptions);
+      this.ready = true;
+      this.emit("event", { type: "started", sessionId: this.sessionId });
+      this.emitConfig();
+      remember(this);
+    } finally { this.replaying = false; this.assistant = undefined; }
+  }
+
+  private answer() {
+    if (!this.assistant) {
+      this.assistant = { role: "assistant", text: "", at: Date.now() };
+      this.messages.push(this.assistant);
+    }
+    return this.assistant;
+  }
+
+  update(u: any) {
+    if (this.closed) return;
+    const emit = (event: AcpEvent) => { if (!this.replaying) this.emit("event", event); };
+    if (u.sessionUpdate === "user_message_chunk") {
+      if (!this.replaying) return;
+      // El prompt añade las instrucciones de artifacts como bloque separado.
+      // Nunca se muestran esas instrucciones como si las hubiera escrito el humano.
+      const content = { ...u.content };
+      if (content.type === "text" && content.text.startsWith(ARTIFACT_INSTRUCTIONS)) {
+        content.text = content.text.slice(ARTIFACT_INSTRUCTIONS.length).trimStart();
+        if (!content.text) return;
       }
-      this.setPhase("waking");
-      // El fallo de ciclo de vida SÍ se cuenta: antes iba sólo a console.warn y la UI pintaba
-      // "Despertando la caja" en verde aunque no se hubiera despertado nada, así que el
-      // siguiente error parecía venir de otro sitio.
-      await ensureAgentBox().catch((e) => {
-        console.warn("[lifecycle] ensureAgentBox:", e.message);
-        this.emit("event", {
-          type: "warning",
-          message: `No pude despertar la caja (${e.message}). Sigo: puede que ya esté arriba.`,
-        });
-      });
-      this.setPhase("connecting");
-      let timer: NodeJS.Timeout | null = null;
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `El agente no respondió en ${Math.round(CONNECT_TIMEOUT_MS / 1000)}s. Revisa que el agente esté vivo y que ACP_WS_URL sea el suyo.`
-              )
-            ),
-          CONNECT_TIMEOUT_MS
-        );
-        timer.unref?.();
-      });
-      await Promise.race([this.handshake(), timeout]);
-      if (timer) clearTimeout(timer);
-    } catch (e) {
-      const raw = (e as Error).message;
-      // "Unexpected server response: 401" no le dice nada a quien lo ve.
-      this.lastError = /\b401\b/.test(raw)
-        ? "El agente rechazó la conexión (401): el token no es el suyo. Es el `embedToken` que devolvió al crearlo — salvo que le hayas puesto un `ACP_AGENT_TOKEN` propio en el `env`, y entonces es ése."
-        : /\b(404|502|503)\b/.test(raw)
-          ? `Esa URL no está sirviendo un agente (${raw}). Comprueba ACP_WS_URL: la da el propio agente en su campo agentUrl.`
-          : raw;
-      this.emit("event", { type: "error", message: this.lastError });
+      this.assistant = undefined;
+      let message = this.messages.at(-1);
+      if (message?.role !== "user") {
+        message = { role: "user", text: "", at: Date.now() };
+        this.messages.push(message);
+      }
+      if (content?.type === "text") message.text += content.text;
+      if (content?.type === "image") (message.images ??= []).push({ mimeType: content.mimeType, data: content.data });
+    } else if (u.sessionUpdate === "agent_message_chunk") {
+      const text = u.content?.text ?? "";
+      this.answer().text += text;
+      emit({ type: "chunk", text });
+    } else if (u.sessionUpdate === "agent_thought_chunk") {
+      const text = u.content?.text ?? "";
+      const answer = this.answer();
+      answer.thought = (answer.thought ?? "") + text;
+      emit({ type: "thought", text });
+    } else if (u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update") {
+      const event: Extract<AcpEvent, { type: "tool" }> = { type: "tool", id: u.toolCallId };
+      for (const key of ["title", "kind", "status"] as const) if (u[key] != null) event[key] = u[key];
+      if (u.locations?.[0]?.path) event.path = u.locations[0].path;
+      const tools = this.answer().tools ??= [];
+      const existing = tools.find(t => t.id === event.id);
+      if (existing) Object.assign(existing, event); else tools.push(event);
+      emit(event);
+    } else if (u.sessionUpdate === "config_option_update") {
+      this.setConfigOptions(u.configOptions);
+      if (!this.replaying) this.emitConfig();
+    } else if (u.sessionUpdate === "session_info_update") {
+      if (typeof u.title === "string" && u.title.trim()) this.title = u.title;
+      if (u.updatedAt && Number.isFinite(Date.parse(u.updatedAt))) this.updatedAt = Date.parse(u.updatedAt);
+      remember(this);
+      emit({ type: "title", title: this.title });
+    } else if (u.sessionUpdate === "usage_update") {
+      const usage = { used: u.used ?? 0, size: u.size ?? 0, cost: u.cost?.amount ?? 0 };
+      this.tokens = usage.used; this.contextSize = usage.size; this.cost = usage.cost;
+      if (this.assistant) this.assistant.usage = usage;
+      emit({ type: "usage", ...usage });
     }
   }
 
-  private async handshake() {
-    // El token va por las DOS vías que acepta un agente ACP, y por eso funciona con cualquiera:
-    //   · `?token=` en la URL — lo único que todo cliente sabe pasar (un WebSocket de navegador
-    //     no puede poner cabeceras), y lo que espera ghosty-lite.
-    //   · `Authorization: Bearer` — lo correcto cuando el cliente es Node, como éste.
-    // Antes iba por `X-Secret-Key`, que el front de la caja DESCARTA: 401 garantizado, con un
-    // mensaje que además culpaba al secreto interno de goose. Medido: ?token= → 200,
-    // X-Secret-Key con el mismo valor → 401.
-    // Si la URL ya trae el token, se respeta: quien la copió entera del panel no se queda fuera.
-    const target = new URL(this.wsUrl);
-    if (this.secret && !target.searchParams.has("token")) {
-      target.searchParams.set("token", this.secret);
-    }
-    const headers = this.secret ? { Authorization: `Bearer ${this.secret}` } : undefined;
-    const stream = createWebSocketStream(target.toString(), { WebSocket, headers } as any);
-
-    // El handler de permisos se registra ANTES de conectar.
-    const app = client({ name: "acp-web3" } as any);
-    app.onRequest("session/request_permission", ({ params }: any) => {
-      const options = params.options ?? [];
-      const allow = options.find((o: any) => o.kind === "allow_once") ?? options[0];
-      const optionId = allow?.optionId ?? options[0]?.optionId;
-      // Se auto-aprueba (tema de la sesión 4), pero la petición se enseña.
-      this.emit("event", {
-        type: "tool",
-        id: params.toolCall?.toolCallId ?? "?",
-        title: params.toolCall?.title ?? "herramienta",
-        status: "pending",
-      });
-      return { outcome: { outcome: "selected", optionId } };
-    });
-
-    this.conn = app.connect(stream);
-    const ctx = this.conn.agent;
-
-    // ACP no tiene un método "elige modelo". Lo que tiene es `configOptions`:
-    // el agente declara en `session/new` una lista de selectores —modelo, modo,
-    // nivel de razonamiento— cada uno con sus valores y el actual, y el cliente
-    // cambia uno con `session/set_config_option`. El de modelo se reconoce por
-    // `category: "model"`, que es sólo una pista de UX: el protocolo no fija
-    // qué modelos hay ni cómo se llaman, eso lo pone cada agente.
-    //
-    // El agente sólo manda `configOptions` si el cliente los pide aquí. Sin
-    // esta capacidad el select no aparece nunca, y parece que el agente no
-    // soporta cambiar de modelo cuando en realidad nadie se lo preguntó.
-    const init: any = await ctx.request("initialize", {
-      protocolVersion: 1,
-      clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
-        // Sin terminal del lado del cliente: el agente corre el shell en su
-        // propia caja. Con true, goose pide terminal/create y, como no lo
-        // implementamos, cada shell termina en failed.
-        terminal: false,
-        session: { configOptions: { boolean: {} } },
-      },
-    });
-    // Las imágenes también se piden: `promptCapabilities.image` dice si el
-    // agente acepta bloques `image` en el prompt. Mandárselas a uno que no
-    // puede es un error del turno entero, así que la UI esconde el clip.
-    this.imageSupport = init?.agentCapabilities?.promptCapabilities?.image === true;
-    this.setPhase("session");
-    this.session = await ctx.buildSession({ cwd: this.cwd, mcpServers: [] }).start();
-    this.sessionId = this.session.sessionId;
-    this.setConfigOptions(this.session.newSessionResponse?.configOptions);
-    this.ready = true;
-    this.emit("event", { type: "started", sessionId: this.sessionId });
-    this.emitConfig();
-    this.resetIdle();
-    this.pump();
-  }
-
-  /** El evento tal cual, para emitirlo o para repetírselo a uno solo. */
   configEvent(): AcpEvent {
-    const model = this.configOptions.find((o) => o.category === "model" || o.id === "model");
+    const model = this.configOptions.find(o => o.category === "model" || o.id === "model");
     const raw = (model?.options ?? []) as any[];
-    const values: string[] = raw.length > 0 && "group" in (raw[0] ?? {})
-      ? raw.flatMap((g) => (g.options ?? []).map((v: any) => v.value))
-      : raw.map((v) => v.value);
-    return {
-      type: "config",
-      options: this.configOptions,
-      imageSupport: this.imageSupport,
-      visionModels: values.filter(isVisionModel),
-    };
+    const values: string[] = raw.length && "group" in (raw[0] ?? {})
+      ? raw.flatMap(g => (g.options ?? []).map((v: any) => v.value)) : raw.map(v => v.value);
+    return { type: "config", options: this.configOptions, imageSupport: this.imageSupport, visionModels: values.filter(isVisionModel) };
   }
+  emitConfig() { this.emit("event", this.configEvent()); }
 
-  emitConfig() {
-    this.emit("event", this.configEvent());
-  }
-
-  /**
-   * Cambia un selector de la sesión (el modelo, por ejemplo). La respuesta trae
-   * la lista COMPLETA ya actualizada —no sólo el que tocamos—, porque cambiar
-   * uno puede mover otros: elegir un modelo sin razonamiento puede hacer
-   * desaparecer el selector de nivel de razonamiento.
-   */
   async setConfigOption(configId: string, value: string | boolean) {
-    if (!this.ready || !this.session) {
-      throw new Error("La sesión todavía no está lista");
-    }
-    const res: any = await this.conn?.agent.request("session/set_config_option", {
-      sessionId: this.sessionId,
-      configId,
-      // El `type` sólo viaja para los booleanos; ausente significa "id de valor",
-      // que es lo que usan los selects.
-      ...(typeof value === "boolean" ? { type: "boolean", value } : { value }),
+    if (!this.ready || this.closed || this.busy) throw new Error("La sesión no está disponible para cambiar la configuración.");
+    const response: any = await connection!.agent.request("session/set_config_option", {
+      sessionId: this.sessionId, configId, ...(typeof value === "boolean" ? { type: "boolean", value } : { value }),
     });
-    this.setConfigOptions(res?.configOptions ?? this.configOptions);
+    this.setConfigOptions(response.configOptions ?? this.configOptions);
     this.emitConfig();
-    this.resetIdle();
   }
 
   ask(text: string, images: PromptImage[] = []) {
-    if (this.closed) return;
-    this.resetIdle();
+    if (!this.ready || this.closed || this.busy) return false;
+    this.busy = true;
+    this.assistant = undefined;
     this.messages.push({ role: "user", text, images, at: Date.now() });
-    if (this.messages.length === 1) this.title = text.slice(0, 60);
     this.updatedAt = Date.now();
-    this.queue.push({ text, images });
-    this.pump();
+    this.emit("event", { type: "busy", busy: true });
+    remember(this);
+    this.running = (async () => {
+      try {
+        const result: any = await connection!.agent.request("session/prompt", {
+          sessionId: this.sessionId,
+          prompt: [{ type: "text", text: ARTIFACT_INSTRUCTIONS }, { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
+        });
+        this.emit("event", { type: "done", stopReason: result.stopReason, usage: this.assistant?.usage ?? null });
+      } catch {
+        this.emit("event", { type: "error", message: "La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente." });
+      } finally {
+        this.busy = false;
+        this.assistant = undefined;
+        this.updatedAt = Date.now();
+        remember(this);
+        historyAt = 0;
+        this.emit("event", { type: "busy", busy: false });
+      }
+    })();
+    return true;
   }
 
   async cancel() {
-    this.queue = [];
-    if (this.busy && this.conn && this.sessionId) {
-      await this.conn.agent.notify("session/cancel", { sessionId: this.sessionId });
-    } else {
-      this.emit("event", { type: "done", stopReason: "cancelled", usage: null });
-    }
+    if (this.busy && connection) await connection.agent.notify("session/cancel", { sessionId: this.sessionId });
   }
 
-  private pump() {
-    if (!this.ready || this.busy || this.queue.length === 0) return;
-    this.busy = true;
-    this.emit("event", { type: "busy", busy: true });
-    const turn = this.queue.shift()!;
-    let turnUsage: unknown = null;
-    let answer = "";
-
-    (async () => {
-      // El prompt deja de ser una cadena en cuanto hay adjuntos: ACP manda una
-      // lista de bloques, y las imágenes van como `image` con el base64 crudo
-      // (sin el `data:…;base64,` del navegador) más su mimeType.
-      const content: any[] = [
-        { type: "text", text: ARTIFACT_INSTRUCTIONS },
-        { type: "text", text: turn.text },
-      ];
-      for (const img of turn.images) {
-        content.push({ type: "image", mimeType: img.mimeType, data: img.data });
-      }
-      const promptP = this.session.prompt(content);
-      while (true) {
-        const m = await this.session.nextUpdate();
-        if (m.kind === "stop") break;
-        if (m.kind !== "session_update") continue;
-        const u = m.update ?? {};
-        if (u.sessionUpdate === "agent_message_chunk") {
-          const t = u.content?.text ?? "";
-          if (t) {
-            answer += t;
-            this.emit("event", { type: "chunk", text: t });
-          }
-        } else if (u.sessionUpdate === "agent_thought_chunk") {
-          const t = u.content?.text ?? "";
-          if (t) this.emit("event", { type: "thought", text: t });
-        } else if (
-          u.sessionUpdate === "tool_call" ||
-          u.sessionUpdate === "tool_call_update"
-        ) {
-          // En el update sólo viajan los campos que cambiaron; los null se omiten.
-          const ev: AcpEvent = { type: "tool", id: u.toolCallId };
-          if (u.title) ev.title = u.title;
-          if (u.kind) ev.kind = u.kind;
-          if (u.status) ev.status = u.status;
-          const path = u.locations?.[0]?.path;
-          if (path) ev.path = path;
-          this.emit("event", ev);
-        } else if (u.sessionUpdate === "config_option_update") {
-          // El agente también los cambia por su cuenta (un `/model` escrito en
-          // el chat, por ejemplo); el select tiene que seguirlo.
-          this.setConfigOptions(u.configOptions ?? this.configOptions);
-          this.emitConfig();
-        } else if (u.sessionUpdate === "usage_update") {
-          const used = u.used ?? 0;
-          const size = u.size ?? 0;
-          const cost = u.cost?.amount ?? 0;
-          this.tokens = used;
-          this.contextSize = size;
-          this.cost += cost;
-          turnUsage = { used, size, cost };
-          this.emit("event", { type: "usage", used, size, cost });
-        }
-      }
-      const r = await promptP;
-      this.messages.push({ role: "assistant", text: answer, at: Date.now() });
-      this.updatedAt = Date.now();
-      this.emit("event", { type: "done", stopReason: r.stopReason, usage: turnUsage });
-    })()
-      .catch((e) => this.emit("event", { type: "error", message: e.message }))
-      .finally(() => {
-        this.busy = false;
-        this.pump();
-      });
-  }
-
-  close() {
-    if (this.closed) return;
-    this.closed = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    try {
-      this.session?.dispose();
-    } catch {}
-    try {
-      this.conn?.close?.();
-    } catch {}
+  disconnected() {
+    this.closed = true; this.ready = false; this.busy = false;
     this.emit("event", { type: "closed" });
   }
-}
 
-// ---------------------------------------------------------------------------
-// Registro de conversaciones. Vive en el módulo, así que sobrevive entre
-// peticiones — pero no entre reinicios del server (el POC no persiste).
-// ---------------------------------------------------------------------------
-const conversations = new Map<string, GooseSession>();
+  async close() {
+    if (this.closed) return;
+    if (this.busy) {
+      await this.cancel();
+      // Un agente que ignora cancel no debe bloquear para siempre el cambio de hilo.
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([this.running, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("El agente no confirmó la cancelación.")), 10_000); })]);
+      } finally { clearTimeout(timer); }
+    }
+    if (agentCapabilities.sessionCapabilities?.close != null && connection) {
+      await connection.agent.request("session/close", { sessionId: this.sessionId });
+    } else {
+      const conn = connection; connection = undefined; conn?.close();
+    }
+    remember(this);
+    this.disconnected();
+  }
+}
 
 export interface ConversationSummary {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  messageCount: number;
-  tokens: number;
-  contextSize: number;
-  cost: number;
-  busy: boolean;
-  closed: boolean;
+  id: string; title: string; cwd: string; createdAt: number; updatedAt: number;
+  messageCount: number; tokens: number; contextSize: number; cost: number;
+  busy: boolean; closed: boolean; canOpen: boolean;
 }
 
-const summarize = (id: string, s: GooseSession): ConversationSummary => ({
-  id,
-  title: s.title,
-  createdAt: s.createdAt,
-  updatedAt: s.updatedAt,
-  messageCount: s.messages.length,
-  tokens: s.tokens,
-  contextSize: s.contextSize,
-  cost: s.cost,
-  busy: s.busy,
-  closed: s.closed,
-});
+function summarize(s: GooseSession): ConversationSummary {
+  return { id: s.sessionId, title: s.title, cwd: s.cwd, createdAt: s.createdAt, updatedAt: s.updatedAt,
+    messageCount: s.messages.length, tokens: s.tokens, contextSize: s.contextSize, cost: s.cost,
+    busy: s.busy, closed: s.closed, canOpen: !s.closed || !!agentCapabilities.loadSession };
+}
+function remember(s: GooseSession) {
+  const row = summarize(s);
+  history = [row, ...history.filter(c => c.id !== row.id)].sort((a, b) => b.updatedAt - a.updatedAt);
+}
 
-export async function createConversation() {
-  if (conversations.size >= MAX_CONVERSATIONS) {
-    throw new Error("too many conversations");
-  }
-  // La caja se despierta DENTRO de connect(): así el navegador aterriza en la
-  // conversación al instante y ve las fases, en vez de esperar el POST a ciegas.
-  const id = randomUUID();
-  const s = new GooseSession(WS_URL, TOKEN, CWD);
-  void s.connect();
-  conversations.set(id, s);
-  s.on("event", (e: AcpEvent) => {
-    if (e.type === "closed" && conversations.get(id) === s) conversations.delete(id);
+export function getHistorySnapshot() {
+  const conversations = history.map(c => ({ ...c,
+    busy: active?.sessionId === c.id && !active.closed ? active.busy : false,
+    canOpen: !!agentCapabilities.loadSession || (active?.sessionId === c.id && !active.closed),
+  }));
+  return { conversations, error: historyError, loaded: historyAt > 0, persistent: !!agentCapabilities.sessionCapabilities?.list };
+}
+
+export async function listConversations() {
+  if (Date.now() - historyAt < 10_000) return getHistorySnapshot();
+  if (!refreshing) refreshing = (async () => {
+    try {
+      const conn = await connectAgent();
+      if (agentCapabilities.sessionCapabilities?.list == null) {
+        history = active && !active.closed ? [summarize(active)] : [];
+      } else {
+        const rows: ConversationSummary[] = [];
+        let cursor: string | undefined;
+        const seen = new Set<string>();
+        do {
+          const page: any = await conn.agent.request("session/list", { ...(cursor ? { cursor } : {}) });
+          for (const session of page.sessions ?? []) {
+            const old = history.find(c => c.id === session.sessionId);
+            const updatedAt = Date.parse(session.updatedAt) || old?.updatedAt || 0;
+            rows.push({ id: session.sessionId, title: session.title || old?.title || "Nueva conversación", cwd: session.cwd || CWD,
+              createdAt: old?.createdAt ?? updatedAt, updatedAt, messageCount: session._meta?.messageCount ?? old?.messageCount ?? 0,
+              tokens: old?.tokens ?? 0, contextSize: old?.contextSize ?? 0, cost: old?.cost ?? 0, busy: false, closed: true, canOpen: !!agentCapabilities.loadSession });
+          }
+          cursor = page.nextCursor || undefined;
+          if (cursor && seen.has(cursor)) throw new Error("Repeated session list cursor");
+          if (cursor) seen.add(cursor);
+        } while (cursor);
+        history = [...new Map(rows.map(row => [row.id, row])).values()];
+        if (active && !active.closed) remember(active);
+      }
+      history.sort((a, b) => b.updatedAt - a.updatedAt);
+      historyError = null;
+      historyAt = Date.now();
+    } catch {
+      historyError = "No pude actualizar el historial. Se muestra la última lista disponible.";
+    }
+  })().finally(() => { refreshing = undefined; });
+  await refreshing;
+  return getHistorySnapshot();
+}
+
+export function createConversation(model?: string | null) {
+  return exclusive(async () => {
+    await active?.close();
+    await connectAgent();
+    const session = new GooseSession("nuevo", CWD);
+    active = session;
+    try { await session.initialize(false); } catch (error) {
+      const conn = connection; connection = undefined; conn?.close();
+      session.disconnected(); throw error;
+    }
+    if (model) {
+      const option = session.configOptions.find(option => option.category === "model" || option.id === "model");
+      if (option) {
+        try { await session.setConfigOption(option.id, model); } catch { /* Catálogo cambiado: conserva el modelo confirmado por el agente. */ }
+      }
+    }
+    historyAt = 0;
+    markActivity();
+    return session.sessionId;
   });
-  return id;
 }
 
-export function getConversation(id: string) {
-  return conversations.get(id) ?? null;
+export function loadConversation(id: string, options: { replayTail?: number; reload?: boolean } = {}) {
+  return exclusive(async () => {
+    if (active?.sessionId === id && !active.closed && !options.reload && active.replayTail === (replayMetadata(agentName, options.replayTail)._meta ? options.replayTail : undefined)) { markActivity(); return active; }
+    await connectAgent();
+    if (!agentCapabilities.loadSession) throw new Response("El agente no permite reabrir conversaciones guardadas.", { status: 409 });
+    await active?.close();
+    await connectAgent();
+    if (!history.some(c => c.id === id)) await listConversations();
+    const row = history.find(c => c.id === id);
+    const session = new GooseSession(id, row?.cwd ?? CWD);
+    if (row) { session.title = row.title; session.createdAt = row.createdAt; session.updatedAt = row.updatedAt; }
+    active = session;
+    try { await session.initialize(true, options.replayTail); } catch (error) {
+      // load puede haber reservado una ranura antes de fallar.
+      const conn = connection; connection = undefined; conn?.close();
+      session.disconnected();
+      throw new Response("No pude recuperar esta conversación del agente.", { status: 502 });
+    }
+    markActivity();
+    return session;
+  });
 }
-
-export function listConversations(): ConversationSummary[] {
-  return [...conversations.entries()]
-    .map(([id, s]) => summarize(id, s))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export function getMessages(id: string): StoredMessage[] {
-  return conversations.get(id)?.messages ?? [];
-}
-
-export function closeConversation(id: string) {
-  const s = conversations.get(id);
-  if (!s) return false;
-  s.close();
-  conversations.delete(id);
-  return true;
-}
-
+export function getConversation(id: string) { return active?.sessionId === id && !active.closed ? active : null; }
+export function getMessages(id: string): StoredMessage[] { return getConversation(id)?.messages ?? []; }
+export function closeConversation(id: string) { return exclusive(async () => { const s = getConversation(id); if (!s) return false; await s.close(); return true; }); }
 export function askConversation(id: string, text: string, images: PromptImage[] = []) {
-  const s = conversations.get(id);
-  if (!s) return false;
-  s.ask(text, images);
-  markActivity();
-  return true;
+  const s = getConversation(id); if (!s) return false; markActivity(); return s.ask(text, images);
 }
-
-export async function setConversationConfig(
-  id: string,
-  configId: string,
-  value: string | boolean
-) {
-  const s = conversations.get(id);
-  if (!s) return false;
-  await s.setConfigOption(configId, value);
-  markActivity();
-  return true;
+export async function setConversationConfig(id: string, configId: string, value: string | boolean) {
+  const s = getConversation(id); if (!s) return false; await s.setConfigOption(configId, value); markActivity(); return true;
 }
-
-/** Suscribe a los eventos de una conversación; devuelve la baja. */
 export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
-  const s = conversations.get(id);
-  if (!s) return null;
-  const handler = (e: AcpEvent) => onEvent(e);
-  s.on("event", handler);
-  // Quien llega tarde (recarga, segunda pestaña) no vio el started original:
-  // se le repite para que el input no se quede en "Conectando…".
-  if (s.ready && s.sessionId && !s.closed) {
-    onEvent({ type: "started", sessionId: s.sessionId });
-    onEvent(s.configEvent());
-    onEvent({ type: "busy", busy: s.busy });
-  } else if (!s.closed) {
-    onEvent({ type: "status", phase: s.phase });
-    if (s.lastError) onEvent({ type: "error", message: s.lastError });
-  }
-  return () => s.off("event", handler);
+  const s = getConversation(id); if (!s) return null;
+  s.on("event", onEvent);
+  // Snapshot atómico al suscribir: cubre los tokens entre loader y SSE, y reconexiones.
+  onEvent({ type: "snapshot", messages: s.messages, busy: s.busy });
+  onEvent({ type: "started", sessionId: s.sessionId });
+  onEvent(s.configEvent());
+  onEvent({ type: "busy", busy: s.busy });
+  return () => s.off("event", onEvent);
 }
-
-export const config = { wsUrl: WS_URL, cwd: CWD, agentBox: AGENT_BOX, idleMs: IDLE_MS };
-
-// ---------------------------------------------------------------------------
-// Suspend al idle: sin sockets SSE ni turnos en vuelo durante IDLE_MS.
-// ---------------------------------------------------------------------------
+export function getLastConfigOptions() { return lastConfigOptions; }
+// La URL visible nunca incluye credenciales del agente.
+const publicWsUrl = (() => { try { const url = new URL(WS_URL); url.search = ""; url.username = ""; url.password = ""; return url.toString(); } catch { return ""; } })();
+export const config = { wsUrl: publicWsUrl, cwd: CWD, agentBox: AGENT_BOX, idleMs: IDLE_MS };
 let lastActivity = Date.now();
 let activeSse = 0;
 export const markActivity = () => (lastActivity = Date.now());
-export const openSse = () => {
-  activeSse++;
-  markActivity();
-};
-export const closeSse = () => {
-  activeSse = Math.max(0, activeSse - 1);
-};
-
+export const openSse = () => { activeSse++; markActivity(); };
+export const closeSse = () => { activeSse = Math.max(0, activeSse - 1); };
 setInterval(() => {
-  const busy = [...conversations.values()].some((s) => s.busy);
-  if (activeSse === 0 && !busy && Date.now() - lastActivity > IDLE_MS) {
-    suspendAgentBox().catch(() => {});
+  if (activeSse === 0 && !active?.busy && Date.now() - lastActivity > IDLE_MS) {
     lastActivity = Date.now();
+    void exclusive(async () => {
+      if (activeSse || active?.busy) return;
+      await active?.close();
+      const conn = connection; connection = undefined; conn?.close();
+      await suspendAgentBox();
+    }).catch(() => {});
   }
 }, 30_000).unref?.();
+
+/** No abre una sesión para descubrir skills. Agentes sin la extensión degradan a vacío. */
+export async function listAgentSkills() {
+  try {
+    const conn = await connectAgent();
+    const result = await conn.agent.request("_goose/unstable/sources/list", { projectDir: CWD });
+    return { skills: parseSkills(result), supported: true, error: null };
+  } catch (error) {
+    if ((error as { code?: number }).code === -32601) return { skills: [], supported: false, error: null };
+    return { skills: [], supported: true, error: "No pude cargar las habilidades. Inténtalo de nuevo." };
+  }
+}

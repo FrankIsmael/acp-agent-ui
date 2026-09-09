@@ -16,14 +16,23 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(join(tmpdir(), 'chat-browser-'));
 const mock = new WebSocketServer({ host: '127.0.0.1', port: 5197 });
 let cancellations = 0;
+let newSessions = 0;
+const modelOptions = [{ id: 'model', category: 'model', type: 'select', name: 'Modelo', currentValue: 'one', options: [{ value: 'one', name: 'Model One' }, { value: 'two', name: 'Model Two' }] }];
 mock.on('connection', ws => {
   let active;
   ws.on('message', raw => {
     for (const line of raw.toString().trim().split('\n')) {
       const m = JSON.parse(line);
       const respond = result => ws.send(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\n');
-      if (m.method === 'initialize') respond({ protocolVersion: 1, agentCapabilities: {} });
-      else if (m.method === 'session/new') respond({ sessionId: 'mock-session', configOptions: [] });
+      if (m.method === 'initialize') respond({ protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {}, close: {} } } });
+      else if (m.method === '_goose/unstable/sources/list') respond({ sources: [{ type: 'skill', name: 'Project conventions', description: 'Repository instructions', content: 'Identifiers in English', path: '/data/work/.agents/skills/conventions' }] });
+      else if (m.method === 'session/list') respond({ sessions: [{ sessionId: 'saved-history', cwd: '/data/work', title: 'A remembered conversation', updatedAt: '2026-09-08T12:00:00Z', _meta: { messageCount: 2 } }] });
+      else if (m.method === 'session/load') {
+        for (const [sessionUpdate, text] of [['user_message_chunk', 'A question from yesterday'], ['agent_message_chunk', 'An answer from yesterday']]) ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: m.params.sessionId, update: { sessionUpdate, content: { type: 'text', text } } } }) + '\n');
+        respond({ configOptions: modelOptions });
+      }
+      else if (m.method === 'session/new') { newSessions++; respond({ sessionId: 'mock-session', configOptions: modelOptions }); }
+      else if (m.method === 'session/set_config_option') respond({ configOptions: modelOptions.map(option => ({ ...option, currentValue: m.params.value })) });
       else if (m.method === 'session/prompt') {
         let n = 0;
         const chunk = text => ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'mock-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } } }) + '\n');
@@ -95,8 +104,35 @@ try {
   assert.equal(missing.status,404);
   const cross = await fetch(`http://127.0.0.1:5198/api/conversations/${conversationId}/cancel`, {method:'POST',headers:{'sec-fetch-site':'cross-site'}});
   assert.equal(cross.status,403);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+  await wait(() => evaluate(`!!document.querySelector('a[href="/sessions"]')`), 'desktop navigation visible');
+  await click('a[href="/sessions"]');
+  await wait(() => evaluate(`document.querySelector('h1')?.textContent === 'Historial' && document.body.innerText.includes('A remembered conversation')`), 'history page loads saved sessions');
+  assert.ok(await evaluate(`document.querySelectorAll('a[href="/c/saved-history"]').length >= 2`), 'history and chats share saved session');
+  await click('a[href="/c/saved-history"]');
+  await wait(() => evaluate(`document.querySelector('[aria-label="Mensajes"]')?.textContent.includes('An answer from yesterday')`), 'saved chat replay');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Mensajes"]').textContent.split('An answer from yesterday').length - 1`), 1, 'replay appears once');
+  await cdp('Page.reload');
+  await wait(() => evaluate(`document.querySelector('[aria-label="Mensajes"]')?.textContent.includes('A question from yesterday')`), 'saved chat survives reload');
+  await click('a[href="/skills"]');
+  await wait(() => evaluate(`document.querySelector('h1')?.textContent === 'Habilidades' && document.body.innerText.includes('Project conventions')`), 'skills list replaces placeholder');
+  await click('details summary');
+  assert.ok(await evaluate(`document.body.innerText.includes('Identifiers in English')`));
+  assert.ok(!(await evaluate(`document.body.innerText`)).includes('Salen por ACP'));
+  const sessionsBeforeDraft = newSessions;
+  await click('a[href="/c/nuevo"]');
+  await wait(() => evaluate(`!!document.querySelector('button[aria-label="Modelo"]')`), 'cached draft model selector');
+  await evaluate(`document.querySelector('button[aria-label="Modelo"]').focus()`);
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await wait(() => evaluate(`!!document.querySelector('[role="menuitem"]')`), 'model menu');
+  await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.includes('Model Two')).click()`);
+  await wait(() => evaluate(`document.querySelector('button[aria-label="Modelo"]')?.textContent.includes('Model Two')`), 'draft model saved');
+  await cdp('Page.reload');
+  await wait(() => evaluate(`document.querySelector('button[aria-label="Modelo"]')?.textContent.includes('Model Two')`), 'draft model survives reload');
+  assert.equal(newSessions, sessionsBeforeDraft, 'choosing model does not allocate a session');
   assert.deepEqual(errors, [], 'no uncaught browser errors');
-  console.log('PASS: streaming follow, manual scroll, desktop/mobile containment, ACP cancellation, partial reply, next turn, reload stop, endpoint validation.');
+  console.log('PASS: streaming follow, manual scroll, desktop/mobile containment, ACP cancellation, partial reply, next turn, reload stop, endpoint validation, saved history and chats, replay and reload, skills, draft model preference.');
 } catch (error) {
   console.error(error); console.error('Page:', await debugPage?.()); console.error('Server:', serverLog.slice(-2500)); console.error('Browser:', browserLog.slice(-1500)); process.exitCode = 1;
 } finally {

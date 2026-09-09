@@ -36,6 +36,7 @@ After=network-online.target
 Type=simple
 EnvironmentFile=/root/.config/goose/.env
 EnvironmentFile=/etc/goose-acp.env
+Environment=XDG_DATA_HOME=/data/state
 ExecStart=/usr/local/bin/goose serve --host 0.0.0.0 --port 3000
 Restart=always
 RestartSec=2
@@ -46,6 +47,17 @@ WantedBy=multi-user.target
 
 const script = `
 set -e
+systemctl stop goose-acp.service 2>/dev/null || true
+mkdir -p /data/state/goose/sessions
+# Conserva las sesiones existentes con SQLite backup (incluye WAL).
+python3 - <<'PYBACKUP'
+import pathlib, sqlite3
+source = pathlib.Path("/root/.local/share/goose/sessions/sessions.db")
+target = pathlib.Path("/data/state/goose/sessions/sessions.db")
+if source.exists() and not target.exists():
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as src, sqlite3.connect(target) as dst:
+        src.backup(dst)
+PYBACKUP
 which goose > /tmp/goosepath
 printf 'GOOSE_SERVER__SECRET_KEY=%s\\n' '${SECRET}' > /etc/goose-acp.env
 chmod 600 /etc/goose-acp.env

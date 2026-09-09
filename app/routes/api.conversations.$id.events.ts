@@ -8,6 +8,7 @@ import type { Route } from "./+types/api.conversations.$id.events";
 import {
   closeSse,
   getConversation,
+  loadConversation,
   openSse,
   subscribe,
   type AcpEvent,
@@ -15,7 +16,8 @@ import {
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   if (!getConversation(params.id)) {
-    return new Response("conversation not found", { status: 404 });
+    // Tras reiniciar el server, EventSource vuelve sin ejecutar el loader del chat.
+    await loadConversation(params.id);
   }
 
   const encoder = new TextEncoder();

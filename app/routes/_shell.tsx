@@ -4,15 +4,21 @@
  */
 import { Outlet, useLoaderData } from "react-router";
 import { AppLayout } from "~/components/Layout/AppLayout";
-import { listConversations } from "~/.server/acp";
+import { getHistorySnapshot } from "~/.server/acp";
+import { ConversationProvider, useConversations } from "~/components/ConversationContext";
 import { ArtifactProvider } from "~/components/artifacts/ArtifactContext";
 
 export async function loader() {
-  return { conversations: listConversations() };
+  return getHistorySnapshot();
 }
 
 export default function Shell() {
-  const { conversations } = useLoaderData<typeof loader>();
+  const initial = useLoaderData<typeof loader>();
+  return <ConversationProvider initial={initial}><ShellContent /></ConversationProvider>;
+}
+
+function ShellContent() {
+  const { conversations } = useConversations();
   return (
     <ArtifactProvider>
       <AppLayout conversations={conversations}>

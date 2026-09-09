@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
+import { useConversations } from "~/components/ConversationContext";
 import { cn } from "~/lib/utils";
 import type { ConversationSummary } from "~/.server/acp";
 
@@ -30,7 +31,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "home", path: "/", label: "Nueva conversación", icon: MessageSquarePlus },
+  { id: "home", path: "/c/nuevo", label: "Nueva conversación", icon: MessageSquarePlus },
   { id: "artifacts", path: "/artifacts", label: "Artifacts", icon: AppWindow },
   { id: "recipes", path: "/recipes", label: "Recetas", icon: FileText },
   { id: "skills", path: "/skills", label: "Habilidades", icon: Zap },
@@ -75,7 +76,10 @@ function SessionRow({
 }) {
   return (
     <Link
-      to={`/c/${conversation.id}`}
+      to={`/c/${encodeURIComponent(conversation.id)}`}
+      aria-disabled={!conversation.canOpen}
+      tabIndex={conversation.canOpen ? undefined : -1}
+      onClick={event => { if (!conversation.canOpen) event.preventDefault(); }}
       className={cn(
         "flex flex-col gap-0.5 rounded-lg px-3 py-2 transition-colors",
         active
@@ -102,6 +106,7 @@ export function NavigationPanel({
   conversations: ConversationSummary[];
 }) {
   const location = useLocation();
+  const { loaded, error } = useConversations();
   const [isChatsExpanded, setIsChatsExpanded] = useState(true);
   const isActive = (path: string) => location.pathname === path;
 
@@ -136,7 +141,7 @@ export function NavigationPanel({
           <div className="mt-1 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {conversations.length === 0 ? (
               <div className="px-3 py-2 text-xs text-text-secondary">
-                Todavía no hay conversaciones
+                {error ?? (loaded ? "Todavía no hay conversaciones" : "Cargando conversaciones…")}
               </div>
             ) : (
               conversations.map((c) => (
