@@ -2,7 +2,7 @@
 import { data } from "react-router";
 import type { Route } from "./+types/api.conversations";
 import { readModelPreference } from "~/.server/model-preference";
-import { createConversation, listConversations } from "~/.server/acp";
+import { AgentError, createConversation, listConversations } from "~/.server/acp";
 
 export async function loader() {
   return data(await listConversations(), { headers: { "Cache-Control": "no-store" } });
@@ -17,6 +17,10 @@ export async function action({ request }: Route.ActionArgs) {
     const id = await createConversation(await readModelPreference(request));
     return data({ conversationId: id });
   } catch (e) {
-    return data({ error: "No pude abrir la conversación. Revisa la conexión con el agente." }, { status: 502 });
+    // Los fallos conocidos (timeout, caja, URL) llegan al navegador con su causa; el resto se
+    // queda en genérico y la causa real va al log del servidor.
+    console.error("[conversations] no se pudo abrir la conversación:", e);
+    const message = e instanceof AgentError ? e.message : "No pude abrir la conversación. Revisa la conexión con el agente.";
+    return data({ error: message }, { status: 502 });
   }
 }

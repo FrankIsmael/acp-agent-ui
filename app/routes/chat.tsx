@@ -28,6 +28,7 @@ import { ChatInput } from "~/components/ChatInput";
 import { Markdown } from "~/components/Markdown";
 import { MessageUsageStats } from "~/components/MessageUsageStats";
 import { ConnectingState } from "~/components/ConnectingState";
+import { PermissionCard } from "~/components/PermissionCard";
 import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
 import { config, loadConversation, getMessages } from "~/.server/acp";
 import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
@@ -229,7 +230,7 @@ function ChatView() {
   const navigate = useNavigate();
   const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
   const {
-    turns, busy, connected, phase, error, send, stop,
+    turns, permissions, busy, connected, phase, error, send, stop,
     configOptions, imageSupport, visionModels, configBusy, setConfig,
   } = useAcpStream(id, messages as Turn[]);
   const { artifacts, ready, ingest, open } = useArtifacts();
@@ -297,6 +298,9 @@ function ChatView() {
               )}
               {turns.map((turn, i) => (
                 <Bubble key={i} turn={turn} parts={parsedTurns[i]} conversationId={id} turnIndex={i} streaming={busy && i === turns.length - 1} />
+              ))}
+              {permissions.map(permission => (
+                <PermissionCard key={permission.id} permission={permission} conversationId={id} connected={connected} />
               ))}
 
               {busy && turns[turns.length - 1]?.role === "user" && (

@@ -100,3 +100,28 @@ atribución está en [`NOTICE`](NOTICE).
 - **El tema no puede vivir en `localStorage` con SSR.** El script que marca la clase antes de
   hidratar desajusta el HTML del servidor y React tira la página — y sólo le pasa a quien ya eligió
   tema, así que en la primera visita todo se ve bien.
+
+
+USEFUL COMMANDS
+```bash
+curl -N -X DELETE https://www.easybits.cloud/api/v2/sandboxes/$SANDBOXID \
+  -H "Authorization: Bearer $EASYBITS_API_KEY" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl https://www.easybits.cloud/api/v2/agents/$AGENT_ID \
+  -H "Authorization: Bearer $EASYBITS_API_KEY" \
+  | python3 -m json.tool
+```
+
+```bash
+curl -X POST https://www.easybits.cloud/api/v2/agents \
+  -H "Authorization: Bearer $EASYBITS_API_KEY" -H "Content-Type: application/json" \
+  -d "{\"template\":\"ghosty-lite\",\"name\":\"or-agente\",\"env\":{\"GHOSTY_PROVIDER\":\"openrouter\",\"GHOSTY_MODEL\":\"nvidia/nemotron-3.5-lightning:free\",\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\"}}"
+```
+
+```bash
+  curl -sS -X DELETE https://www.easybits.cloud/api/v2/agents/6aa43367d4f588c595df7fbc \
+  -H "Authorization: Bearer $EASYBITS_API_KEY"
+```

@@ -12,6 +12,8 @@ import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
 import { parseSkills, replayMetadata } from "./goose-adapter";
 import { ARTIFACT_INSTRUCTIONS } from "./artifact-instructions";
+import { PermissionQueue, type PendingPermission } from "./permissions";
+import { extensionStore, summarizeExtensions } from "./extensions";
 
 // Sin URL no se inventa una: un fallback hardcodeado manda la sesión a la caja de otro y el
 // fallo se ve como "el agente no responde" en vez de "te falta configurar esto".
@@ -140,7 +142,7 @@ export async function ensureAgentBox() {
   // es peor que ninguna. Sólo se intenta si hay snapshot configurado, y se avisa de que la URL
   // hay que cambiarla a mano.
   if (!AGENT_SNAPSHOT) {
-    throw new Error(
+    throw new AgentError(
       "El agente no despertó y no hay AGENT_SNAPSHOT_ID para recrearlo. Levántalo de nuevo y actualiza ACP_WS_URL."
     );
   }
@@ -193,7 +195,8 @@ export interface ConfigOption {
 }
 
 export type AcpEvent =
-  | { type: "snapshot"; messages: StoredMessage[]; busy: boolean }
+  | { type: "snapshot"; messages: StoredMessage[]; busy: boolean; permissions: PendingPermission[] }
+  | { type: "permissions"; permissions: PendingPermission[] }
   | { type: "title"; title: string }
   | { type: "started"; sessionId: string }
   | { type: "busy"; busy: boolean }
@@ -229,6 +232,19 @@ export type AcpEvent =
 
 
 const CONNECT_TIMEOUT_MS = Number(process.env.ACP_CONNECT_TIMEOUT_MS ?? 60_000);
+// session/new y session/load esperan a que arranquen las extensiones MCP de la sesión: un
+// servidor que no contesta (URL mala, credencial mal puesta) dejaba la petición colgada para
+// siempre y con ella cualquier intento de abrir una conversación.
+const SESSION_TIMEOUT_MS = Number(process.env.ACP_SESSION_TIMEOUT_MS ?? 60_000);
+
+/** Un fallo con mensaje pensado para el usuario: las rutas lo devuelven tal cual. */
+export class AgentError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new AgentError(message)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export interface StoredMessage {
   role: "user" | "assistant";
@@ -269,7 +285,7 @@ async function connectAgent(): Promise<ClientConnection> {
   if (connection && !connection.signal.aborted) return connection;
   if (connecting) return connecting;
   connecting = (async () => {
-    if (!WS_URL) throw new Error("Falta ACP_WS_URL en el servidor.");
+    if (!WS_URL) throw new AgentError("Falta ACP_WS_URL en el servidor.");
     await ensureAgentBox();
     const target = new URL(WS_URL);
     if (TOKEN && !target.searchParams.has("token")) target.searchParams.set("token", TOKEN);
@@ -278,21 +294,23 @@ async function connectAgent(): Promise<ClientConnection> {
       if (active && params.sessionId === active.sessionId) active.update(params.update);
     });
     app.onRequest("session/request_permission", ({ params }: any) => {
-      const allow = (params.options ?? []).find((o: any) => o.kind === "allow_once");
-      return { outcome: allow ? { outcome: "selected", optionId: allow.optionId } : { outcome: "cancelled" } };
+      if (!active || active.closed || !active.busy || active.cancelling || params.sessionId !== active.sessionId) {
+        return { outcome: { outcome: "cancelled" } };
+      }
+      active.update({ ...params.toolCall, sessionUpdate: "tool_call_update", status: "pending" });
+      return active.permissions.request(params.toolCall, params.options ?? []);
     });
     const conn = app.connect(createWebSocketStream(target.toString(), {
       WebSocket, headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
     } as any));
-    let timer: NodeJS.Timeout | undefined;
     try {
-      const init: any = await Promise.race([
+      const init: any = await withTimeout(
         conn.agent.request("initialize", {
           protocolVersion: 1,
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { configOptions: { boolean: {} } } },
         }),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("El agente no respondió a tiempo.")), CONNECT_TIMEOUT_MS); }),
-      ]);
+        CONNECT_TIMEOUT_MS, "El agente no respondió a tiempo.",
+      );
       agentCapabilities = init.agentCapabilities ?? {};
       agentName = init.agentInfo?.name ?? "";
       connection = conn;
@@ -302,10 +320,10 @@ async function connectAgent(): Promise<ClientConnection> {
         if (active && !active.closed) active.disconnected();
       }).catch(() => {});
       return conn;
-    } catch {
+    } catch (error) {
       conn.close();
-      throw new Error("No pude conectar con el agente. Revisa la conexión y la configuración del servidor.");
-    } finally { clearTimeout(timer); }
+      throw error instanceof AgentError ? error : new AgentError("No pude conectar con el agente. Revisa la conexión y la configuración del servidor.");
+    }
   })().finally(() => { connecting = undefined; });
   return connecting;
 }
@@ -313,6 +331,8 @@ async function connectAgent(): Promise<ClientConnection> {
 class GooseSession extends EventEmitter {
   sessionId: string;
   busy = false;
+  cancelling = false;
+  configuringExtensions = false;
   ready = false;
   closed = false;
   phase: ConnectPhase = "session";
@@ -327,6 +347,7 @@ class GooseSession extends EventEmitter {
   createdAt = Date.now();
   updatedAt = Date.now();
   messages: StoredMessage[] = [];
+  permissions = new PermissionQueue(permissions => this.emit("event", { type: "permissions", permissions }));
   private assistant: StoredMessage | undefined;
   private running: Promise<void> | undefined;
   private replaying = false;
@@ -367,9 +388,15 @@ class GooseSession extends EventEmitter {
     this.replaying = load;
     this.replayTail = load && replayMetadata(agentName, replayTail)._meta ? replayTail : undefined;
     try {
-      const response: any = load
-        ? await conn.agent.request("session/load", { sessionId: this.sessionId, cwd: this.cwd, mcpServers: [], ...replayMetadata(agentName, replayTail) })
-        : await conn.agent.request("session/new", { cwd: this.cwd, mcpServers: [] });
+      const mcpServers = extensionStore().servers();
+      console.log(`[acp] mcpServers: ${mcpServers.map(s => s.name).join(", ") || "(ninguno)"}`);
+      const response: any = await withTimeout(
+        load
+          ? conn.agent.request("session/load", { sessionId: this.sessionId, cwd: this.cwd, mcpServers, ...replayMetadata(agentName, replayTail) })
+          : conn.agent.request("session/new", { cwd: this.cwd, mcpServers }),
+        SESSION_TIMEOUT_MS,
+        `El agente no abrió la sesión a tiempo${mcpServers.length ? ` (revisa las extensiones activas: ${mcpServers.map(s => s.name).join(", ")})` : ""}.`,
+      );
       if (!load) this.sessionId = response.sessionId;
       this.setConfigOptions(response.configOptions);
       this.ready = true;
@@ -459,8 +486,9 @@ class GooseSession extends EventEmitter {
   }
 
   ask(text: string, images: PromptImage[] = []) {
-    if (!this.ready || this.closed || this.busy) return false;
+    if (!this.ready || this.closed || this.busy || this.configuringExtensions) return false;
     this.busy = true;
+    this.cancelling = false;
     this.assistant = undefined;
     this.messages.push({ role: "user", text, images, at: Date.now() });
     this.updatedAt = Date.now();
@@ -476,6 +504,7 @@ class GooseSession extends EventEmitter {
       } catch {
         this.emit("event", { type: "error", message: "La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente." });
       } finally {
+        this.permissions.cancel();
         this.busy = false;
         this.assistant = undefined;
         this.updatedAt = Date.now();
@@ -488,10 +517,13 @@ class GooseSession extends EventEmitter {
   }
 
   async cancel() {
+    this.cancelling = true;
+    this.permissions.cancel();
     if (this.busy && connection) await connection.agent.notify("session/cancel", { sessionId: this.sessionId });
   }
 
   disconnected() {
+    this.permissions.cancel();
     this.closed = true; this.ready = false; this.busy = false;
     this.emit("event", { type: "closed" });
   }
@@ -635,7 +667,7 @@ export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
   const s = getConversation(id); if (!s) return null;
   s.on("event", onEvent);
   // Snapshot atómico al suscribir: cubre los tokens entre loader y SSE, y reconexiones.
-  onEvent({ type: "snapshot", messages: s.messages, busy: s.busy });
+  onEvent({ type: "snapshot", messages: s.messages, busy: s.busy, permissions: s.permissions.snapshot() });
   onEvent({ type: "started", sessionId: s.sessionId });
   onEvent(s.configEvent());
   onEvent({ type: "busy", busy: s.busy });
@@ -672,4 +704,57 @@ export async function listAgentSkills() {
     if ((error as { code?: number }).code === -32601) return { skills: [], supported: false, error: null };
     return { skills: [], supported: true, error: "No pude cargar las habilidades. Inténtalo de nuevo." };
   }
+}
+
+export async function listClientExtensions() {
+  try {
+    return { extensions: summarizeExtensions({ extensions: extensionStore().list() }), error: null };
+  } catch {
+    return { extensions: [], error: "No pude leer las extensiones guardadas en este cliente." };
+  }
+}
+
+export async function listSessionExtensions() {
+  const session = active;
+  if (!session || session.closed || !session.ready) return null;
+  try {
+    const conn = await connectAgent();
+    // goose devuelve cada extensión de la sesión plana (sin envoltorio ni clave): se identifica
+    // por su nombre, que es también lo que pide `extensions/remove` (`name`, no `extensionKey`).
+    // Se acepta también la forma envuelta `{ extensionKey, extension }` por si cambia.
+    type SessionExtension = { name?: string; server?: { name?: string } };
+    const response = await conn.agent.request("_goose/unstable/session/extensions/list", { sessionId: session.sessionId }) as {
+      extensions: (SessionExtension & { extensionKey?: string; extension?: SessionExtension })[];
+    };
+    const extensions = summarizeExtensions({ extensions: response.extensions.map(entry => {
+      const extension = entry.extension ?? entry;
+      return { configKey: entry.extensionKey ?? extension.server?.name ?? extension.name ?? null, enabled: true, extension };
+    }) });
+    return { id: session.sessionId, title: session.title, busy: session.busy || session.configuringExtensions, extensions, error: null };
+  } catch (error) {
+    return { id: session.sessionId, title: session.title, busy: session.busy, extensions: [],
+      error: (error as { code?: number }).code === -32601 ? "El agente no permite gestionar extensiones de esta conversación." : "No pude consultar las herramientas de la conversación." };
+  }
+}
+
+export function changeSessionExtension(id: string, operation: "add" | "remove", key: string) {
+  return exclusive(async () => {
+    const session = getConversation(id);
+    if (!session || !session.ready) throw new Response("La conversación activa cambió. Actualiza la página.", { status: 409 });
+    if (session.busy) throw new Response("Espera a que termine el turno o detenlo antes de cambiar herramientas.", { status: 409 });
+    session.configuringExtensions = true;
+    try {
+      const conn = await connectAgent();
+      if (operation === "add") {
+        const extension = extensionStore().get(key);
+        if (!extension) throw new Response("La extensión ya no existe", { status: 404 });
+        await conn.agent.request("_goose/unstable/session/extensions/add", { sessionId: id, extension });
+      } else {
+        // goose quita por nombre; el navegador puede mandar el id del cliente (UUID) o el nombre.
+        const name = extensionStore().get(key)?.server.name ?? key;
+        await conn.agent.request("_goose/unstable/session/extensions/remove", { sessionId: id, name });
+      }
+      markActivity();
+    } finally { session.configuringExtensions = false; }
+  });
 }

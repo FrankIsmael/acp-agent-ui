@@ -1,6 +1,6 @@
 # Dónde estamos
 
-> Actualizado el 2 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
+> Actualizado el 12 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
 > hay que saber para retomar sin releer todo. Lo conceptual va en [`docs/`](docs/).
 
 ## Lo que funciona hoy
@@ -58,6 +58,28 @@ desapareció del host sin aviso (404 "sandbox not found") mientras figuraba `run
 - **El botón de parar no interrumpe.** Está dibujado; falta `session/cancel`.
 - **Los métodos son `_unstable`.** Todo lo que llene las vistas vacías lleva ese sufijo en goose:
   pueden cambiar sin aviso.
+- **El MCP http de EasyBits no entrega tools con goose/ghosty — y no es el provider.** Investigado
+  el 12 sep 2026. El servidor funciona (por curl `tools/list` devuelve 87 tools, entre ellas
+  `research_search` y `research_scrape`), goose lo acepta en `session/new`, pero el modelo no ve
+  ninguna; sólo llegan los recursos `ui://easybits/*`. La causa está en el log de la caja
+  (`/data/ghosty/state/logs/cli/<fecha>/*.log`, no en journald):
+  `extension_manager "Failed to list tools" error="Unexpected response type"`. Es rmcp 3.1.4
+  (el cliente MCP de ghosty 1.48.0) rechazando la respuesta de `tools/list`: EasyBits manda
+  `"cacheScope":"connection"` y el enum de rmcp —y el esquema MCP— sólo admite `"public"` o
+  `"private"`. Falla `ListToolsResult`, el `ServerResult` untagged cae en el comodín, y goose
+  descarta la lista entera. `resources/list` no lleva `cacheScope`, por eso los recursos sí
+  aparecen. Le pasa igual a la extensión `easybits` que la caja trae de serie y al paquete stdio
+  `@easybits.cloud/mcp` (es un proxy al mismo endpoint). Arreglo: EasyBits (una palabra en su
+  servidor); mientras, un proxy stdio que reescriba `cacheScope` es la única salida desde goose.
+  - **Por qué "funcionó" en la rama `sesion-4-mcp` con `claude-acp` + Sonnet:** no es goose con
+    otro modelo, es otro agente con otro cliente MCP (el SDK de TypeScript, tolerante con el enum).
+    Mismo servidor, mismo bug; sólo un cliente es estricto. Lo que la rama anotó como "era el
+    provider" es este mismo fallo visto desde el otro lado.
+  - **Lo que sí vale de aquella sesión:** la credencial va en la URL (`?token=`), no en
+    `headers[]`. EasyBits contesta al 401 con `WWW-Authenticate: Bearer resource_metadata=…` y
+    goose lo toma por OAuth: arranca un login en navegador (`If the browser did not open,
+    authorize … at:` en journald) y `session/new` se queda colgado. Con `?token=` conecta en 2 s.
+    Y con `claude-acp` hace falta `GOOSE_MODE=approve` o el turno muere con `Internal error`.
 
 ## Lo siguiente
 

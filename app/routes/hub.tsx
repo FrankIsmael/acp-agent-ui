@@ -114,7 +114,7 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
           {error && <p className="mt-3 text-sm text-text-danger">{error}</p>}
           {creating && (
             <p className="mt-3 text-sm text-text-secondary">
-              Despertando la caja del agente…
+              Abriendo la conversación… si la caja estaba dormida o hay extensiones que arrancar, puede tardar hasta un minuto.
             </p>
           )}
         </div>

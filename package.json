@@ -9,6 +9,7 @@
     "typecheck": "react-router typegen && tsc",
     "test:memory:backup": "node --test scripts/memory-backup.test.mjs",
     "test:memory": "node scripts/memory.test.mjs",
+    "test:permissions": "node --experimental-strip-types --test scripts/permissions.test.mjs && node scripts/permissions.integration.mjs",
     "test:chat:browser": "node scripts/chat.browser.mjs",
     "test:artifacts": "node --experimental-strip-types --test scripts/artifacts.test.mjs",
     "test:artifacts:browser": "node scripts/artifacts.browser.mjs"

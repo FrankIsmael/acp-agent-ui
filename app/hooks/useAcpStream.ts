@@ -3,6 +3,7 @@
  * ocurre del lado del servidor; aquí sólo llegan eventos ya traducidos.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PendingPermission } from '~/.server/permissions';
 
 /** Por dónde va la conexión con el agente antes del primer `started`. */
 export type ConnectPhase = 'waking' | 'connecting' | 'session';
@@ -60,6 +61,7 @@ export interface Usage {
 export function useAcpStream(conversationId: string, initial: Turn[] = []) {
   const [turns, setTurns] = useState<Turn[]>(initial);
   const [busy, setBusy] = useState(false);
+  const [permissions, setPermissions] = useState<PendingPermission[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<ConnectPhase>('waking');
@@ -107,10 +109,12 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       const snapshot = JSON.parse((e as MessageEvent).data);
       setTurns(snapshot.messages);
       setBusy(snapshot.busy);
+      setPermissions(snapshot.permissions ?? []);
       streaming.current = snapshot.busy && snapshot.messages.at(-1)?.role === 'assistant';
       setError(null);
     });
     es.addEventListener('title', () => window.dispatchEvent(new Event('conversations-changed')));
+    es.addEventListener('permissions', (e) => setPermissions(JSON.parse((e as MessageEvent).data).permissions));
     es.addEventListener('busy', (e) => setBusy(JSON.parse((e as MessageEvent).data).busy));
     es.addEventListener('started', () => setConnected(true));
     es.addEventListener('config', (e) => {
@@ -161,6 +165,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       }
     });
     es.addEventListener('closed', () => {
+      setPermissions([]);
       setConnected(false);
       setBusy(false);
       streaming.current = false;
@@ -240,6 +245,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
 
   return {
     turns,
+    permissions,
     busy,
     connected,
     phase,
