@@ -153,7 +153,7 @@ export function ChatInput({
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background-warning/40 px-3 py-2 text-xs text-text-primary">
           <EyeOff className="h-3.5 w-3.5 shrink-0 text-text-warning" />
           <span className="min-w-0 flex-1">
-            <span className="font-medium">{modelOption?.name ?? "El modelo"}</span> actual no ve
+            El modelo actual no ve
             imágenes: se enviarán descartadas.
           </span>
           <button

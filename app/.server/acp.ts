@@ -47,10 +47,18 @@ const VISION_MODELS = (process.env.ACP_VISION_MODELS ?? "")
   .map((m) => m.trim())
   .filter(Boolean);
 
+/**
+ * Ids que ven imágenes aunque el nombre no lo diga. `openrouter/free` es un
+ * router: enruta a lo que haya libre en OpenRouter, y eso incluye modelos con
+ * visión, así que se asume que sí.
+ */
+const ALWAYS_VISION = new Set(["openrouter/free"]);
+
 const isVisionModel = (id: string) =>
-  VISION_MODELS.length > 0
+  ALWAYS_VISION.has(id) ||
+  (VISION_MODELS.length > 0
     ? VISION_MODELS.includes(id)
-    : /vision|-vl\b|-vl-/i.test(id);
+    : /vision|-vl\b|-vl-/i.test(id));
 
 /**
  * Modelos que el gateway sirve pero el agente no lista.
