@@ -10,7 +10,7 @@ export default function Skills() {
   const revalidator = useRevalidator();
   return (
     <MainPanelLayout>
-      <div className="mx-auto w-full max-w-3xl px-6 py-10">
+      <div className="mx-auto w-full max-w-3xl overflow-y-auto px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-light text-text-primary">Habilidades</h1>
           <button onClick={() => revalidator.revalidate()} disabled={revalidator.state !== "idle"} className="rounded-lg border border-border-primary px-3 py-1.5 text-sm text-text-secondary disabled:opacity-50">{revalidator.state === "idle" ? "Actualizar" : "Actualizando…"}</button>
