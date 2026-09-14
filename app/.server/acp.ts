@@ -14,6 +14,7 @@ import { parseSkills, replayMetadata } from "./goose-adapter";
 import { ARTIFACT_INSTRUCTIONS } from "./artifact-instructions";
 import { PermissionQueue, type PendingPermission } from "./permissions";
 import { extensionStore, summarizeExtensions } from "./extensions";
+import { isGenericTitle, titleFromPrompt, titleStore } from "./titles";
 
 // Sin URL no se inventa una: un fallback hardcodeado manda la sesión a la caja de otro y el
 // fallo se ve como "el agente no responde" en vez de "te falta configurar esto".
@@ -434,10 +435,22 @@ class GooseSession extends EventEmitter {
       if (!load) this.sessionId = response.sessionId;
       this.setConfigOptions(response.configOptions);
       this.ready = true;
+      if (load) this.entitle(this.messages.find(m => m.role === "user")?.text ?? "");
       this.emit("event", { type: "started", sessionId: this.sessionId });
       this.emitConfig();
       remember(this);
     } finally { this.replaying = false; this.assistant = undefined; }
+  }
+
+  // Si el agente no bautizó el hilo, el primer mensaje del humano hace de título.
+  // Un título de verdad del agente (`session_info_update`) siempre lo pisa.
+  private entitle(text: string) {
+    if (!isGenericTitle(this.title)) return;
+    const title = titleStore().get(this.sessionId) || titleFromPrompt(text);
+    if (!title) return;
+    this.title = title;
+    titleStore().set(this.sessionId, title);
+    if (!this.replaying) this.emit("event", { type: "title", title });
   }
 
   private answer() {
@@ -489,7 +502,7 @@ class GooseSession extends EventEmitter {
       this.setConfigOptions(u.configOptions);
       if (!this.replaying) this.emitConfig();
     } else if (u.sessionUpdate === "session_info_update") {
-      if (typeof u.title === "string" && u.title.trim()) this.title = u.title;
+      if (typeof u.title === "string" && !isGenericTitle(u.title)) this.title = u.title;
       if (u.updatedAt && Number.isFinite(Date.parse(u.updatedAt))) this.updatedAt = Date.parse(u.updatedAt);
       remember(this);
       emit({ type: "title", title: this.title });
@@ -527,6 +540,7 @@ class GooseSession extends EventEmitter {
     this.messages.push({ role: "user", text, images, at: Date.now() });
     this.updatedAt = Date.now();
     this.emit("event", { type: "busy", busy: true });
+    this.entitle(text);
     remember(this);
     this.running = (async () => {
       try {
@@ -622,7 +636,8 @@ export async function listConversations() {
           for (const session of page.sessions ?? []) {
             const old = history.find(c => c.id === session.sessionId);
             const updatedAt = Date.parse(session.updatedAt) || old?.updatedAt || 0;
-            rows.push({ id: session.sessionId, title: session.title || old?.title || "Nueva conversación", cwd: session.cwd || CWD,
+            const title = [session.title, titleStore().get(session.sessionId), old?.title].find(t => !isGenericTitle(t)) || "Nueva conversación";
+            rows.push({ id: session.sessionId, title, cwd: session.cwd || CWD,
               createdAt: old?.createdAt ?? updatedAt, updatedAt, messageCount: session._meta?.messageCount ?? old?.messageCount ?? 0,
               tokens: old?.tokens ?? 0, contextSize: old?.contextSize ?? 0, cost: old?.cost ?? 0, busy: false, closed: true, canOpen: !!agentCapabilities.loadSession });
           }

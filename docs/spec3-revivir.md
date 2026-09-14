@@ -372,8 +372,11 @@ edita dentro de la caja, se pierde en el siguiente despertar — la copia buena 
 - **Reconectar el navegador.** Al `closed` (la caja se durmió, el WS cayó) el hook cierra el
   `EventSource` y no vuelve; el server ya sabe rehidratar con `session/load` al reconectar. Es lo
   que en prod se ve como "se murió mi sesión". Verificado el 14 sep: las sesiones estaban todas.
-- **Títulos.** Las 20 sesiones de prod se llaman `New Chat`: el agente no manda
-  `session_info_update` con título en esta caja. Sin título, ocho hilos iguales parecen perdidos.
+- ~~**Títulos.**~~ Hecho (14 sep). Las 20 sesiones de prod se llamaban `New Chat`: el agente no manda
+  `session_info_update` con título en esta caja. Ahora, si el agente deja el título genérico, el
+  primer mensaje del humano hace de título (`app/.server/titles.ts`) y se guarda en la caja de la UI
+  (`.data/titles.db`, `ACP_TITLES_DB`) para que `session/list` lo muestre tras reiniciar. Un título
+  de verdad del agente siempre lo pisa. Los hilos viejos se bautizan al reabrirlos.
 - **Programar el respaldo.** `backup-sessions.mjs` funciona pero nadie lo corre; si la caja del
   agente desaparece (ya van dos), se pierde todo.
 - **Qué pasa con un turno interrumpido.** Es la pregunta de la sesión y hay que responderla con la

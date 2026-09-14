@@ -12,6 +12,7 @@
     "test:permissions": "node --experimental-strip-types --test scripts/permissions.test.mjs && node scripts/permissions.integration.mjs",
     "test:chat:browser": "node scripts/chat.browser.mjs",
     "test:artifacts": "node --experimental-strip-types --test scripts/artifacts.test.mjs",
+    "test:titles": "node --experimental-strip-types --test scripts/titles.test.mjs",
     "test:artifacts:browser": "node scripts/artifacts.browser.mjs"
   },
   "dependencies": {

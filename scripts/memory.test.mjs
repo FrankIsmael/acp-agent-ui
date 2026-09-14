@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const titlesDb = join(mkdtempSync(join(tmpdir(), 'acp-titles-')), 'titles.db');
 import { WebSocketServer } from 'ws';
 
 // The fixture owns history independently of the app process. No real agent,
@@ -57,8 +61,10 @@ mock.on('connection', ws => {
         const row = saved.get(params.sessionId);
         const chunks = [...params.prompt.filter(c => c.type === 'text').map(c => user(c.text)), assistant('Partial persisted response')];
         row.updates.push(...chunks);
-        row.title = 'Agent generated title';
-        update(params.sessionId, { sessionUpdate: 'session_info_update', title: row.title });
+        if (!/^untitled:/.test(chunks[1]?.content.text ?? '')) {
+          row.title = 'Agent generated title';
+          update(params.sessionId, { sessionUpdate: 'session_info_update', title: row.title });
+        }
         update(params.sessionId, chunks.at(-1));
         prompts.set(params.sessionId, () => respond({ stopReason: 'cancelled' }));
       } else if (method === 'session/cancel') {
@@ -73,7 +79,7 @@ mock.on('connection', ws => {
 });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function start() {
-  app = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), ACP_WS_URL: `ws://127.0.0.1:${agentPort}`, ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', ACP_CONNECT_TIMEOUT_MS: '2000', NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  app = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), ACP_WS_URL: `ws://127.0.0.1:${agentPort}`, ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', ACP_CONNECT_TIMEOUT_MS: '2000', ACP_TITLES_DB: titlesDb, NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
   app.stdout.on('data', d => log += d); app.stderr.on('data', d => log += d);
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(`${base}/`)).ok) return; } catch {}
@@ -138,6 +144,20 @@ try {
   const recovered = await open(id);
   assert.equal(recovered.busy, false, 'interrupted prompt is not silently resubmitted');
   assert.deepEqual(recovered.messages.map(m => m.text), ['Persist after restart', 'Partial persisted response']);
+  // Como en prod: el agente deja el hilo en `New Chat`. El título sale del primer mensaje y sobrevive al reinicio.
+  const silent = (await (await post('')).json()).conversationId;
+  assert.equal((await post(`/${silent}/messages`, { text: 'untitled: revisa el despliegue de producción' })).status, 200);
+  await delay(100);
+  await snapshot(silent);
+  const fresh = await (await fetch(`${base}/api/conversations`)).json();
+  assert.equal(fresh.conversations.find(c => c.id === silent).title, 'untitled: revisa el despliegue de producción', 'first prompt titles an untitled thread');
+  await stop(); await start();
+  const listed = await (await fetch(`${base}/api/conversations`)).json();
+  assert.equal(listed.conversations.find(c => c.id === silent).title, 'untitled: revisa el despliegue de producción', 'derived title survives restart in session/list');
+  await open(silent);
+  const reopened = await (await fetch(`${base}/api/conversations`)).json();
+  assert.equal(reopened.conversations.find(c => c.id === silent).title, 'untitled: revisa el despliegue de producción');
+  await open(id);
   assert.equal((await post(`/${id}/messages`, { text: 'Continue' })).status, 200);
   await delay(50);
   await open('saved-a');
