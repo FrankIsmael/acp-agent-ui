@@ -356,7 +356,9 @@ class GooseSession extends EventEmitter {
   constructor(id: string, cwd: string) { super(); this.sessionId = id; this.cwd = cwd; }
 
   private setConfigOptions(list: ConfigOption[] | undefined | null) {
-    const options = list ?? [];
+    // El provider (claude-acp, openai…) es decisión de quien levanta la caja, no de quien chatea:
+    // cambiarlo a media conversación deja al agente sin credenciales. No se ofrece en el selector.
+    const options = (list ?? []).filter((o) => o.id !== "provider" && o.category !== "provider");
     if (EXTRA_MODELS.length > 0) {
       const model = options.find((o) => o.category === "model" || o.id === "model");
       const raw = model?.options;
