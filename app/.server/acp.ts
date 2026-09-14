@@ -308,15 +308,39 @@ async function connectAgent(): Promise<ClientConnection> {
       active.update({ ...params.toolCall, sessionUpdate: "tool_call_update", status: "pending" });
       return active.permissions.request(params.toolCall, params.options ?? []);
     });
+    // La caja puede rechazar la conexión (tope de conversaciones, token malo) con un error
+    // JSON-RPC de `id: null` y cerrar el socket. El SDK lo descarta ("response to unknown
+    // request null") y `initialize` se quedaba colgado hasta el timeout sin decir por qué.
+    // Se captura el motivo del socket crudo y se corta la espera en cuanto cierra.
+    let rejection = "";
+    let socketClosed!: Promise<never>;
+    class ObservedWebSocket extends WebSocket {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args);
+        socketClosed = new Promise((_, reject) => {
+          this.on("message", (data) => {
+            try {
+              const msg = JSON.parse(data.toString());
+              if (msg.id === null && msg.error?.message) rejection = msg.error.message;
+            } catch {}
+          });
+          this.on("close", () => reject(new AgentError(rejection || "El agente cerró la conexión antes de responder.")));
+        });
+        socketClosed.catch(() => {});
+      }
+    }
     const conn = app.connect(createWebSocketStream(target.toString(), {
-      WebSocket, headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
+      WebSocket: ObservedWebSocket, headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
     } as any));
     try {
       const init: any = await withTimeout(
-        conn.agent.request("initialize", {
-          protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { configOptions: { boolean: {} } } },
-        }),
+        Promise.race([
+          conn.agent.request("initialize", {
+            protocolVersion: 1,
+            clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { configOptions: { boolean: {} } } },
+          }),
+          socketClosed,
+        ]),
         CONNECT_TIMEOUT_MS, "El agente no respondió a tiempo.",
       );
       agentCapabilities = init.agentCapabilities ?? {};
