@@ -15,6 +15,10 @@ const app = express();
 
 app.use(compression());
 app.disable("x-powered-by");
+// En producción la app va detrás de Caddy (TLS terminado ahí). Sin esto Express cree que
+// habla http y `request.url` sale con el esquema equivocado: la comprobación de mismo
+// origen rechazaba el POST del propio navegador con 403.
+app.set("trust proxy", true);
 
 app.use(
   "/assets",
