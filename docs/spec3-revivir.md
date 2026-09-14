@@ -369,6 +369,13 @@ edita dentro de la caja, se pierde en el siguiente despertar — la copia buena 
 
 ## Lo que falta
 
+- **Reconectar el navegador.** Al `closed` (la caja se durmió, el WS cayó) el hook cierra el
+  `EventSource` y no vuelve; el server ya sabe rehidratar con `session/load` al reconectar. Es lo
+  que en prod se ve como "se murió mi sesión". Verificado el 14 sep: las sesiones estaban todas.
+- **Títulos.** Las 20 sesiones de prod se llaman `New Chat`: el agente no manda
+  `session_info_update` con título en esta caja. Sin título, ocho hilos iguales parecen perdidos.
+- **Programar el respaldo.** `backup-sessions.mjs` funciona pero nadie lo corre; si la caja del
+  agente desaparece (ya van dos), se pierde todo.
 - **Qué pasa con un turno interrumpido.** Es la pregunta de la sesión y hay que responderla con la
   prueba, no con la doc.
 - **`session/cancel`.** El botón de parar está dibujado y no interrumpe; toca aquí.

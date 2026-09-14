@@ -1,6 +1,6 @@
 # Dónde estamos
 
-> Actualizado el 13 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
+> Actualizado el 14 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
 > hay que saber para retomar sin releer todo. Lo conceptual va en [`docs/`](docs/).
 
 ## Lo que funciona hoy
@@ -56,8 +56,16 @@ queda [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
   suspensión dejaba la app muerta con un 401 que parecía de credenciales.
 - **Node 22.16 contra 22.22.** React Router pide ≥ 22.22 y avisa en cada arranque; funciona igual.
   Vale la pena subir la versión para dejar de leer el aviso.
-- **Nada se persiste.** Las conversaciones viven en un `Map` del proceso: reiniciar el server las
-  borra. Es justo el tema de la [sesión 3](docs/spec3-revivir.md).
+- **Las conversaciones sí sobreviven (verificado en prod el 14 sep).** Viven en la caja del
+  agente (`/data/ghosty/data/sessions/sessions.db`, raíz persistente) y la lista sale de
+  `session/list`; reiniciar la app no borra nada. Lo que *parece* pérdida son tres cosas:
+  1. todas se llaman `New Chat` — el agente no está generando títulos en esta caja (pendiente);
+  2. al suspenderse la caja por ocio (15 min) el WebSocket cae, el server manda `closed` y el
+     navegador **no reconecta** (`useAcpStream.ts`, handler `closed`): el chat abierto queda muerto
+     hasta recargar. Pendiente: reabrir el `EventSource` con backoff;
+  3. la primera petición tras el sueño tarda ~19 s y `/sessions` enseña "Cargando…" vacío.
+  Lo único que sí se pierde es la caja entera (ha pasado dos veces): `backup-sessions.mjs`
+  existe pero nadie lo programa.
 - **El permiso ya no se auto-aprueba.** El turno espera la decisión en el chat; sin timeout, se
   cancela al detener, cerrar o desconectar. Ver [`docs/permissions-extensions.md`](docs/permissions-extensions.md).
 - **Un `session/new` colgado ya no cuelga la app.** Tope `ACP_SESSION_TIMEOUT_MS` (60 s); el
@@ -108,6 +116,41 @@ queda [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
     [spec 4](docs/spec4-permisos-extensiones.md). Vale para conversaciones nuevas, y sobrevive al
     reinicio porque `.goosehints` es la fuente.
 
+## Producción
+
+Dos cajas de EasyBits, y conviene no confundirlas:
+
+| | App | Agente |
+|---|---|---|
+| id | `sb_97a7e9bf-e516-453e-8acf-ddd54e6d1fdc` (template `node`) | `sb_dc72993b-5fd9-4f25-b9f0-b6078632f7cd` (ghosty-lite) |
+| URL | https://acp-agent.ismaelfrancisco.tech (Caddy → :3000) | `wss://acp-6aa757c3…/acp` |
+| disco persistente | `/app` (ext4, `/dev/vdb`); **no hay `/data`** | `/data` |
+| qué guarda | repo + `build/` + `.data/extensions.db` | `sessions.db` |
+| logs | `/var/log/easybits-app.log`, `journalctl -u easybits-app` | `/data/ghosty/state/logs/cli/…` |
+
+La app corre como `easybits-app.service` (`Restart=always`), arrancada por
+`/app/.easybits-start.sh`, que carga `/app/.easybits.env` (los secrets de `easybits.json`) y hace
+`exec node server.js`. **Una sola instancia**: el motor ACP es estado del proceso (`connection`,
+`active`, `history`); con dos réplicas el SSE cae en una y el POST en otra.
+
+Desplegar = subir el commit y reconstruir en la caja; un restart solo no trae código nuevo:
+
+```sh
+git push origin main
+# en la caja de la app (POST /api/v2/sandboxes/<app>/exec):
+cd /app && git fetch -q origin main && git checkout -q -B main origin/main && npm run build
+# reiniciar el servicio: tool `restart_machine` del MCP de EasyBits (?tools=sandbox,hosting,fleet)
+```
+
+Para mirar dentro, `exec` con un comando: `ls /app/.data`, `tail /var/log/easybits-app.log`, o la
+base de extensiones con `node -e` y `node:sqlite` en modo `readOnly` (nunca `cp` con WAL abierto).
+
+- **Detrás de Caddy, Express creía hablar http** (`req.protocol`) y `request.url` salía con el
+  esquema equivocado: `assertSameOrigin` rechazaba con 403 el POST del propio navegador en
+  `/api/extensions`. Arreglado el 14 sep (`99470dc`): `app.set("trust proxy", true)` en
+  `server.js` y la comprobación se fía de `Sec-Fetch-Site` (lo pone el navegador) y sólo compara
+  `Origin` por host, no por esquema. En dev no se veía porque no hay proxy.
+
 ## Lo siguiente
 
 Las sesiones 3 a 6 están planteadas en `docs/`, cada una con lo que ya se sabe del protocolo y lo
@@ -119,5 +162,5 @@ Dos cosas sueltas antes de empezar:
 - `.agents/skills/react-router/` viene del scaffold. **No borrar**: en la sesión 1 sirve de
   ejemplo en vivo de que las skills salen del `cwd` que viaja en `session/new` — goose la lee
   del proyecto y la anuncia al editor en `available_commands_update`.
-- El `Dockerfile` es el del scaffold y hace `npm start`, que ahora exige `.env`: si se despliega en
-  Fly, las variables van como secrets.
+- El `Dockerfile` **no se usa en prod** (ver "Producción"). Si algún día se usa: `npm start` hace
+  `node --env-file=.env`, que revienta sin archivo; cambiar a `--env-file-if-exists=.env`.
