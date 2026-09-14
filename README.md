@@ -34,7 +34,7 @@ un documento por sesión en [`docs/`](docs/).
 | 1 | Vive fuera de tu compu y despierta cuando lo llamas | [`spec1-agente-fuera.md`](docs/spec1-agente-fuera.md) | ✅ |
 | 2 | UI propia, mostrando lo que hace mientras lo hace | [`spec2-ui-solida.md`](docs/spec2-ui-solida.md) | ✅ |
 | 3 | Lo matas a media tarea y revive donde iba | [`spec3-revivir.md`](docs/spec3-revivir.md) | plan |
-| 4 | Contesta por WhatsApp y te pide permiso desde ahí | [`spec4-permisos-extensiones.md`](docs/spec4-permisos-extensiones.md) | plan |
+| 4 | Contesta por WhatsApp y te pide permiso desde ahí | [`spec4-permisos-extensiones.md`](docs/spec4-permisos-extensiones.md) | extensiones y permisos ✅ · WhatsApp plan |
 | 5 | Sólido, corriendo, y con forma de saber si se rompe | [`spec5-operacion.md`](docs/spec5-operacion.md) | plan |
 | 6 | Haciendo lo tuyo: habilidades | [`spec6-habilidades.md`](docs/spec6-habilidades.md) | plan |
 
@@ -124,4 +124,10 @@ curl -X POST https://www.easybits.cloud/api/v2/agents \
 ```bash
   curl -sS -X DELETE https://www.easybits.cloud/api/v2/agents/6aa43367d4f588c595df7fbc \
   -H "Authorization: Bearer $EASYBITS_API_KEY"
+```
+
+```bash
+curl -X POST https://www.easybits.cloud/api/v2/agents \
+  -H "Authorization: Bearer $EASYBITS_API_KEY" -H "Content-Type: application/json" \
+  -d "{\"template\":\"ghosty-lite\",\"name\":\"or-agente\",\"env\":{\"GHOSTY_PROVIDER\":\"openrouter\",\"GHOSTY_MODEL\":\"nvidia/nemotron-3.5-lightning:free\",\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\"}}"
 ```

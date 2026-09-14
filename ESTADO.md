@@ -1,6 +1,6 @@
 # Dónde estamos
 
-> Actualizado el 12 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
+> Actualizado el 13 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
 > hay que saber para retomar sin releer todo. Lo conceptual va en [`docs/`](docs/).
 
 ## Lo que funciona hoy
@@ -14,7 +14,9 @@ responde en markdown y reporta tokens y costo. Verificado el 31 de agosto con
 | Interfaz | la raíz de este repo | ✅ SSR, 9 rutas |
 | Motor ACP | `app/.server/acp.ts` | ✅ una conexión por conversación |
 | SSE | `app/routes/api.conversations.$id.events.ts` | ✅ con latido cada 25 s |
-| Agente | caja `goose-demo` (`sb_af93745a-…`), goose 1.48.0 | ✅ `goose-acp.service` |
+| Agente | `mi-agente-claude` (`sb_76f0708e-…`), ghosty-lite 1.48.0, `claude-acp`/sonnet, `GOOSE_MODE=approve` | ✅ `ghosty-lite-runtime` |
+| Extensiones | `/extensions`, SQLite en `.data/extensions.db` | ✅ http y stdio, en `session/new` y en caliente |
+| Permisos | `PermissionCard`, `/api/conversations/:id/permissions` | ✅ el turno espera la decisión |
 | Repo | [blissito/acp-agent-ui](https://github.com/blissito/acp-agent-ui) | público |
 
 ## Para arrancar
@@ -28,10 +30,13 @@ El `.env` (fuera del repo) lleva `ACP_WS_URL`, `ACP_SECRET`, `ACP_CWD`, `AGENT_B
 `EASYBITS_API_KEY`. **Sin la llave la app funciona pero no gestiona la caja** (el log dice
 "sin SDK"); `@easybits.cloud/sdk` ya es dependencia.
 
-Si la caja muere, [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs) levanta otra de cero
-en ~25 s (crear, instalar goose, LLM = EasyBits, `/data/work`, unidad, expose) y reescribe el
-`.env`. Sólo necesita `EASYBITS_API_KEY` en el entorno. Pasó el 2 sep: la primera `goose-demo`
-desapareció del host sin aviso (404 "sandbox not found") mientras figuraba `running`.
+Si la caja muere, [`scripts/new-ghosty-agent.mjs`](scripts/new-ghosty-agent.mjs) crea otro agente
+`ghosty-lite` con Claude (`CLAUDE_CODE_OAUTH_TOKEN` de `claude setup-token`, o `ANTHROPIC_API_KEY`)
+y reescribe el `.env`; guarda `ACP_SECRET` y `AGENT_BOX_ID` nada más crear, porque `createAgent`
+devuelve la URL como `sandbox://…` y la `wss://` real sólo aparece después en `getAgent`. Ha pasado
+dos veces que la caja desaparece del host con 404 "sandbox not found" mientras figura `running`
+(2 sep y 12 sep); sin `AGENT_SNAPSHOT_ID` no hay recuperación automática. Para goose sobre DeepSeek
+queda [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
 
 ## Lo que hay que saber
 
@@ -53,9 +58,17 @@ desapareció del host sin aviso (404 "sandbox not found") mientras figuraba `run
   Vale la pena subir la versión para dejar de leer el aviso.
 - **Nada se persiste.** Las conversaciones viven en un `Map` del proceso: reiniciar el server las
   borra. Es justo el tema de la [sesión 3](docs/spec3-revivir.md).
-- **El permiso se auto-aprueba.** `session/request_permission` se acepta solo, en
-  `app/.server/acp.ts`. Tema de la [sesión 4](docs/spec4-permisos-extensiones.md).
-- **El botón de parar no interrumpe.** Está dibujado; falta `session/cancel`.
+- **El permiso ya no se auto-aprueba.** El turno espera la decisión en el chat; sin timeout, se
+  cancela al detener, cerrar o desconectar. Ver [`docs/permissions-extensions.md`](docs/permissions-extensions.md).
+- **Un `session/new` colgado ya no cuelga la app.** Tope `ACP_SESSION_TIMEOUT_MS` (60 s); el
+  error llega al navegador nombrando las extensiones activas, y la causa real al log del servidor
+  (`[conversations] …`). Antes cualquier fallo era "Revisa la conexión con el agente".
+- **La base de extensiones es la de la rama `sesion-4-mcp`** (columna por campo, `id` UUID,
+  `name` único, `ACP_EXTENSIONS_DB` / `.data/extensions.db`): un archivo escrito en una rama se
+  lee en la otra. Un `.db` del formato intermedio (`configuration` JSON) se convierte solo al abrir.
+- **`scripts/permissions.integration.mjs` corre contra `build/`**: si falla después de tocar
+  código, primero `npm run build`.
+- **El botón de parar sí interrumpe** (`session/cancel`).
 - **Los métodos son `_unstable`.** Todo lo que llene las vistas vacías lleva ese sufijo en goose:
   pueden cambiar sin aviso.
 - **El MCP http de EasyBits no entrega tools con goose/ghosty — y no es el provider.** Investigado
@@ -80,6 +93,20 @@ desapareció del host sin aviso (404 "sandbox not found") mientras figuraba `run
     goose lo toma por OAuth: arranca un login en navegador (`If the browser did not open,
     authorize … at:` en journald) y `session/new` se queda colgado. Con `?token=` conecta en 2 s.
     Y con `claude-acp` hace falta `GOOSE_MODE=approve` o el turno muere con `Internal error`.
+  - **Verificado el 12 sep con el agente nuevo (`claude-acp`/sonnet):** la extensión http con
+    `?token=` carga en 1 s y el modelo invocó `mcp__EasybitsTools__research_search` con resultado
+    real. Y desde goose/DeepSeek también hay salida: la caja trae
+    `/data/tools/easybits-mcp-proxy.mjs`, que reescribe `cacheScope`; como extensión stdio
+    (`/usr/local/bin/node /data/tools/easybits-mcp-proxy.mjs`, env `EASYBITS_API_KEY` +
+    `EASYBITS_MCP_URL=https://www.easybits.cloud/api/mcp?tools=web`) entrega las 11 tools de `web`.
+  - **Pero el agente no las usa solo:** con `claude-acp` el cerebro sólo lee `/data/work/CLAUDE.md`
+    (copia de `/data/ghosty/config/.goosehints` en cada arranque), y ahí manda usar
+    `/opt/gs-sdk/web.mjs` y no las tools nativas — lo obedece aunque se le pida lo contrario, y
+    `web.mjs` está roto en esta caja (falta `.gs-turn.json`). Para que "busca X" vaya al MCP hay
+    que cambiar esa regla en los dos archivos, con orden de preferencia (MCP de EasyBits si está en
+    la sesión → `web.mjs` → nativa). Aplicado el 13 sep en los dos archivos; el texto está en la
+    [spec 4](docs/spec4-permisos-extensiones.md). Vale para conversaciones nuevas, y sobrevive al
+    reinicio porque `.goosehints` es la fuente.
 
 ## Lo siguiente
 

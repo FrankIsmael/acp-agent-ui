@@ -14,8 +14,18 @@ Las listas omiten las credenciales y llevan `Cache-Control: no-store`.
 `extensions.tsx` consume esa respuesta directamente para pintar el resultado,
 sin revalidar loaders ni consultar la lista otra vez.
 
-Las extensiones activadas se envían como `mcpServers` en `session/new` y `session/load`.
-El comando stdio se ejecuta en la máquina del agente. La base guarda también las variables
+Las extensiones activadas se envían como `mcpServers` en `session/new` y `session/load`;
+el servidor registra `[acp] mcpServers: …` en cada arranque de sesión. Si el agente no
+abre la sesión en `ACP_SESSION_TIMEOUT_MS` (60 s por omisión) —una extensión que no
+arranca lo bloquea— la petición falla y el mensaje nombra las extensiones activas.
+El comando stdio se ejecuta en la máquina del agente, sin `PATH`: va con ruta absoluta
+(`/usr/local/bin/node`, no `node`); el formulario lo exige. Para servidores HTTP que
+piden credencial conviene ponerla en la URL (`?token=…`) y no en cabeceras: al menos
+goose, ante un 401 con `WWW-Authenticate: Bearer resource_metadata=…`, arranca un flujo
+OAuth en vez de mandar `Authorization`, y la sesión se queda colgada hasta el timeout.
+La base de datos es la misma tabla que usó la rama `sesion-4-mcp` (`id` UUID, `name`
+único, una columna por campo): un archivo escrito en cualquiera de las dos ramas se lee
+en la otra. La base guarda también las variables
 y cabeceras necesarias para conectarse; el archivo se crea con permisos `0600` y no se
 incluye en Git ni en la imagen Docker. En despliegues, configura `ACP_EXTENSIONS_DB`
 dentro de un volumen persistente. Para respaldarla en caliente usa una copia consistente
@@ -28,7 +38,9 @@ herramienta ya conectada: se retira desde la sección de conversación activa. N
 una conversación al consultar extensiones, y se pueden guardar sin conexión al agente.
 
 Las operaciones de sesión usan `_goose/unstable/session/extensions/list`, `/add` y
-`/remove`. El cliente no modifica la configuración global de Goose ni importa sus
+`/remove`. Contra goose real: `list` devuelve cada extensión plana (sin `extensionKey`),
+así que se identifica por `server.name`/`name`, y `remove` recibe `{ name }`; la API
+acepta como `configKey` tanto el id del cliente como ese nombre. El cliente no modifica la configuración global de Goose ni importa sus
 extensiones automáticamente. Las credenciales sólo se envían al agente al conectar;
 no se devuelven en las listas de la web. El almacenamiento del resto de la aplicación
 permanece igual.
