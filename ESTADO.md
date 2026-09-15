@@ -155,8 +155,9 @@ Desplegar = subir el commit y reconstruir en la caja; un restart solo no trae c√
 ```sh
 git push origin main
 # en la caja de la app (POST /api/v2/sandboxes/<app>/exec):
-cd /app && git fetch -q origin main && git checkout -q -B main origin/main && npm run build
+cd /app && git fetch -q origin main && git checkout -q -B main origin/main && (npm ci || npm install) && npm run build
 # reiniciar el servicio: tool `restart_machine` del MCP de EasyBits (?tools=sandbox,hosting,fleet)
+# Sin el `npm ci` un commit que a√±ade paquetes arranca con ERR_MODULE_NOT_FOUND y todo da 500 (15 sep).
 ```
 
 Para mirar dentro, `exec` con un comando: `ls /app/.data`, `tail /var/log/easybits-app.log`, o la
