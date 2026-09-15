@@ -10,7 +10,10 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-const KEY = process.env.WHATSAPP_ADMIN_KEY ?? "";
+// Según cómo cargue el `.env` quien arranca el proceso, el valor puede llegar con comillas o
+// con un `\r` al final: se limpia antes de comparar, y lo mismo con lo que venga en la URL.
+const clean = (value: string) => value.trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+const KEY = clean(process.env.WHATSAPP_ADMIN_KEY ?? "");
 const PROD = process.env.NODE_ENV === "production";
 const COOKIE = "wa_admin";
 const MAX_AGE = 30 * 24 * 3600;
@@ -37,7 +40,7 @@ export function adminGate(request: Request): Gate {
   const expected = proof();
   const key = new URL(request.url).searchParams.get("key");
   if (key !== null) {
-    if (!same(key, KEY)) return { ok: false, reason: "forbidden" };
+    if (!same(clean(key), KEY)) return { ok: false, reason: "forbidden" };
     const secure = new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
     return { ok: true, setCookie: `${COOKIE}=${expected}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}` };
   }

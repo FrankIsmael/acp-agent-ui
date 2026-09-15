@@ -160,6 +160,13 @@ cd /app && git fetch -q origin main && git checkout -q -B main origin/main && (n
 # Sin el `npm ci` un commit que añade paquetes arranca con ERR_MODULE_NOT_FOUND y todo da 500 (15 sep).
 ```
 
+Cambiar una variable de entorno = dos pasos, sin build ni git: (1) `set_machine_secrets` (tool
+del MCP de EasyBits, o el dashboard) con **sólo el valor** — el 15 sep `WHATSAPP_ADMIN_KEY` se guardó
+como `' WHATSAPP_ADMIN_KEY=…'` por pegar la línea entera y la llave nunca coincidía; (2) reiniciar
+(`restart_machine`): el `.easybits.env` se lee una vez al arrancar y el proceso no lo relee. Una
+variable nueva tiene que estar además en `secretNames` de `easybits.json`. Se comprueba con
+`systemctl show easybits-app -p ActiveEnterTimestamp` (más nuevo que el cambio) y `grep` en el archivo.
+
 Para mirar dentro, `exec` con un comando: `ls /app/.data`, `tail /var/log/easybits-app.log`, o la
 base de extensiones con `node -e` y `node:sqlite` en modo `readOnly` (nunca `cp` con WAL abierto).
 
