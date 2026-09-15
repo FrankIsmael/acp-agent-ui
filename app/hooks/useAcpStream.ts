@@ -47,6 +47,9 @@ export interface Turn {
   role: 'user' | 'assistant';
   text: string;
   images?: PromptImage[];
+  /** Por qué canal entró (`whatsapp`…); sin valor, lo escribió este navegador. */
+  via?: string;
+  from?: string;
   thought?: string;
   tools?: ToolEntry[];
   usage?: { used: number; size: number; cost: number };
@@ -139,6 +142,19 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     es.addEventListener('tool', (e) =>
       upsertTool(JSON.parse((e as MessageEvent).data)),
     );
+    // Un turno que entró por otro canal (WhatsApp): este navegador no lo mandó, así que
+    // se pinta al llegar. Lo que venga después es una respuesta nueva del agente.
+    es.addEventListener('user', (e) => {
+      const d = JSON.parse((e as MessageEvent).data) as Omit<Turn, 'role'>;
+      streaming.current = false;
+      setTurns((prev) => [...prev, { role: 'user', ...d }]);
+      setBusy(true);
+    });
+    // Una imagen que devolvió una herramienta MCP: se cuelga del mensaje del agente en curso.
+    es.addEventListener('image', (e) => {
+      const img = JSON.parse((e as MessageEvent).data) as PromptImage;
+      patchCurrent((t) => ({ ...t, images: [...(t.images ?? []), img] }));
+    });
     es.addEventListener('usage', (e) => {
       const u = JSON.parse((e as MessageEvent).data) as Usage;
       setUsage(u);

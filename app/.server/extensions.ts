@@ -190,9 +190,14 @@ export class ExtensionStore {
   close() { this.db.close(); }
 }
 
-let store: ExtensionStore | undefined;
-export function extensionStore() {
+/** La ruta de la base de este cliente. El canal de WhatsApp guarda lo suyo en el mismo archivo. */
+export function clientDbPath() {
   // Misma variable y misma ruta por omisión que la rama `sesion-4-mcp`.
   const path = process.env.ACP_EXTENSIONS_DB || ".data/extensions.db";
-  return store ??= new ExtensionStore(path === ":memory:" ? path : resolve(path));
+  return path === ":memory:" ? path : resolve(path);
+}
+
+let store: ExtensionStore | undefined;
+export function extensionStore() {
+  return store ??= new ExtensionStore(clientDbPath());
 }

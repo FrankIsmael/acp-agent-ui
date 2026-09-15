@@ -17,6 +17,7 @@ responde en markdown y reporta tokens y costo. Verificado el 31 de agosto con
 | Agente | `mi-agente-claude` (`sb_76f0708e-…`), ghosty-lite 1.48.0, `claude-acp`/sonnet, `GOOSE_MODE=approve` | ✅ `ghosty-lite-runtime` |
 | Extensiones | `/extensions`, SQLite en `.data/extensions.db` | ✅ http y stdio, en `session/new` y en caliente |
 | Permisos | `PermissionCard`, `/api/conversations/:id/permissions` | ✅ el turno espera la decisión |
+| WhatsApp | `/whatsapp`, `app/.server/whatsapp.ts` (Baileys), tablas `whatsapp_*` en la misma SQLite | ✅ QR o código, grupos con switch, ráfagas, fotos y reacciones |
 | Repo | [blissito/acp-agent-ui](https://github.com/blissito/acp-agent-ui) | público |
 
 ## Para arrancar
@@ -44,6 +45,15 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-age
 ```
 
 ## Lo que hay que saber
+
+- **WhatsApp entra al mismo hilo que el chat web** ([`docs/spec5-operacion.md`](docs/spec5-operacion.md)).
+  `askFromChannel` en `acp.ts` mete el turno en el hilo abierto (o abre uno) y espera la
+  respuesta entera; el navegador lo ve como burbuja etiquetada "vía WhatsApp" (evento `user`)
+  y las imágenes de herramientas `mcp:` como evento `image`. Las credenciales de Baileys viven
+  en `whatsapp_auth` dentro de `ACP_EXTENSIONS_DB`: al hostear, esa ruta debe estar en disco
+  persistente o habrá que escanear otra vez tras cada despliegue. Al abrir el hilo se fuerza
+  `session/set_mode auto` (`ACP_MODE`; vacío para no tocarlo), porque ghosty no entrega la
+  respuesta del permiso con claude-acp y la herramienta se queda colgada.
 
 - **Las herramientas y el pensamiento se ven.** `tool_call` / `tool_call_update` llegan al
   navegador como evento `tool` (upsert por id) y `agent_thought_chunk` como `thought`; el chat

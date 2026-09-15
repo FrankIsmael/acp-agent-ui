@@ -9,6 +9,8 @@ export default [
   // Rutas de recurso: la API que consume el navegador (SSE incluido).
   route("api/model-preference", "routes/api.model-preference.ts"),
   route("api/extensions", "routes/api.extensions.ts"),
+  route("api/whatsapp", "routes/api.whatsapp.ts"),
+  route("api/whatsapp/events", "routes/api.whatsapp.events.ts"),
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id/events", "routes/api.conversations.$id.events.ts"),
   route("api/conversations/:id/messages", "routes/api.conversations.$id.messages.ts"),

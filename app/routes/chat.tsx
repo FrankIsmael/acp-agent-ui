@@ -12,6 +12,7 @@ import {
   FolderInput,
   Globe,
   Loader2,
+  MessageCircle,
   PanelRightOpen,
   Search,
   Terminal,
@@ -53,6 +54,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       role: m.role,
       text: m.text,
       images: m.images,
+      via: m.via,
+      from: m.from,
       thought: m.thought,
       tools: m.tools,
       usage: m.usage,
@@ -60,10 +63,20 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   };
 }
 
+// Cómo se nombra cada canal en la etiqueta de la burbuja.
+const CHANNEL_LABEL: Record<string, string> = { whatsapp: "vía WhatsApp" };
+
 function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: Turn; parts: ArtifactPart[]; conversationId: string; turnIndex: number; streaming: boolean }) {
   if (turn.role === "user") {
     return (
       <div className="flex flex-col items-end gap-2">
+        {turn.via && (
+          <span className="flex items-center gap-1 text-[11px] text-text-tertiary">
+            <MessageCircle className="h-3 w-3" />
+            {CHANNEL_LABEL[turn.via] ?? turn.via}
+            {turn.from && <> · {turn.from}</>}
+          </span>
+        )}
         {turn.images && turn.images.length > 0 && (
           <ul className="flex max-w-[80%] flex-wrap justify-end gap-2">
             {turn.images.map((img, i) => (
@@ -79,7 +92,7 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
           </ul>
         )}
         {turn.text && (
-          <div className="max-w-[80%] rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
             {turn.text}
           </div>
         )}
@@ -88,6 +101,19 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
   }
   return (
     <div className="max-w-[90%]">
+      {turn.images && turn.images.length > 0 && (
+        <ul className="mb-3 flex flex-wrap gap-2">
+          {turn.images.map((img, i) => (
+            <li key={i}>
+              <img
+                src={`data:${img.mimeType};base64,${img.data}`}
+                alt={img.name ?? "Imagen generada"}
+                className="max-h-80 max-w-full rounded-xl border border-border-secondary object-contain"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
       {turn.thought && (
         <details className="mb-3 text-xs text-text-secondary">
           <summary className="cursor-pointer select-none">Pensando…</summary>

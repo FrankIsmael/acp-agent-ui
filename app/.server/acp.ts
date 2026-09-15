@@ -11,7 +11,7 @@ import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-
 import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
 import { parseSkills, replayMetadata } from "./goose-adapter";
-import { ARTIFACT_INSTRUCTIONS } from "./artifact-instructions";
+import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS } from "./artifact-instructions";
 import { PermissionQueue, type PendingPermission } from "./permissions";
 import { extensionStore, summarizeExtensions } from "./extensions";
 import { isGenericTitle, titleFromPrompt, titleStore } from "./titles";
@@ -211,6 +211,12 @@ export type AcpEvent =
   | { type: "busy"; busy: boolean }
   | { type: "chunk"; text: string }
   | { type: "thought"; text: string }
+  // Un turno que entró por otro canal (WhatsApp…): el navegador no lo mandó, así que hay
+  // que pintárselo. Los del propio navegador no se emiten: él ya los tiene.
+  | { type: "user"; text: string; images?: PromptImage[]; via: string; from?: string }
+  // Una imagen que devolvió una herramienta MCP dentro del turno; se cuelga del mensaje
+  // del agente que está en curso.
+  | { type: "image"; mimeType: string; data: string }
   | {
       // Una herramienta del agente: tool_call la crea, tool_call_update la
       // avanza. El mismo id llega varias veces; el navegador hace upsert.
@@ -249,6 +255,18 @@ const SESSION_TIMEOUT_MS = Number(process.env.ACP_SESSION_TIMEOUT_MS ?? 60_000);
 /** Un fallo con mensaje pensado para el usuario: las rutas lo devuelven tal cual. */
 export class AgentError extends Error {}
 
+// ghosty no entrega la respuesta del permiso con claude-acp (`No task waiting for confirmation`)
+// y la herramienta se queda colgada para siempre. Hasta que lo arreglen, el hilo se pone en este
+// modo al abrirse. Vacío = no tocar el modo del agente.
+const ACP_MODE = process.env.ACP_MODE ?? "auto";
+
+/** Lo que un canal externo (WhatsApp…) necesita saber de un turno que él mismo pidió. */
+export interface ChannelTurn {
+  via: string;
+  from?: string;
+  onAnswer?: (answer: string, error: string | null, images: PromptImage[]) => void;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new AgentError(message)), ms); });
@@ -259,6 +277,10 @@ export interface StoredMessage {
   role: "user" | "assistant";
   text: string;
   images?: PromptImage[];
+  /** Por qué canal entró el turno (`whatsapp`…). Sin valor: el chat web. */
+  via?: string;
+  /** Quién lo escribió en ese canal, tal como lo enseña el canal. */
+  from?: string;
   thought?: string;
   tools?: { id: string; title?: string; kind?: string; status?: string; path?: string }[];
   usage?: { used: number; size: number; cost: number };
@@ -434,12 +456,24 @@ class GooseSession extends EventEmitter {
       );
       if (!load) this.sessionId = response.sessionId;
       this.setConfigOptions(response.configOptions);
+      await this.forceMode(conn, response.modes);
       this.ready = true;
       if (load) this.entitle(this.messages.find(m => m.role === "user")?.text ?? "");
       this.emit("event", { type: "started", sessionId: this.sessionId });
       this.emitConfig();
       remember(this);
     } finally { this.replaying = false; this.assistant = undefined; }
+  }
+
+  // Ver ACP_MODE: sin `auto`, con claude-acp toda herramienta que pide permiso se cuelga.
+  private async forceMode(conn: ClientConnection, modes: { currentModeId?: string; availableModes?: { id: string }[] } | undefined) {
+    if (!ACP_MODE || !modes || modes.currentModeId === ACP_MODE) return;
+    if (modes.availableModes && !modes.availableModes.some(m => m.id === ACP_MODE)) return;
+    try {
+      await conn.agent.request("session/set_mode", { sessionId: this.sessionId, modeId: ACP_MODE });
+    } catch (error) {
+      console.warn(`[acp] no pude poner el modo ${ACP_MODE}:`, (error as Error).message);
+    }
   }
 
   // Si el agente no bautizó el hilo, el primer mensaje del humano hace de título.
@@ -469,9 +503,11 @@ class GooseSession extends EventEmitter {
       // El prompt añade las instrucciones de artifacts como bloque separado.
       // Nunca se muestran esas instrucciones como si las hubiera escrito el humano.
       const content = { ...u.content };
-      if (content.type === "text" && content.text.startsWith(ARTIFACT_INSTRUCTIONS)) {
-        content.text = content.text.slice(ARTIFACT_INSTRUCTIONS.length).trimStart();
-        if (!content.text) return;
+      for (const prefix of [ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS]) {
+        if (content.type === "text" && content.text.startsWith(prefix)) {
+          content.text = content.text.slice(prefix.length).trimStart();
+          if (!content.text) return;
+        }
       }
       this.assistant = undefined;
       let message = this.messages.at(-1);
@@ -494,10 +530,23 @@ class GooseSession extends EventEmitter {
       const event: Extract<AcpEvent, { type: "tool" }> = { type: "tool", id: u.toolCallId };
       for (const key of ["title", "kind", "status"] as const) if (u[key] != null) event[key] = u[key];
       if (u.locations?.[0]?.path) event.path = u.locations[0].path;
-      const tools = this.answer().tools ??= [];
+      const answer = this.answer();
+      const tools = answer.tools ??= [];
       const existing = tools.find(t => t.id === event.id);
       if (existing) Object.assign(existing, event); else tools.push(event);
       emit(event);
+      // Las imágenes viajan en `content[]` del update. Sólo cuentan las de extensiones (`mcp:`):
+      // un `Read` de un PNG también devuelve imagen, pero ésa la leyó el agente, no la produjo.
+      const title = existing?.title ?? event.title ?? "";
+      if (u.sessionUpdate === "tool_call_update" && Array.isArray(u.content) && /^mcp:/i.test(title)) {
+        for (const block of u.content) {
+          const content = block?.type === "content" ? block.content : undefined;
+          if (content?.type !== "image" || typeof content.data !== "string" || !content.data) continue;
+          const image: PromptImage = { mimeType: content.mimeType || "image/png", data: content.data };
+          (answer.images ??= []).push(image);
+          emit({ type: "image", ...image });
+        }
+      }
     } else if (u.sessionUpdate === "config_option_update") {
       this.setConfigOptions(u.configOptions);
       if (!this.replaying) this.emitConfig();
@@ -532,26 +581,38 @@ class GooseSession extends EventEmitter {
     this.emitConfig();
   }
 
-  ask(text: string, images: PromptImage[] = []) {
+  /** El turno terminó, con o sin error. Un canal externo espera aquí su respuesta. */
+  whenIdle() { return (this.running ?? Promise.resolve()).catch(() => {}); }
+
+  ask(text: string, images: PromptImage[] = [], channel?: ChannelTurn) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions) return false;
     this.busy = true;
     this.cancelling = false;
     this.assistant = undefined;
-    this.messages.push({ role: "user", text, images, at: Date.now() });
+    const message: StoredMessage = { role: "user", text, images, at: Date.now() };
+    if (channel) { message.via = channel.via; if (channel.from) message.from = channel.from; }
+    this.messages.push(message);
     this.updatedAt = Date.now();
+    if (channel) this.emit("event", { type: "user", text, images, via: channel.via, from: channel.from });
     this.emit("event", { type: "busy", busy: true });
     this.entitle(text);
     remember(this);
     this.running = (async () => {
+      let error: string | null = null;
       try {
         const result: any = await connection!.agent.request("session/prompt", {
           sessionId: this.sessionId,
-          prompt: [{ type: "text", text: ARTIFACT_INSTRUCTIONS }, { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
+          // Por un canal de mensajería no hay panel de artifacts: se le dice otra cosa al agente.
+          prompt: [{ type: "text", text: channel ? CHANNEL_INSTRUCTIONS : ARTIFACT_INSTRUCTIONS }, { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
         });
         this.emit("event", { type: "done", stopReason: result.stopReason, usage: this.assistant?.usage ?? null });
+        if (result.stopReason === "cancelled") error = "El turno se detuvo antes de terminar.";
       } catch {
-        this.emit("event", { type: "error", message: "La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente." });
+        error = "La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente.";
+        this.emit("event", { type: "error", message: error });
       } finally {
+        // El canal se entera antes de que se suelte `busy`, con el mensaje del agente entero.
+        try { channel?.onAnswer?.(this.assistant?.text ?? "", error, this.assistant?.images ?? []); } catch {}
         this.permissions.cancel();
         this.busy = false;
         this.assistant = undefined;
@@ -708,6 +769,49 @@ export function getMessages(id: string): StoredMessage[] { return getConversatio
 export function closeConversation(id: string) { return exclusive(async () => { const s = getConversation(id); if (!s) return false; await s.close(); return true; }); }
 export function askConversation(id: string, text: string, images: PromptImage[] = []) {
   const s = getConversation(id); if (!s) return false; markActivity(); return s.ask(text, images);
+}
+/**
+ * Un turno pedido desde fuera del navegador (WhatsApp…). Va al hilo abierto, o abre uno si no
+ * lo hay: una sola sesión viva, dos clientes, una conversación. Los canales se turnan: si el
+ * agente está contestando (al chat web o a otro grupo), el siguiente espera a que acabe.
+ * Resuelve con el texto entero del agente y las imágenes que devolvieron sus herramientas.
+ */
+let channelQueue = Promise.resolve();
+export function askFromChannel(text: string, via: string, from?: string, images: PromptImage[] = []) {
+  const turn = channelQueue.then(async (): Promise<{ text: string; images: PromptImage[] }> => {
+    let session = active && !active.closed && active.ready ? active : undefined;
+    if (!session) { await createConversation(); session = active; }
+    if (!session || session.closed) throw new AgentError("No hay un hilo abierto con el agente.");
+    // Cola simple: espera a que suelte el turno en curso y, si otro se coló, reintenta.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await session.whenIdle();
+      while (session.configuringExtensions) await new Promise(r => setTimeout(r, 250));
+      if (session.closed) throw new AgentError("El hilo se cerró mientras esperaba el turno.");
+      const answer = new Promise<{ text: string; images: PromptImage[] }>((resolve, reject) => {
+        const ok = session!.ask(text, images, {
+          via, from,
+          onAnswer: (answer, error, images) => error && !answer ? reject(new AgentError(error)) : resolve({ text: answer, images }),
+        });
+        if (!ok) reject(new Error("busy"));
+      });
+      try { markActivity(); return await answer; }
+      catch (error) {
+        if ((error as Error).message === "busy") continue;
+        // La caja se durmió y el WebSocket cayó con el turno dentro: el hilo quedó cerrado.
+        // Se reabre uno (eso despierta la caja) y se reintenta una sola vez.
+        if (session.closed && attempt === 0) {
+          await createConversation();
+          session = active;
+          if (!session || session.closed) throw error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new AgentError("El agente no se desocupó a tiempo.");
+  });
+  channelQueue = turn.then(() => {}, () => {});
+  return turn;
 }
 export async function setConversationConfig(id: string, configId: string, value: string | boolean) {
   const s = getConversation(id); if (!s) return false; await s.setConfigOption(configId, value); markActivity(); return true;
