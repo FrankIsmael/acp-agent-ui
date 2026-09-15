@@ -152,15 +152,24 @@ prueba solo antes del siguiente.
      `loggedOut` → borrar auth; otro → backoff `min(30 s, 2^n s)` hasta 5.
    - código por número: `sock.requestPairingCode(phone)` 1.5 s después de crear el socket, sólo
      si `!creds.registered`.
-   - `messages.upsert` tipo `notify`: sólo `@g.us`, ignorar `fromMe` y los ids que mandamos;
-     texto en `conversation` / `extendedTextMessage.text`; foto con `downloadMediaMessage(m,
-     "buffer")` + `imageMessage.caption`; reacción en `reactionMessage` (sólo si apunta a un id
-     nuestro).
+   - `messages.upsert` tipo `notify`: sólo `@g.us`; ignorar los ids que mandamos (no `fromMe`:
+     lo que el dueño del número escribe desde su teléfono también llega como `fromMe` y sí
+     cuenta, o quien vincula su propio número no puede hablarle al agente); texto en
+     `conversation` / `extendedTextMessage.text`; foto con `downloadMediaMessage(m, "buffer")`
+     + `imageMessage.caption`; reacción en `reactionMessage` (sólo si apunta a un id nuestro).
    - allowlist en tabla `whatsapp_groups (jid, subject, enabled, seen_at)`; lista con
      `groupFetchAllParticipating` cacheada 60 s (nunca en el poll).
    - ráfaga: buffer por grupo, 1.5 s, un `askFromChannel`; 👀 al empezar, `composing` cada 8 s,
-     ✅ al terminar; respuesta con `sendMessage(jid, { image, caption })` por cada imagen o
-     `{ text }`; un solo emoji → `{ react }`.
+     ✅ al terminar (❌ y un `⚠️ <error>` al grupo si el turno falla); respuesta con
+     `sendMessage(jid, { image })` por cada imagen, el texto como `caption` sólo en la primera
+     (si pasa de 1024 caracteres WhatsApp lo rechaza: va como `{ text }` aparte después), o
+     `{ text }` si no hay imágenes; un solo emoji → `{ react }`.
+   - `paraWhatsApp(text)`: un `<artifact>` que se le escapó al agente se sustituye por
+     `📎 _título_ (se ve en el chat web)`; del markdown sólo se traducen negritas, encabezados
+     y fences.
+   - Singleton en `globalThis` (`Symbol.for("acp-agent-ui.whatsapp")`), no en un `let` de
+     módulo: en dev Vite re-evalúa el módulo con cada edición y dos sockets con el mismo número
+     se expulsan mutuamente (conflicto 440). Un cambio en la clase pide reiniciar el servidor.
 7. **Rutas y vista**: `api/whatsapp` (GET estado+grupos; POST `connect | pair | disconnect |
    group`), `api/whatsapp/events` (SSE del estado), `routes/whatsapp.tsx` (QR/código, conectado,
    grupos con switch). `rehidratar()` al primer request reconecta si hay credenciales.
