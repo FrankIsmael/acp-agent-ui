@@ -6,6 +6,7 @@
 import { data } from "react-router";
 import type { Route } from "./+types/api.whatsapp";
 import { assertSameOrigin } from "~/.server/request-validation";
+import { requireAdmin } from "~/.server/admin-gate";
 import { whatsappChannel } from "~/.server/whatsapp";
 
 async function respond(intent: string | null, error: string | null = null, status = 200) {
@@ -15,9 +16,10 @@ async function respond(intent: string | null, error: string | null = null, statu
   return data({ status: channel.status, groups, intent, ok: !error, error }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-export function loader() { return respond(null); }
+export function loader({ request }: Route.LoaderArgs) { requireAdmin(request); return respond(null); }
 
 export async function action({ request }: Route.ActionArgs) {
+  requireAdmin(request);
   if (request.method !== "POST") return respond(null, "Método no permitido", 405);
   try { assertSameOrigin(request); }
   catch { return respond(null, "Solicitud de otro origen rechazada", 403); }

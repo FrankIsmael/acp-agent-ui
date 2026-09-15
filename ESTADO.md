@@ -28,7 +28,9 @@ npm run dev        # necesita .env
 ```
 
 El `.env` (fuera del repo) lleva `ACP_WS_URL`, `ACP_SECRET`, `ACP_CWD`, `AGENT_BOX_ID` y
-`EASYBITS_API_KEY`. **Sin la llave la app funciona pero no gestiona la caja** (el log dice
+`EASYBITS_API_KEY`. Para WhatsApp en prod, además `WHATSAPP_ADMIN_KEY` (una cadena larga al
+azar): sin ella `/whatsapp` no abre en producción; se entra una vez con `/whatsapp?key=<llave>`
+y el navegador queda autorizado 30 días por cookie. **Sin la llave la app funciona pero no gestiona la caja** (el log dice
 "sin SDK"); `@easybits.cloud/sdk` ya es dependencia.
 
 Si la caja muere, [`scripts/new-ghosty-agent.mjs`](scripts/new-ghosty-agent.mjs) crea otro agente
@@ -165,6 +167,46 @@ base de extensiones con `node -e` y `node:sqlite` en modo `readOnly` (nunca `cp`
   `/api/extensions`. Arreglado el 14 sep (`99470dc`): `app.set("trust proxy", true)` en
   `server.js` y la comprobación se fía de `Sec-Fetch-Site` (lo pone el navegador) y sólo compara
   `Origin` por host, no por esquema. En dev no se veía porque no hay proxy.
+
+## Pendientes recomendados (15 sep 2026, tras cerrar WhatsApp)
+
+Ordenados por lo que más duele si falta. Los tres primeros van antes de dejar el canal
+funcionando en prod sin mirarlo.
+
+1. **Auth de verdad.** Hoy la puerta es `WHATSAPP_ADMIN_KEY` + cookie HMAC
+   (`app/.server/admin-gate.ts`) y sólo cubre `/whatsapp` y sus dos APIs: el chat, las
+   extensiones y las sesiones siguen abiertos a quien tenga el link. Lo natural: una sesión de
+   usuario (passkey/OAuth o login simple) y la misma `requireAdmin` en todas las rutas de
+   escritura. El `admin-gate` está hecho para que sustituirlo sea cambiar una función.
+2. **Reconexión del navegador al chat.** Cuando la caja duerme el server manda `closed` y
+   `useAcpStream` no reabre el `EventSource`: el chat queda muerto hasta recargar. Backoff y
+   `snapshot` al volver. Con WhatsApp entrando al mismo hilo esto se nota más (el hilo cambia
+   sin que el navegador se entere).
+3. **Un turno por vez, hasta para grupos.** `askFromChannel` encola; con dos grupos activos y un
+   agente lento la cola crece y el segundo grupo espera minutos sin aviso. Medir, y si molesta,
+   un mensaje de "en cola" al grupo o un hilo por grupo (rompe "una sola sesión viva").
+4. **Alcance del canal.** Sólo grupos; falta el DM del dueño (útil para operar sin grupo),
+   audios/notas de voz (transcribir antes de mandar), documentos, citar mensajes, editados y
+   borrados. Cada uno es un tipo de mensaje distinto de ida y de vuelta.
+5. **Mención opcional.** En grupos con gente, contestar a todo es ruido: un interruptor por
+   grupo "sólo si me mencionan o responden al agente".
+6. **Seguridad del canal.** Tope de tamaño de foto entrante (hoy se descarga lo que llegue),
+   tope de frecuencia por grupo, y borrar de la base las credenciales al desvincular desde el
+   teléfono (ya se hace) y al fallar 5 reconexiones (hoy quedan). Revisar que el log en
+   `WHATSAPP_LOG=debug` nunca quede activo en prod: imprime llaves.
+7. **Operación** ([`docs/operacion.md`](docs/operacion.md) sigue como plan): aviso cuando el
+   canal pasa a `failed` o `disconnected` sin pedirlo (un mensaje al DM del dueño basta),
+   `/healthz` con estado del canal y de la conexión ACP, y `backup-sessions.mjs` programado.
+8. **Permiso desde el grupo** (spec 4): bloqueado por ghosty (`No task waiting for
+   confirmation`). Mientras, el hilo va en `ACP_MODE=auto`: el agente ejecuta sin preguntar,
+   también lo que llegue por WhatsApp. Es una decisión consciente; conviene tenerla presente
+   al prender un grupo con desconocidos.
+9. **Pruebas.** El canal no tiene ninguna: al menos `paraWhatsApp`, el buffer de ráfagas, el
+   `authState` sobre sqlite (round-trip con `BufferJSON`) y el `admin-gate` con `node --test`,
+   como `titles.test.mjs`.
+10. **Higiene.** Subir Node a ≥ 22.22 en la caja de la app para dejar de ver el aviso de React
+    Router; `--env-file-if-exists` en `npm start` si algún día se usa el Dockerfile; títulos de
+    hilo ("New Chat") pendientes del agente; y un `README` corto de "cómo vincular WhatsApp".
 
 ## Lo siguiente
 

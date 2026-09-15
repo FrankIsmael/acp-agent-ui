@@ -4,15 +4,21 @@
  * (`/api/whatsapp/events`); las acciones van por `/api/whatsapp` con `intent`.
  */
 import { useEffect, useRef, useState } from "react";
-import { useLoaderData } from "react-router";
-import { MessageCircle, Smartphone, Users } from "lucide-react";
+import { redirect, useLoaderData } from "react-router";
+import { Lock, MessageCircle, Smartphone, Users } from "lucide-react";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
 import { Switch } from "~/components/ui/switch";
 import { whatsappChannel, type WaGroup, type WaStatus } from "~/.server/whatsapp";
+import { adminGate } from "~/.server/admin-gate";
+import type { Route } from "./+types/whatsapp";
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const gate = adminGate(request);
+  if (!gate.ok) return { denied: gate.reason, status: null, groups: [] as WaGroup[] };
+  // La `?key=` buena siembra la cookie; la URL con la llave no debe quedarse en el historial.
+  if (gate.setCookie) throw redirect("/whatsapp", { headers: { "Set-Cookie": gate.setCookie } });
   const channel = whatsappChannel();
-  return { status: channel.status, groups: await channel.groups(true) };
+  return { denied: null, status: channel.status, groups: await channel.groups(true) };
 }
 
 const PHASE_LABEL: Record<WaStatus["phase"], string> = {
@@ -26,6 +32,27 @@ const PHASE_LABEL: Record<WaStatus["phase"], string> = {
 
 export default function WhatsApp() {
   const inicial = useLoaderData<typeof loader>();
+  if (inicial.denied) return <Cerrado motivo={inicial.denied} />;
+  return <Canal inicial={inicial as { status: WaStatus; groups: WaGroup[] }} />;
+}
+
+function Cerrado({ motivo }: { motivo: "unconfigured" | "forbidden" }) {
+  return (
+    <MainPanelLayout>
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 px-6 py-24 text-center">
+        <Lock className="h-8 w-8 text-text-tertiary" />
+        <h1 className="text-xl font-light text-text-primary">Sólo el dueño opera este canal</h1>
+        <p className="max-w-md text-sm text-text-secondary">
+          {motivo === "unconfigured"
+            ? "Falta WHATSAPP_ADMIN_KEY en el servidor. Ponla en el entorno y entra con /whatsapp?key=<llave>."
+            : "Entra una vez con /whatsapp?key=<llave> y este navegador queda autorizado 30 días."}
+        </p>
+      </div>
+    </MainPanelLayout>
+  );
+}
+
+function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }) {
   const [status, setStatus] = useState<WaStatus>(inicial.status);
   const [groups, setGroups] = useState<WaGroup[]>(inicial.groups);
   const [error, setError] = useState<string | null>(null);
