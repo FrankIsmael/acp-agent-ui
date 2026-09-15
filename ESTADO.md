@@ -38,6 +38,11 @@ dos veces que la caja desaparece del host con 404 "sandbox not found" mientras f
 (2 sep y 12 sep); sin `AGENT_SNAPSHOT_ID` no hay recuperación automática. Para goose sobre DeepSeek
 queda [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
 
+
+```sh
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-agent.mjs mi-agente-claude
+```
+
 ## Lo que hay que saber
 
 - **Las herramientas y el pensamiento se ven.** `tool_call` / `tool_call_update` llegan al
