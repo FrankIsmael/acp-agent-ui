@@ -7,9 +7,10 @@
  * en un turno y se devuelve la respuesta por donde entró. El agente no se entera de por dónde
  * le hablaron: sólo ve `askFromChannel`.
  */
+import { claimDemoNumber, demoEnabled, demoStatus, demoMessage, DemoLimitError } from "./demo";
 import { EventEmitter } from "node:events";
 import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Boom } from "@hapi/boom";
 import QRCode from "qrcode";
@@ -257,7 +258,9 @@ class WhatsAppChannel extends EventEmitter {
   private buffers = new Map<string, { items: Incoming[]; timer: NodeJS.Timeout }>();
   private groupsAt = 0;
 
-  constructor(store: WhatsAppStore) { super(); this.store = store; }
+  private owner: string | undefined;
+  private limitNotices = new Set<string>();
+  constructor(store: WhatsAppStore, owner?: string) { super(); this.store = store; this.owner = owner; }
 
   private setStatus(patch: Partial<WaStatus> & { phase: WaPhase }) {
     this.status = { ...patch, since: Date.now() };
@@ -277,6 +280,7 @@ class WhatsAppChannel extends EventEmitter {
    * handshake: pedir uno cancela al otro.
    */
   async connect(phone?: string) {
+    if (this.owner && demoStatus(this.owner).exhausted) { this.setStatus({ phase: "disconnected", error: demoMessage() }); return; }
     this.teardown();
     const gen = ++this.generation;
     this.wanted = true;
@@ -357,6 +361,11 @@ class WhatsAppChannel extends EventEmitter {
       this.pairPhone = undefined;
       this.auth?.flush();
       const me = this.sock?.user;
+      if (this.owner && (!me || !claimDemoNumber(this.owner, me.id.split(":")[0].split("@")[0]))) {
+        await this.disconnect(true);
+        this.setStatus({ phase: "disconnected", error: "Este número ya tiene una demo. Abre el navegador donde lo vinculaste o contacta a Ismael." });
+        return;
+      }
       this.setStatus({ phase: "connected", user: me ? { id: me.id.split(":")[0].split("@")[0], name: me.name } : undefined });
       // Con la caché de 60 s intacta: reconectar varias veces seguidas no debe pedir la lista
       // cada vez (WhatsApp contesta `rate-overlimit`).
@@ -429,6 +438,10 @@ class WhatsAppChannel extends EventEmitter {
       // Un grupo nuevo aparece en la lista cuando alguien escribe en él.
       if (this.store.touchGroup(jid)) this.emit("event", { type: "groups", groups: this.store.listGroups() } satisfies WaEvent);
       if (!this.grupoActivo(jid)) continue;
+      if (this.owner && demoStatus(this.owner).exhausted) {
+        if (!this.limitNotices.has(jid)) { this.limitNotices.add(jid); await this.send(jid, { text: demoMessage() }); }
+        continue;
+      }
       const msg = unwrap(m.message);
       if (!msg) continue;
       const from = m.pushName || (m.key.fromMe ? this.status.user?.name : undefined) || (m.key.participant ?? "").split("@")[0] || "alguien";
@@ -481,16 +494,23 @@ class WhatsAppChannel extends EventEmitter {
     const images = items.flatMap(i => i.images);
     const from = [...new Set(items.map(i => i.from))].join(", ");
     try {
-      const answer = await askFromChannel(text, "whatsapp", from, images);
+      const answer = await askFromChannel(text, "whatsapp", from, images, this.owner);
       clearInterval(typing);
       void this.sock?.sendPresenceUpdate("paused", jid).catch(() => {});
       // El turno pudo tardar minutos: `send` usa el socket que haya ahora, no el de entonces.
       await this.deliver(jid, last.key, answer);
       void this.react(last.key, "✅");
+      if (this.owner && answer.text.includes(demoMessage())) this.limitNotices.add(jid);
+      if (this.owner && demoStatus(this.owner).exhausted && !this.limitNotices.has(jid)) {
+        this.limitNotices.add(jid); await this.send(jid, { text: demoMessage() });
+      }
     } catch (error) {
       clearInterval(typing);
       console.warn("[whatsapp] el turno falló:", (error as Error).message);
-      await this.send(jid, { text: `⚠️ ${(error as Error).message || "No pude contestar."}` });
+      if (!(error instanceof DemoLimitError) || !this.limitNotices.has(jid)) {
+        if (error instanceof DemoLimitError) this.limitNotices.add(jid);
+        await this.send(jid, { text: `⚠️ ${error instanceof Response ? await error.text() : (error as Error).message || "No pude contestar."}` });
+      }
       void this.react(last.key, "❌");
     }
   }
@@ -532,7 +552,23 @@ class WhatsAppChannel extends EventEmitter {
 // mismo número se expulsan mutuamente (conflicto 440) y el estado oscila conectado/conectando.
 // Precio: en dev, un cambio en esta clase pide reiniciar el servidor para aplicarse.
 const GLOBAL_KEY = Symbol.for("acp-agent-ui.whatsapp");
-export function whatsappChannel(): WhatsAppChannel {
+const DEMO_KEY = Symbol.for("acp-agent-ui.whatsapp-demo");
+export function whatsappChannel(owner?: string): WhatsAppChannel {
+  if (demoEnabled() && !owner) throw new Error("Demo WhatsApp requires an owner");
+  if (owner) {
+    if (!/^[a-f0-9-]{36}$/.test(owner)) throw new Error("Invalid demo owner");
+    const globals = globalThis as { [DEMO_KEY]?: Map<string, WhatsAppChannel> };
+    const channels = globals[DEMO_KEY] ??= new Map();
+    let channel = channels.get(owner);
+    if (!channel) {
+      const directory = dirname(process.env.DEMO_DB ?? ".data/demo.db");
+      channel = new WhatsAppChannel(new WhatsAppStore(join(directory, "whatsapp-guests", `${owner}.db`)), owner);
+      channels.set(owner, channel);
+      channel.setMaxListeners(100);
+      channel.rehidratar();
+    }
+    return channel;
+  }
   const globals = globalThis as { [GLOBAL_KEY]?: WhatsAppChannel };
   if (!globals[GLOBAL_KEY]) {
     const channel = new WhatsAppChannel(new WhatsAppStore(clientDbPath()));

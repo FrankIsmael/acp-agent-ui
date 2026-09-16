@@ -1,4 +1,5 @@
 /** POST /api/conversations/:id/messages — encola un turno (texto + imágenes). */
+import { DemoLimitError } from "~/.server/demo";
 import { data } from "react-router";
 import type { Route } from "./+types/api.conversations.$id.messages";
 import { askConversation, type PromptImage } from "~/.server/acp";
@@ -28,7 +29,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       return data({ error: `"${img.name ?? "imagen"}" pesa demasiado` }, { status: 413 });
     }
   }
-  const ok = askConversation(params.id, String(body.text ?? ""), images);
-  if (!ok) return data({ error: "La conversación no está disponible o ya está respondiendo." }, { status: 409 });
-  return data({ queued: true });
+  try {
+    const ok = askConversation(params.id, String(body.text ?? ""), images);
+    if (!ok) return data({ error: "La conversación no está disponible o ya está respondiendo." }, { status: 409 });
+    return data({ queued: true });
+  } catch (error) {
+    if (error instanceof DemoLimitError) return data({ error: error.message, code: "DEMO_LIMIT" }, { status: 429 });
+    throw error;
+  }
 }

@@ -1,3 +1,5 @@
+import { demoMiddleware } from "./.server/demo-middleware";
+import { demoEnabled } from "./.server/demo";
 import {
   isRouteErrorResponse,
   Links,
@@ -13,8 +15,10 @@ import "./app.css";
 import { themes } from "./theme/theme-tokens";
 import { themeClass, themeFromCookies } from "./lib/theme";
 
+export const middleware = [demoMiddleware];
+
 export function loader({ request }: Route.LoaderArgs) {
-  return { theme: themeFromCookies(request.headers.get("cookie")) };
+  return { demo: demoEnabled(), theme: themeFromCookies(request.headers.get("cookie")) };
 }
 
 /**

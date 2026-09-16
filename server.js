@@ -18,7 +18,15 @@ app.disable("x-powered-by");
 // En producción la app va detrás de Caddy (TLS terminado ahí). Sin esto Express cree que
 // habla http y `request.url` sale con el esquema equivocado: la comprobación de mismo
 // origen rechazaba el POST del propio navegador con 403.
-app.set("trust proxy", true);
+// Never trust arbitrary forwarding headers for demo limits. List only actual proxy
+// IPs/CIDRs; with no configuration, use the TCP peer (safe for direct hosting).
+const demoProxies = (process.env.DEMO_TRUSTED_PROXIES ?? "").split(",").map(value => value.trim()).filter(Boolean);
+app.set("trust proxy", process.env.PUBLIC_DEMO === "true" ? (demoProxies.length ? demoProxies : false) : true);
+app.use((request, _response, next) => {
+  // Always replace a visitor-supplied value before React Router sees the request.
+  request.headers["x-demo-client-ip"] = request.ip ?? request.socket.remoteAddress ?? "";
+  next();
+});
 
 app.use(
   "/assets",

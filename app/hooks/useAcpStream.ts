@@ -207,6 +207,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
         // en "pensando" para siempre: sin `done` por SSE, nadie apagaba el busy.
         if (!res.ok) {
           const body = await res.json().catch(() => null);
+          if (body?.code === "DEMO_LIMIT") window.dispatchEvent(new Event("demo-limit"));
           setError(body?.error ?? 'No pude mandar el mensaje');
           setBusy(false);
         }

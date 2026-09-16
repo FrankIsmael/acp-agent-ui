@@ -13,7 +13,8 @@
     "test:chat:browser": "node scripts/chat.browser.mjs",
     "test:artifacts": "node --experimental-strip-types --test scripts/artifacts.test.mjs",
     "test:titles": "node --experimental-strip-types --test scripts/titles.test.mjs",
-    "test:artifacts:browser": "node scripts/artifacts.browser.mjs"
+    "test:artifacts:browser": "node scripts/artifacts.browser.mjs",
+    "test:demo": "node --experimental-strip-types --test scripts/demo.test.mjs scripts/demo-ip.test.mjs && node scripts/demo.integration.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",

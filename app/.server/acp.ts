@@ -4,6 +4,7 @@
  * Una conexión ACP compartida; el agente conserva las conversaciones en la
  * caja de EasyBits. El navegador nunca habla ACP: consume los eventos por SSE.
  */
+import { demoEnabled, conversationOwner, beginDemoTurn, chargeDemoOutput, estimateTokens, demoMessage, demoConversation } from "./demo";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { client, type ClientConnection } from "@agentclientprotocol/sdk";
@@ -406,6 +407,8 @@ class GooseSession extends EventEmitter {
   private assistant: StoredMessage | undefined;
   private running: Promise<void> | undefined;
   private replaying = false;
+  private demoOwner: string | undefined;
+  private demoStopped = false;
   replayTail: number | undefined;
 
   constructor(id: string, cwd: string) { super(); this.sessionId = id; this.cwd = cwd; }
@@ -497,6 +500,12 @@ class GooseSession extends EventEmitter {
 
   update(u: any) {
     if (this.closed) return;
+    if (this.demoOwner && this.busy && !this.replaying && !this.demoStopped) {
+      const text = ["agent_message_chunk", "agent_thought_chunk"].includes(u.sessionUpdate) ? (u.content?.text ?? "") : "";
+      // Tool activity has a fixed allowance too, including image generation outside model tokens.
+      const charge = estimateTokens(text) + (u.sessionUpdate === "tool_call" ? 1024 : 0);
+      if (charge && chargeDemoOutput(this.demoOwner, charge)) this.stopDemo();
+    }
     const emit = (event: AcpEvent) => { if (!this.replaying) this.emit("event", event); };
     if (u.sessionUpdate === "user_message_chunk") {
       if (!this.replaying) return;
@@ -568,7 +577,7 @@ class GooseSession extends EventEmitter {
     const raw = (model?.options ?? []) as any[];
     const values: string[] = raw.length && "group" in (raw[0] ?? {})
       ? raw.flatMap(g => (g.options ?? []).map((v: any) => v.value)) : raw.map(v => v.value);
-    return { type: "config", options: this.configOptions, imageSupport: this.imageSupport, visionModels: values.filter(isVisionModel) };
+    return { type: "config", options: demoEnabled() ? [] : this.configOptions, imageSupport: this.imageSupport, visionModels: values.filter(isVisionModel) };
   }
   emitConfig() { this.emit("event", this.configEvent()); }
 
@@ -581,11 +590,26 @@ class GooseSession extends EventEmitter {
     this.emitConfig();
   }
 
+  private stopDemo() {
+    if (this.demoStopped) return;
+    this.demoStopped = true;
+    this.emit("event", { type: "error", message: demoMessage() });
+    void this.cancel().catch(() => {});
+  }
+
   /** El turno terminó, con o sin error. Un canal externo espera aquí su respuesta. */
   whenIdle() { return (this.running ?? Promise.resolve()).catch(() => {}); }
 
   ask(text: string, images: PromptImage[] = [], channel?: ChannelTurn) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions) return false;
+    this.demoOwner = conversationOwner(this.sessionId);
+    this.demoStopped = false;
+    if (demoEnabled() && !this.demoOwner) throw new Error("Demo conversation has no owner");
+    if (this.demoOwner) {
+      // Context is billed again on each prompt; include it and a fixed instructions/tool overhead.
+      const context = this.messages.reduce((sum, m) => sum + estimateTokens(m.text + (m.thought ?? "")) + (m.images?.length ?? 0) * 2048, 0);
+      beginDemoTurn(this.demoOwner, 2048 + context + estimateTokens(text) + images.length * 2048);
+    }
     this.busy = true;
     this.cancelling = false;
     this.assistant = undefined;
@@ -599,6 +623,7 @@ class GooseSession extends EventEmitter {
     remember(this);
     this.running = (async () => {
       let error: string | null = null;
+      const demoTimer = this.demoOwner ? setTimeout(() => this.stopDemo(), 120_000) : undefined;
       try {
         const result: any = await connection!.agent.request("session/prompt", {
           sessionId: this.sessionId,
@@ -611,8 +636,9 @@ class GooseSession extends EventEmitter {
         error = "La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente.";
         this.emit("event", { type: "error", message: error });
       } finally {
+        clearTimeout(demoTimer);
         // El canal se entera antes de que se suelte `busy`, con el mensaje del agente entero.
-        try { channel?.onAnswer?.(this.assistant?.text ?? "", error, this.assistant?.images ?? []); } catch {}
+        try { channel?.onAnswer?.((this.assistant?.text ?? "") + (this.demoStopped ? `\n\n${demoMessage()}` : ""), error, this.assistant?.images ?? []); } catch {}
         this.permissions.cancel();
         this.busy = false;
         this.assistant = undefined;
@@ -722,6 +748,7 @@ export async function listConversations() {
 
 export function createConversation(model?: string | null) {
   return exclusive(async () => {
+    if (demoEnabled() && active?.busy) throw new Response("El agente está atendiendo otra demo. Inténtalo en un momento.", { status: 409 });
     await active?.close();
     await connectAgent();
     const session = new GooseSession("nuevo", CWD);
@@ -745,6 +772,7 @@ export function createConversation(model?: string | null) {
 export function loadConversation(id: string, options: { replayTail?: number; reload?: boolean } = {}) {
   return exclusive(async () => {
     if (active?.sessionId === id && !active.closed && !options.reload && active.replayTail === (replayMetadata(agentName, options.replayTail)._meta ? options.replayTail : undefined)) { markActivity(); return active; }
+    if (demoEnabled() && active?.busy && active.sessionId !== id) throw new Response("El agente está atendiendo otra demo. Inténtalo en un momento.", { status: 409 });
     await connectAgent();
     if (!agentCapabilities.loadSession) throw new Response("El agente no permite reabrir conversaciones guardadas.", { status: 409 });
     await active?.close();
@@ -777,9 +805,14 @@ export function askConversation(id: string, text: string, images: PromptImage[] 
  * Resuelve con el texto entero del agente y las imágenes que devolvieron sus herramientas.
  */
 let channelQueue = Promise.resolve();
-export function askFromChannel(text: string, via: string, from?: string, images: PromptImage[] = []) {
+export function askFromChannel(text: string, via: string, from?: string, images: PromptImage[] = [], owner?: string) {
   const turn = channelQueue.then(async (): Promise<{ text: string; images: PromptImage[] }> => {
-    let session = active && !active.closed && active.ready ? active : undefined;
+    if (demoEnabled() && !owner) throw new AgentError("Falta el dueño del canal de demo.");
+    let session: GooseSession | undefined;
+    if (owner) {
+      const id = await demoConversation(owner, () => createConversation());
+      session = await loadConversation(id);
+    } else { session = active && !active.closed && active.ready ? active : undefined; }
     if (!session) { await createConversation(); session = active; }
     if (!session || session.closed) throw new AgentError("No hay un hilo abierto con el agente.");
     // Cola simple: espera a que suelte el turno en curso y, si otro se coló, reintenta.
@@ -799,7 +832,7 @@ export function askFromChannel(text: string, via: string, from?: string, images:
         if ((error as Error).message === "busy") continue;
         // La caja se durmió y el WebSocket cayó con el turno dentro: el hilo quedó cerrado.
         // Se reabre uno (eso despierta la caja) y se reintenta una sola vez.
-        if (session.closed && attempt === 0) {
+        if (!owner && session.closed && attempt === 0) {
           await createConversation();
           session = active;
           if (!session || session.closed) throw error;

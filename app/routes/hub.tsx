@@ -2,6 +2,7 @@
  * Hub — la pantalla de inicio: reloj grande, saludo, y el input centrado.
  * Enviar crea la conversación en el servidor y navega a /c/:id.
  */
+import { demoEnabled } from "~/.server/demo";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
@@ -14,7 +15,7 @@ import { config, getLastConfigOptions } from "~/.server/acp";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const preference = await readModelPreference(request);
-  const options = getLastConfigOptions();
+  const options = demoEnabled() ? [] : getLastConfigOptions();
   const model = options.find(option => option.category === "model" || option.id === "model");
   return { cwd: config.cwd, model: model ? { ...model, currentValue: preference ?? model.currentValue } as ConfigOption : null, preference };
 }

@@ -8,30 +8,33 @@
  * declarada al hilo, o retirar del hilo una conectada.
  */
 import { useRef, useState } from "react";
-import { Link, useLoaderData } from "react-router";
+import { Link, useLoaderData, useRevalidator } from "react-router";
 import { Puzzle, Trash2 } from "lucide-react";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
 import { Switch } from "~/components/ui/switch";
 import { listClientExtensions, listSessionExtensions } from "~/.server/acp";
+import { demoEnabled } from "~/.server/demo";
 import type { ExtensionSummary } from "~/.server/extensions";
 
 type Transport = "stdio" | "http";
 
 export async function loader() {
+  if (demoEnabled()) return { demo: true, declaradas: await listClientExtensions(), reportadas: null };
   const [declaradas, reportadas] = await Promise.all([listClientExtensions(), listSessionExtensions()]);
-  return { declaradas, reportadas };
+  return { demo: false, declaradas, reportadas };
 }
 
 type Reportadas = Awaited<ReturnType<typeof loader>>["reportadas"];
 
 export default function Extensions() {
-  const { declaradas, reportadas: iniciales } = useLoaderData<typeof loader>();
+  const { demo, declaradas, reportadas: iniciales } = useLoaderData<typeof loader>();
   const [extensiones, setExtensiones] = useState<ExtensionSummary[]>(declaradas.extensions);
   const [reportadas, setReportadas] = useState<Reportadas>(iniciales);
   const [error, setError] = useState<string | null>(declaradas.error);
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const enCurso = useRef(false);
+  if (demo) return <DemoExtensions extensions={declaradas.extensions} error={declaradas.error} />;
 
   // Un solo verbo con `intent`, como en /api/extensions. La respuesta siempre
   // trae las dos listas completas: así la pantalla se pinta sin segunda vuelta.
@@ -209,6 +212,31 @@ export default function Extensions() {
       </div>
     </MainPanelLayout>
   );
+}
+
+/** The public catalog exposes available tools, never another guest's active session. */
+function DemoExtensions({ extensions, error }: { extensions: ExtensionSummary[]; error: string | null }) {
+  const revalidator = useRevalidator();
+  const available = extensions.filter(extension => extension.enabled);
+  return <MainPanelLayout>
+    <div className="mx-auto w-full max-w-3xl overflow-y-auto px-6 py-10">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-light text-text-primary">Extensiones</h1>
+        <button onClick={() => revalidator.revalidate()} disabled={revalidator.state !== "idle"}
+          className="rounded-lg border border-border-primary px-3 py-1 text-xs disabled:opacity-40">Actualizar</button>
+      </div>
+      <p className="mt-2 text-sm text-text-secondary">Herramientas disponibles para el agente. Pídele en el chat que las use.</p>
+      <p className="mt-2 text-sm text-text-secondary">Ismael administra la configuración de las extensiones de esta demo.</p>
+      {error && <p role="alert" className="mt-4 text-text-danger">{error}</p>}
+      {!error && available.length === 0 && <p className="mt-6 text-sm text-text-secondary">Todavía no hay extensiones configuradas.</p>}
+      <ul className="mt-6 flex flex-col gap-2">{available.map((extension, index) =>
+        <li key={extension.key ?? index} className="rounded-xl border border-border-primary p-4">
+          <h2 className="text-sm font-medium">{extension.name}</h2>
+          {extension.description && <p className="mt-1 text-sm text-text-secondary">{extension.description}</p>}
+        </li>
+      )}</ul>
+    </div>
+  </MainPanelLayout>;
 }
 
 function Fila({

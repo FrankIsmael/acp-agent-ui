@@ -1,10 +1,11 @@
 /** GET /api/whatsapp/events — SSE con el estado del canal y la lista de grupos. */
+import { demoUser } from "~/.server/demo";
 import { whatsappChannel, type WaEvent } from "~/.server/whatsapp";
 import { requireAdmin } from "~/.server/admin-gate";
 
 export async function loader({ request }: { request: Request }) {
-  requireAdmin(request);
-  const channel = whatsappChannel();
+  if (!demoUser(request)) requireAdmin(request);
+  const channel = whatsappChannel(demoUser(request));
   const encoder = new TextEncoder();
   let cleanup = () => {};
   const stream = new ReadableStream({

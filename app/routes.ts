@@ -7,6 +7,7 @@ import {
 
 export default [
   // Rutas de recurso: la API que consume el navegador (SSE incluido).
+  route("api/demo", "routes/api.demo.ts"),
   route("api/model-preference", "routes/api.model-preference.ts"),
   route("api/extensions", "routes/api.extensions.ts"),
   route("api/whatsapp", "routes/api.whatsapp.ts"),

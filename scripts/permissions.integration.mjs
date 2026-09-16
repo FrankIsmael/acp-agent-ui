@@ -164,7 +164,7 @@ try {
   assert.equal((await changeExtension({ intent: "session-add", sessionId: "wrong", configKey: key })).status, 409);
   assert.equal((await changeExtension({ intent: "session-add", sessionId: id, configKey: key })).status, 200);
   assert.equal(sessions.get(id).length, 1);
-  assert.ok((await (await fetch(`${base}/extensions`)).text()).includes("Retirar de la conversación"));
+  assert.ok((await (await fetch(`${base}/extensions`)).text()).includes("Retirar del hilo"));
   firstStream = await stream(id);
   assert.equal((await post(`/api/conversations/${id}/messages`, { text: "Use the extension" })).status, 200);
   const permission = await wait(async () => (await pending(id))[0]);
@@ -228,7 +228,7 @@ try {
   unsupported = true;
   const unsupportedPage = await (await fetch(`${base}/extensions`)).text();
   assert.ok(unsupportedPage.includes("El agente no permite gestionar extensiones de esta conversación"));
-  assert.ok(unsupportedPage.includes("Conectar servidor MCP"), "local configuration remains available without agent extensions support");
+  assert.ok(unsupportedPage.includes("Dar de alta"), "local configuration remains available without agent extensions support");
   assert.deepEqual(globalCalls, [], "client extensions never mutate or depend on global agent configuration");
   console.log("Permissions and extensions integration passed: decisions, races, SSE reconnect, cancellation, disconnect, CRUD and validation.");
 } catch (error) {

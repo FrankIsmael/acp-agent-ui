@@ -2,7 +2,7 @@
  * Panel de navegación — mismo esqueleto que el del Desktop: items arriba, la
  * lista de chats en medio y Ajustes anclado abajo.
  */
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useRouteLoaderData } from "react-router";
 import { motion } from "motion/react";
 import {
   AppWindow,
@@ -106,6 +106,7 @@ export function NavigationPanel({
   conversations: ConversationSummary[];
 }) {
   const location = useLocation();
+  const demo = useRouteLoaderData("root")?.demo;
   const { loaded, error } = useConversations();
   const [isChatsExpanded, setIsChatsExpanded] = useState(true);
   const isActive = (path: string) => location.pathname === path;
@@ -120,7 +121,7 @@ export function NavigationPanel({
       <div className="h-[48px]" />
 
       <div className="flex flex-col gap-0.5 px-2">
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter(item => !demo || !["recipes", "apps", "schedules", "skills"].includes(item.id)).map((item) => (
           <NavRow key={item.id} item={item} active={isActive(item.path)} />
         ))}
       </div>

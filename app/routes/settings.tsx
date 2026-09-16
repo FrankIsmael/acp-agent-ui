@@ -3,6 +3,7 @@
  * conexión con el agente se muestra en modo lectura porque vive en variables
  * de entorno del servidor.
  */
+import { demoEnabled } from "~/.server/demo";
 import { useLoaderData, useRevalidator } from "react-router";
 import type { Route } from "./+types/settings";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
@@ -20,9 +21,10 @@ const OPCIONES: { id: ThemePreference; label: string }[] = [
 export async function loader({ request }: Route.LoaderArgs) {
   return {
     theme: themeFromCookies(request.headers.get("cookie")),
-    wsUrl: config.wsUrl,
-    cwd: config.cwd,
-    agentBox: config.agentBox,
+    demo: demoEnabled(),
+    wsUrl: demoEnabled() ? "" : config.wsUrl,
+    cwd: demoEnabled() ? "" : config.cwd,
+    agentBox: demoEnabled() ? "" : config.agentBox,
     idleMinutes: Math.round(config.idleMs / 60000),
   };
 }
@@ -71,7 +73,7 @@ export default function Settings() {
           </div>
         </section>
 
-        <section className="mt-10">
+        {!data.demo && <section className="mt-10">
           <h2 className="mb-1 text-sm font-semibold text-text-primary">Agente</h2>
           <p className="mb-3 text-xs text-text-secondary">
             Se configura con variables de entorno del servidor: ACP_WS_URL, ACP_CWD,
@@ -83,7 +85,7 @@ export default function Settings() {
             <Row label="Caja del agente" value={data.agentBox} />
             <Row label="Suspender tras" value={`${data.idleMinutes} min de inactividad`} />
           </div>
-        </section>
+        </section>}
       </div>
     </MainPanelLayout>
   );

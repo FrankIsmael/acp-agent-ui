@@ -3,8 +3,9 @@
  * el estado del canal y se eligen los grupos donde el agente contesta. El estado llega por SSE
  * (`/api/whatsapp/events`); las acciones van por `/api/whatsapp` con `intent`.
  */
+import { demoUser } from "~/.server/demo";
 import { useEffect, useRef, useState } from "react";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useRouteLoaderData } from "react-router";
 import { Lock, MessageCircle, Smartphone, Users } from "lucide-react";
 import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
 import { Switch } from "~/components/ui/switch";
@@ -13,11 +14,12 @@ import { adminGate } from "~/.server/admin-gate";
 import type { Route } from "./+types/whatsapp";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const gate = adminGate(request);
+  const owner = demoUser(request);
+  const gate = owner ? { ok: true as const, setCookie: undefined } : adminGate(request);
   if (!gate.ok) return { denied: gate.reason, status: null, groups: [] as WaGroup[] };
   // La `?key=` buena siembra la cookie; la URL con la llave no debe quedarse en el historial.
   if (gate.setCookie) throw redirect("/whatsapp", { headers: { "Set-Cookie": gate.setCookie } });
-  const channel = whatsappChannel();
+  const channel = whatsappChannel(owner);
   return { denied: null, status: channel.status, groups: await channel.groups(true) };
 }
 
@@ -53,6 +55,7 @@ function Cerrado({ motivo }: { motivo: "unconfigured" | "forbidden" }) {
 }
 
 function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }) {
+  const demo = useRouteLoaderData("root")?.demo;
   const [status, setStatus] = useState<WaStatus>(inicial.status);
   const [groups, setGroups] = useState<WaGroup[]>(inicial.groups);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +120,8 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
           que prendas abajo entra al mismo hilo que el chat web, y la respuesta del agente vuelve
           al grupo.
         </p>
+
+        {demo && <p className="mt-2 text-sm text-text-secondary">Tu vínculo pertenece a este navegador. Conserva sus cookies para volver a administrarlo. Puedes desvincular la app aquí o desde tu teléfono.</p>}
 
         {error && (
           <p role="alert" className="mt-4 rounded-xl border border-red-500/40 px-4 py-3 text-sm text-red-500">{error}</p>

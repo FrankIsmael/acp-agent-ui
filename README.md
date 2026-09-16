@@ -131,3 +131,14 @@ curl -X POST https://www.easybits.cloud/api/v2/agents \
   -H "Authorization: Bearer $EASYBITS_API_KEY" -H "Content-Type: application/json" \
   -d "{\"template\":\"ghosty-lite\",\"name\":\"or-agente\",\"env\":{\"GHOSTY_PROVIDER\":\"openrouter\",\"GHOSTY_MODEL\":\"nvidia/nemotron-3.5-lightning:free\",\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\"}}"
 ```
+
+```bash
+read -rs "EASYBITS_API_KEY?Paste the new Easybits key: "
+echo
+launchctl setenv EASYBITS_API_KEY "$EASYBITS_API_KEY"
+unset EASYBITS_API_KEY
+```
+
+## Public demo
+
+Enable `PUBLIC_DEMO=true` for one conversation and a shared guest allowance across web chat and individually linked WhatsApp accounts. Turn it off to restore the existing behavior. See [setup, limits, and replacement notes](docs/public-demo.md).
