@@ -22,13 +22,13 @@ Use a **separate demo agent/VM containing only public material**, with a provide
 ## Guest behavior
 
 - A random HttpOnly cookie identifies a persistent guest record. The browser keeps it for 30 days. No login or cross-device recovery.
-- “Nueva conversación” returns that guest's existing conversation. Closing or reloading it does not reset the quota.
+- “Nueva conversación” returns that guest's existing conversation. Opening, closing, or reloading it does not consume prompts or tokens and does not reset the quota.
 - Conversation lists, page loaders, mutations, and event streams enforce ownership. An unowned or another guest's conversation returns 404.
 - Each guest links their own WhatsApp using the existing QR/code flow. Credentials and group settings live in a separate SQLite file per guest. All enabled groups and web chat share that guest's single conversation and quota.
 - Clearing cookies loses access to the guest. A previously linked WhatsApp number cannot claim a fresh guest allowance; its normalized number is stored as a hash with its original owner. For recovery, contact the owner and unlink the demo device from the phone if needed.
 - WhatsApp disconnect/logout remains available after quota exhaustion. The limit invitation is sent at most once per group per running process to avoid replying to every message after exhaustion. After a server restart a guest must open WhatsApp in the web app to resume their connection.
 - The agent still runs one active conversation at a time. A different guest cannot interrupt a running reply; they get a busy response and can retry when it finishes. This is intended for a small shared demo.
-- Recetas, Apps, Agenda, and Habilidades are unavailable in demo mode. Extensions remains available as a catalog of the enabled tools guests can ask the agent to use; shared configuration stays owner-managed. The unfinished sections are otherwise unchanged. Model switching is disabled in the demo so visitors use the server's configured model.
+- Recetas, Apps, and Agenda are unavailable in demo mode. Habilidades and Extensions remain available as catalogs of the skills and tools guests can ask the agent to use; shared configuration stays owner-managed. The unfinished sections are otherwise unchanged. Model switching is disabled in the demo so visitors use the server's configured model.
 
 ## What “tokens” means here
 
@@ -65,12 +65,12 @@ IP limits apply automatically when `PUBLIC_DEMO=true`; there is no additional se
 | Variable | Default | Window / scope |
 | --- | --- | --- |
 | `DEMO_IP_GUEST_LIMIT` | `3` | New browser guests per 24 hours |
-| `DEMO_IP_CHAT_LIMIT` | `10` | Chat creation/resume POSTs and message POSTs per minute, combined |
+| `DEMO_IP_CHAT_LIMIT` | `10` | Message submission POSTs per minute |
 | `DEMO_IP_WHATSAPP_LIMIT` | `5` | WhatsApp connect/pair attempts per hour, including invalid pairing attempts |
-| `DEMO_IP_API_LIMIT` | `120` | All allowed API requests per minute, including polling and SSE connection attempts |
+| `DEMO_IP_API_LIMIT` | `120` | API mutations per minute, excluding conversation creation/resume |
 | `DEMO_TRUSTED_PROXIES` | empty | Actual reverse-proxy IPs/CIDRs allowed to supply forwarding headers |
 
-Each window begins with the first accepted request for that IP and category. Rejected requests do not extend it. A known guest browsing the app does not consume another guest slot. WhatsApp logout/disconnect is exempt from the pairing limit (the general API limit still applies). Phone messages use the guest token/turn allowance; IP limits apply to web HTTP requests, not to individual WhatsApp message senders.
+Each window begins with the first accepted request for that IP and category. Rejected requests do not extend it. A known guest browsing the app does not consume another guest slot. Page loads, API reads, polling, SSE reconnects, and conversation creation/resume do not consume the chat or API request allowance. WhatsApp logout/disconnect is exempt from the pairing limit (the general API limit still applies). Phone messages use the guest token/turn allowance; IP limits apply to web HTTP requests, not to individual WhatsApp message senders.
 
 Limits are stored in the demo SQLite database and survive restarts. Only a keyed hash of the normalized IP/network is stored in the rate-limit table; the random hashing key is persisted in the same database. Expired rate-limit rows are removed during subsequent accepted limiter checks. IPv4-mapped IPv6 addresses map to IPv4; native IPv6 addresses share a /64 allowance to discourage address rotation. People sharing a public IP or IPv6 /64 share its limits.
 
@@ -104,4 +104,4 @@ npm run build
 npm run test:demo
 ```
 
-The integration test uses only a local mock ACP agent and temporary databases. It checks independent guest cookies, history/page/SSE/mutation ownership, repeated and concurrent creation, prompt limits before agent invocation, busy-session protection, private WhatsApp group state, persistent limits after restart, restoration of the owner gate, concurrent cookie-reset limits, spoofed IP headers, trusted-proxy handling, and IP counters after restart. It does not link a real WhatsApp number or spend model/image tokens. Live pairing and model behavior need a manual smoke test with the demo agent.
+The integration test uses only a local mock ACP agent and temporary databases. It checks independent guest cookies, history/page/SSE/mutation ownership, repeated and concurrent creation, prompt limits before agent invocation, busy-session protection, private WhatsApp group state, persistent limits after restart, restoration of the owner gate, concurrent cookie-reset limits, spoofed IP headers, trusted-proxy handling, IP counters after restart, and repeated reloads/SSE reconnects without consuming interaction allowances. It does not link a real WhatsApp number or spend model/image tokens. Live pairing and model behavior need a manual smoke test with the demo agent.

@@ -67,7 +67,8 @@ try {
   assert.notEqual(a, b);
   assert.equal((await request('/api/conversations')).status, 401);
   assert.equal((await request('/api/conversations/owner-secret/events', a)).status, 404);
-  for (const path of ['/api/extensions', '/recipes', '/apps', '/schedules', '/skills']) assert.equal((await request(path, a)).status, 403, path);
+  for (const path of ['/api/extensions', '/recipes', '/apps', '/schedules']) assert.equal((await request(path, a)).status, 403, path);
+  assert.equal((await request('/skills', a)).status, 200);
   assert.equal((await post('/api/model-preference', a, { value: 'expensive' })).status, 403);
   assert.equal((await request('/api/conversations', a, { method: 'POST', headers: { origin: 'https://attacker.example' } })).status, 403);
   const results = await Promise.all([post('/api/conversations', a), post('/api/conversations', a)]);
@@ -133,22 +134,48 @@ try {
   assert.equal((await request(`/api/conversations/${id}/events`, b)).status, 404);
   // Test chat and pairing routes without invoking real WhatsApp: invalid pair requests
   // consume attempts before validation/network work, and exhausted guests are checked first.
-  await stop(); await start({ DEMO_IP_CHAT_LIMIT: '1', DEMO_IP_WHATSAPP_LIMIT: '1', DEMO_TRUSTED_PROXIES: 'loopback' });
+  await stop(); await start({ DEMO_IP_CHAT_LIMIT: '1', DEMO_IP_API_LIMIT: '10', DEMO_IP_WHATSAPP_LIMIT: '1', DEMO_TRUSTED_PROXIES: 'loopback' });
   const proxyHeaders = { 'x-forwarded-for': '198.51.100.20' };
-  assert.equal((await request('/api/conversations', a, { method: 'POST', headers: proxyHeaders })).status, 200);
-  const limitedChat = await request('/api/conversations', a, { method: 'POST', headers: proxyHeaders });
-  assert.equal(limitedChat.status, 429); assert.equal((await limitedChat.json()).code, 'DEMO_IP_LIMIT');
   const newGuest = await request('/', undefined, { headers: proxyHeaders });
   assert.equal(newGuest.status, 200);
   const c = newGuest.headers.get('set-cookie').split(';')[0];
+  const cid = (await (await request('/api/conversations', c, { method: 'POST', headers: proxyHeaders })).json()).conversationId;
+  const beforeReloads = promptCount;
+  // Simulate more reloads than either IP request allowance, including SSE reconnects.
+  for (let i = 0; i < 12; i++) {
+    for (const path of ['/', `/c/${cid}`, '/api/demo', '/api/conversations', '/api/whatsapp']) {
+      const response = await request(path, c, { headers: proxyHeaders });
+      assert.equal(response.status, 200, `reload ${i}: ${path}`);
+      await response.text();
+    }
+    const resumed = await request('/api/conversations', c, { method: 'POST', headers: proxyHeaders });
+    assert.equal(resumed.status, 200);
+    assert.equal((await resumed.json()).conversationId, cid);
+    const events = await request(`/api/conversations/${cid}/events`, c, { headers: proxyHeaders });
+    assert.equal(events.status, 200);
+    await events.body.cancel();
+  }
+  const untouched = await (await request('/api/demo', c, { headers: proxyHeaders })).json();
+  assert.equal(untouched.turns, 0);
+  assert.equal(untouched.tokens, 0);
+  assert.equal(untouched.exhausted, false);
+  assert.equal(promptCount, beforeReloads);
+  const sendPrompt = headers => request(`/api/conversations/${cid}/messages`, c, {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello' }),
+  });
+  assert.equal((await sendPrompt(proxyHeaders)).status, 200);
+  await sleep(100);
+  assert.equal(promptCount, beforeReloads + 1);
+  const limitedChat = await sendPrompt(proxyHeaders);
+  assert.equal(limitedChat.status, 429); assert.equal((await limitedChat.json()).code, 'DEMO_IP_LIMIT');
   const pair = () => request('/api/whatsapp', c, { method: 'POST', headers: proxyHeaders, body: new URLSearchParams({ intent: 'pair', phone: 'invalid' }) });
   assert.equal((await pair()).status, 400);
   assert.equal((await pair()).status, 429);
   assert.equal((await request('/api/whatsapp', c, { method: 'POST', headers: proxyHeaders, body: new URLSearchParams({ intent: 'logout' }) })).status, 200);
   // A forged address to the left of the actual client is not trusted, even behind a trusted proxy.
-  const forgedChain = await request('/api/conversations', a, { method: 'POST', headers: { 'x-forwarded-for': '203.0.113.99, 198.51.100.20' } });
+  const forgedChain = await sendPrompt({ 'x-forwarded-for': '203.0.113.99, 198.51.100.20' });
   assert.equal(forgedChain.status, 429);
-  assert.equal((await request('/api/conversations', a, { method: 'POST', headers: { 'x-forwarded-for': '198.51.100.21' } })).status, 200);
+  assert.equal((await sendPrompt({ 'x-forwarded-for': '198.51.100.21' })).status, 200);
   await stop(); await start({ PUBLIC_DEMO: 'false' });
   assert.equal((await request('/api/conversations')).status, 200);
   assert.equal((await request('/api/whatsapp')).status, 403, 'original admin gate restored');

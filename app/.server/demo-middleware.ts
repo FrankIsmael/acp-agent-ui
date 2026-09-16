@@ -12,10 +12,14 @@ export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, pa
     // Default-deny future endpoints until they explicitly join the demo surface.
     const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|cancel|close|permissions))?)$/;
     if (!allowed.test(path)) return Response.json({ error: "Esta sección no está disponible en la demo." }, { status: 403 });
-    if (path.startsWith("/api/")) consumeDemoIp(demoDb(), request, "api");
     const identity = identifyDemo(request, () => consumeDemoIp(demoDb(), request, "guests"));
     if (params.id) assertDemoOwner(identity.id!, params.id);
-    if (request.method === "POST" && (path === "/api/conversations" || /^\/api\/conversations\/[^/]+\/messages$/.test(path))) {
+    // Reloads perform reads, reconnect SSE, and create/resume the guest's single
+    // conversation. Charge IP request limits only for explicit API actions.
+    if (path.startsWith("/api/") && !["GET", "HEAD"].includes(request.method) && path !== "/api/conversations") {
+      consumeDemoIp(demoDb(), request, "api");
+    }
+    if (request.method === "POST" && /^\/api\/conversations\/[^/]+\/messages$/.test(path)) {
       consumeDemoIp(demoDb(), request, "chat");
     }
     const response = await next();
