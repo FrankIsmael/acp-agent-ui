@@ -10,7 +10,7 @@ export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, pa
     if (!["GET", "HEAD"].includes(request.method)) assertSameOrigin(request);
     const path = new URL(request.url).pathname.replace(/\.data$/, "").replace(/\/$/, "") || "/";
     // Default-deny future endpoints until they explicitly join the demo surface.
-    const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|cancel|close|permissions))?)$/;
+    const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|cancel|close|permissions))?)$/;
     if (!allowed.test(path)) return Response.json({ error: "Esta sección no está disponible en la demo." }, { status: 403 });
     if (path.startsWith("/api/")) consumeDemoIp(demoDb(), request, "api");
     const identity = identifyDemo(request, () => consumeDemoIp(demoDb(), request, "guests"));

@@ -121,7 +121,7 @@ export function NavigationPanel({
       <div className="h-[48px]" />
 
       <div className="flex flex-col gap-0.5 px-2">
-        {NAV_ITEMS.filter(item => !demo || !["recipes", "apps", "schedules", "skills"].includes(item.id)).map((item) => (
+        {NAV_ITEMS.filter(item => !demo || !["recipes", "apps", "schedules"].includes(item.id)).map((item) => (
           <NavRow key={item.id} item={item} active={isActive(item.path)} />
         ))}
       </div>
