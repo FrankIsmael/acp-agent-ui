@@ -1,3 +1,4 @@
+import { useI18n } from "~/i18n";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import type { getHistorySnapshot } from "~/.server/acp";
@@ -7,6 +8,7 @@ const Context = createContext<HistoryState>({ conversations: [], error: null, lo
 
 /** La última lista permanece visible durante navegación, desconexiones y refrescos. */
 export function ConversationProvider({ initial, children }: { initial: HistoryState; children: ReactNode }) {
+  const { t } = useI18n();
   const [state, setState] = useState(initial);
   const { pathname } = useLocation();
   useEffect(() => {
@@ -21,7 +23,7 @@ export function ConversationProvider({ initial, children }: { initial: HistorySt
         const next: HistoryState = await response.json();
         if (!controller.signal.aborted) setState(previous => next.error && next.conversations.length === 0 ? { ...previous, error: next.error } : next);
       } catch {
-        if (!controller.signal.aborted) setState(previous => ({ ...previous, error: "No pude actualizar el historial. Inténtalo de nuevo." }));
+        if (!controller.signal.aborted) setState(previous => ({ ...previous, error: t("Could not refresh history. Please try again.") }));
       } finally { pending = false; }
     };
     void refresh();
@@ -33,7 +35,7 @@ export function ConversationProvider({ initial, children }: { initial: HistorySt
       window.removeEventListener("conversations-changed", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [pathname]);
+  }, [pathname, t]);
   return <Context.Provider value={state}>{children}</Context.Provider>;
 }
 export const useConversations = () => useContext(Context);

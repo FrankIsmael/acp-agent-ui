@@ -3,6 +3,7 @@
  * el estado del canal y se eligen los grupos donde el agente contesta. El estado llega por SSE
  * (`/api/whatsapp/events`); las acciones van por `/api/whatsapp` con `intent`.
  */
+import { useI18n } from "~/i18n";
 import { demoUser } from "~/.server/demo";
 import { useEffect, useRef, useState } from "react";
 import { redirect, useLoaderData, useRouteLoaderData } from "react-router";
@@ -23,15 +24,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { denied: null, status: channel.status, groups: await channel.groups(true) };
 }
 
-const PHASE_LABEL: Record<WaStatus["phase"], string> = {
-  disconnected: "Desconectado",
-  connecting: "Conectando…",
-  qr_pending: "Esperando el escaneo",
-  pairing: "Esperando el código",
-  connected: "Conectado",
-  failed: "Falló",
-};
-
 export default function WhatsApp() {
   const inicial = useLoaderData<typeof loader>();
   if (inicial.denied) return <Cerrado motivo={inicial.denied} />;
@@ -39,15 +31,16 @@ export default function WhatsApp() {
 }
 
 function Cerrado({ motivo }: { motivo: "unconfigured" | "forbidden" }) {
+  const { t } = useI18n();
   return (
     <MainPanelLayout>
       <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 px-6 py-24 text-center">
         <Lock className="h-8 w-8 text-text-tertiary" />
-        <h1 className="text-xl font-light text-text-primary">Sólo el dueño opera este canal</h1>
+        <h1 className="text-xl font-light text-text-primary">{t("Only the owner can manage this channel")}</h1>
         <p className="max-w-md text-sm text-text-secondary">
           {motivo === "unconfigured"
-            ? "Falta WHATSAPP_ADMIN_KEY en el servidor. Ponla en el entorno y entra con /whatsapp?key=<llave>."
-            : "Entra una vez con /whatsapp?key=<llave> y este navegador queda autorizado 30 días."}
+            ? t("WHATSAPP_ADMIN_KEY is missing on the server. Set it in the environment, then visit /whatsapp?key=<key>.")
+            : t("Visit /whatsapp?key=<key> once to authorize this browser for 30 days.")}
         </p>
       </div>
     </MainPanelLayout>
@@ -55,6 +48,15 @@ function Cerrado({ motivo }: { motivo: "unconfigured" | "forbidden" }) {
 }
 
 function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }) {
+  const { t } = useI18n();
+  const PHASE_LABEL: Record<WaStatus["phase"], string> = {
+    disconnected: t("Disconnected"),
+    connecting: t("Connecting…"),
+    qr_pending: t("Waiting for scan"),
+    pairing: t("Waiting for code"),
+    connected: t("Connected"),
+    failed: t("Failed"),
+  };
   const demo = useRouteLoaderData("root")?.demo;
   const [status, setStatus] = useState<WaStatus>(inicial.status);
   const [groups, setGroups] = useState<WaGroup[]>(inicial.groups);
@@ -91,9 +93,9 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
       const json = await r.json();
       if (json.status) setStatus(json.status);
       if (Array.isArray(json.groups)) setGroups(json.groups);
-      if (!r.ok || !json.ok) setError(json.error ?? "algo salió mal");
+      if (!r.ok || !json.ok) setError(json.error ?? t("something went wrong"));
     } catch {
-      setError("No pude hablar con el cliente. Inténtalo de nuevo.");
+      setError(t("Could not reach the client. Please try again."));
     } finally {
       enCurso.current = false;
       setOcupado(false);
@@ -116,18 +118,16 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
           </span>
         </div>
         <p className="mt-1 text-sm text-text-secondary">
-          La app se vincula como un dispositivo más de tu WhatsApp. Lo que escriban en los grupos
-          que prendas abajo entra al mismo hilo que el chat web, y la respuesta del agente vuelve
-          al grupo.
+          {t("The app links as another WhatsApp device. Messages in the groups you enable below join the web chat conversation, and the agent's reply is sent back to the group.")}
         </p>
 
-        {demo && <p className="mt-2 text-sm text-text-secondary">Tu vínculo pertenece a este navegador. Conserva sus cookies para volver a administrarlo. Puedes desvincular la app aquí o desde tu teléfono.</p>}
+        {demo && <p className="mt-2 text-sm text-text-secondary">{t("Your connection belongs to this browser. Keep its cookies to manage it later. You can unlink the app here or from your phone.")}</p>}
 
         {error && (
-          <p role="alert" className="mt-4 rounded-xl border border-red-500/40 px-4 py-3 text-sm text-red-500">{error}</p>
+          <p role="alert" className="mt-4 rounded-xl border border-red-500/40 px-4 py-3 text-sm text-red-500">{t(error)}</p>
         )}
         {status.error && (
-          <p role="status" className="mt-4 rounded-xl border border-border-primary px-4 py-3 text-sm text-text-secondary">{status.error}</p>
+          <p role="status" className="mt-4 rounded-xl border border-border-primary px-4 py-3 text-sm text-text-secondary">{t(status.error)}</p>
         )}
 
         <section className="mt-6 rounded-xl border border-border-primary p-4">
@@ -135,10 +135,10 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
             <div className="flex flex-wrap items-center gap-4">
               <Smartphone className="h-8 w-8 text-text-tertiary" />
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="text-sm text-text-primary">{status.user?.name || "Número vinculado"}</span>
+                <span className="text-sm text-text-primary">{status.user?.name || t("Linked number")}</span>
                 <span className="font-mono text-xs text-text-tertiary">+{status.user?.id}</span>
               </div>
-              <button className={boton} disabled={ocupado} onClick={() => void mutar({ intent: "disconnect" })}>Pausar</button>
+              <button className={boton} disabled={ocupado} onClick={() => void mutar({ intent: "disconnect" })}>{t("Pause")}</button>
               <Desvincular ocupado={ocupado} onConfirm={() => void mutar({ intent: "logout" })} />
             </div>
           ) : (
@@ -150,7 +150,7 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
                     onClick={() => setModo(m)}
                     className={`cursor-pointer rounded-lg border px-3 py-1 font-mono text-xs transition-colors ${modo === m ? "border-border-secondary bg-background-secondary text-text-primary" : "border-transparent text-text-tertiary hover:text-text-secondary"}`}
                   >
-                    {m === "qr" ? "QR" : "número"}
+                    {m === "qr" ? "QR" : t("phone number")}
                   </button>
                 ))}
               </div>
@@ -158,17 +158,17 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
               {modo === "qr" ? (
                 <div className="mt-4 flex flex-col items-center gap-3">
                   {status.phase === "qr_pending" && status.qr ? (
-                    <img src={status.qr} alt="Código QR para vincular" className="h-64 w-64 rounded-xl border border-border-secondary bg-white p-2" />
+                    <img src={status.qr} alt={t("QR code for linking")} className="h-64 w-64 rounded-xl border border-border-secondary bg-white p-2" />
                   ) : (
                     <div className="flex h-64 w-64 items-center justify-center rounded-xl border border-dashed border-border-primary">
                       <MessageCircle className={`h-8 w-8 text-text-tertiary ${enHandshake ? "animate-pulse" : ""}`} />
                     </div>
                   )}
                   <p className="text-center text-xs text-text-tertiary">
-                    WhatsApp → Dispositivos vinculados → Vincular un dispositivo. El QR se renueva solo.
+                    {t("WhatsApp → Linked devices → Link a device. The QR code refreshes automatically.")}
                   </p>
                   <button className={boton} disabled={ocupado || status.phase === "qr_pending"} onClick={() => void mutar({ intent: "connect" })}>
-                    {enHandshake ? "Pedir otro QR" : status.error ? "Reconectar" : "Mostrar QR"}
+                    {enHandshake ? t("Get another QR code") : status.error ? t("Reconnect") : t("Show QR code")}
                   </button>
                 </div>
               ) : (
@@ -177,7 +177,7 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
                     <div className="flex flex-col items-center gap-2 py-4">
                       <span className="font-mono text-3xl tracking-[0.3em] text-text-primary">{status.pairingCode}</span>
                       <p className="text-center text-xs text-text-tertiary">
-                        WhatsApp → Dispositivos vinculados → Vincular con el número de teléfono, y escribe este código.
+                        {t("WhatsApp → Linked devices → Link with phone number, then enter this code.")}
                       </p>
                     </div>
                   ) : (
@@ -190,7 +190,7 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
                         onChange={e => setPhone(e.target.value)}
                       />
                       <p className="text-xs text-text-tertiary">
-                        Si el QR no vincula, WhatsApp da un código de 8 caracteres para el número. Pedirlo cancela el QR.
+                        {t("If the QR code does not work, WhatsApp can provide an 8-character code for your phone number. Requesting it cancels the QR code.")}
                       </p>
                     </>
                   )}
@@ -199,7 +199,7 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
                     disabled={ocupado || phone.replace(/\D/g, "").length < 8}
                     onClick={() => void mutar({ intent: "pair", phone })}
                   >
-                    {status.phase === "pairing" ? "Pedir otro código" : "Pedir código"}
+                    {status.phase === "pairing" ? t("Get another code") : t("Get code")}
                   </button>
                 </div>
               )}
@@ -208,16 +208,15 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
         </section>
 
         <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-wide text-text-tertiary">Grupos</h2>
+          <h2 className="text-xs uppercase tracking-wide text-text-tertiary">{t("Groups")}</h2>
           <p className="mb-3 mt-1 text-xs text-text-tertiary">
-            El agente sólo contesta en los que estén prendidos. Un grupo nuevo aparece aquí en cuanto
-            alguien escribe en él; la lista completa se refresca al recargar.
+            {t("The agent only replies in enabled groups. New groups appear when someone sends a message; reload to refresh the full list.")}
           </p>
           {groups.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-primary px-6 py-12 text-center">
               <Users className="h-8 w-8 text-text-tertiary" />
               <p className="text-sm text-text-secondary">
-                {conectado ? "Todavía no veo grupos. Escribe algo en uno y aparecerá." : "Vincula el número para ver tus grupos."}
+                {conectado ? t("No groups yet. Send a message in a group and it will appear here.") : t("Link your phone number to see your groups.")}
               </p>
             </div>
           ) : (
@@ -225,7 +224,7 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
               {groups.map(g => (
                 <li key={g.jid} className="flex items-center gap-3 rounded-xl border border-border-primary px-4 py-3">
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-sm text-text-primary">{g.subject || "Grupo sin nombre"}</span>
+                    <span className="truncate text-sm text-text-primary">{g.subject || t("Unnamed group")}</span>
                     <span className="truncate font-mono text-[11px] text-text-tertiary">{g.jid}</span>
                   </div>
                   <Switch checked={g.enabled} disabled={ocupado} onCheckedChange={v => void mutar({ intent: "group", jid: g.jid, enabled: String(v) })} />
@@ -240,21 +239,22 @@ function Canal({ inicial }: { inicial: { status: WaStatus; groups: WaGroup[] } }
 }
 
 function Desvincular({ ocupado, onConfirm }: { ocupado: boolean; onConfirm: () => void }) {
+  const { t } = useI18n();
   const [confirmando, setConfirmando] = useState(false);
   if (!confirmando) {
     return (
       <button className="cursor-pointer text-xs text-text-tertiary hover:text-red-500 disabled:opacity-40" disabled={ocupado} onClick={() => setConfirmando(true)}>
-        Desvincular
+        {t("Unlink")}
       </button>
     );
   }
   return (
     <>
       <button className="cursor-pointer text-xs text-red-500 disabled:opacity-40" disabled={ocupado} onClick={() => { setConfirmando(false); onConfirm(); }}>
-        Sí, desvincular
+        {t("Yes, unlink")}
       </button>
       <button className="cursor-pointer text-xs text-text-tertiary hover:text-text-secondary disabled:opacity-40" disabled={ocupado} onClick={() => setConfirmando(false)}>
-        Cancelar
+        {t("Cancel")}
       </button>
     </>
   );

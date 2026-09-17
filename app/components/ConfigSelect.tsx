@@ -5,6 +5,7 @@
  * booleanos caben en el mismo hueco pero todavía no hay ninguno que enseñar.
  */
 import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { useI18n } from "~/i18n";
 import type { ConfigOption } from "~/hooks/useAcpStream";
 import {
   DropdownMenu,
@@ -45,6 +46,7 @@ export function ConfigSelect({
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const all = groups(option);
   const current = all.flatMap((g) => g.values).find((v) => v.value === option.currentValue);
   // Un selector de un solo valor no es una decisión: se enseña como etiqueta.
@@ -61,7 +63,7 @@ export function ConfigSelect({
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={disabled || busy}
-        aria-label={option.name}
+        aria-label={option.category === "model" || option.id === "model" ? t("Model") : option.name}
         className="flex max-w-[45vw] items-center gap-1 rounded-md px-1.5 py-1 text-xs text-text-secondary transition-colors hover:bg-background-secondary hover:text-text-primary disabled:opacity-50 data-[state=open]:bg-background-secondary sm:max-w-[16rem]"
       >
         {busy ? (

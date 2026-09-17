@@ -1,3 +1,4 @@
+import { useI18n } from "~/i18n";
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Code2, Copy, Download, Eye, Maximize2, Minimize2, RotateCcw, Share2, X } from "lucide-react";
@@ -22,6 +23,7 @@ function PanelContent({ artifact, artifacts, expanded, onExpand, streaming, mode
   artifact: Artifact; artifacts: Artifact[]; expanded: boolean; onExpand: () => void; streaming: boolean;
   mode: "preview" | "code"; setMode: (mode: "preview" | "code") => void;
 }) {
+  const { t } = useI18n();
   const { edit, close, open, saveStatus } = useArtifacts();
   const kind = previewKind(artifact);
   const [notice, setNotice] = useState("");
@@ -43,8 +45,8 @@ function PanelContent({ artifact, artifacts, expanded, onExpand, streaming, mode
   }, [notice]);
 
   const copy = async () => {
-    try { await navigator.clipboard.writeText(content); setNotice("Copiado"); }
-    catch { setNotice("No se pudo copiar. Selecciona el texto en Código o descarga el archivo."); }
+    try { await navigator.clipboard.writeText(content); setNotice(t("Copied")); }
+    catch { setNotice(t("Could not copy. Select the text in Code or download the file.")); }
   };
   const share = async () => {
     const { name, mime } = artifactFile(artifact);
@@ -54,10 +56,10 @@ function PanelContent({ artifact, artifacts, expanded, onExpand, streaming, mode
         await navigator.share({ title: artifact.title, files: [file] });
       } else {
         downloadArtifact(artifact);
-        setNotice("Archivo descargado para compartir.");
+        setNotice(t("File downloaded for sharing."));
       }
     } catch (error) {
-      if (!(error instanceof Error && error.name === "AbortError")) setNotice("No se pudo compartir. Puedes descargar el archivo.");
+      if (!(error instanceof Error && error.name === "AbortError")) setNotice(t("Could not share. You can download the file."));
     }
   };
 
@@ -65,36 +67,36 @@ function PanelContent({ artifact, artifacts, expanded, onExpand, streaming, mode
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background-primary text-text-primary">
       <header className="flex min-w-0 items-center gap-2 border-b border-border-secondary px-3 py-2">
         <div className="min-w-0 flex-1">
-          <label className="sr-only" htmlFor="artifact-selector">Artifact activo</label>
+          <label className="sr-only" htmlFor="artifact-selector">{t("Active artifact")}</label>
           <select id="artifact-selector" className="w-full truncate bg-background-primary py-1 text-sm font-medium" value={artifact.key} onChange={e => open(e.target.value)}>
-            {artifacts.map(a => <option key={a.key} value={a.key}>{a.title} · {a.language || previewKind(a)} · #{a.turnIndex + 1}</option>)}
+            {artifacts.map(a => <option key={a.key} value={a.key}>{a.title === "Sin título" ? t("Untitled") : a.title} · {a.language || previewKind(a)} · #{a.turnIndex + 1}</option>)}
           </select>
         </div>
-        <Button variant="ghost" size="sm" shape="round" onClick={onExpand} aria-label={expanded ? "Reducir panel" : "Ampliar panel"} title={expanded ? "Reducir panel" : "Ampliar panel"}>{expanded ? <Minimize2 /> : <Maximize2 />}</Button>
-        <Button variant="ghost" size="sm" shape="round" onClick={close} aria-label="Cerrar artifacts" title="Cerrar artifacts"><X /></Button>
+        <Button variant="ghost" size="sm" shape="round" onClick={onExpand} aria-label={expanded ? t("Shrink panel") : t("Expand panel")} title={expanded ? t("Shrink panel") : t("Expand panel")}>{expanded ? <Minimize2 /> : <Maximize2 />}</Button>
+        <Button variant="ghost" size="sm" shape="round" onClick={close} aria-label={t("Close artifacts")} title={t("Close artifacts")}><X /></Button>
       </header>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-secondary px-3 py-2">
-        <div className="flex gap-1" aria-label="Vista del artifact">
-          <Button size="xs" variant={mode === "preview" ? "secondary" : "ghost"} disabled={kind === "code"} aria-pressed={mode === "preview"} onClick={() => setMode("preview")}><Eye />Vista previa</Button>
-          <Button size="xs" variant={mode === "code" ? "secondary" : "ghost"} aria-pressed={mode === "code"} onClick={() => setMode("code")}><Code2 />{kind === "markdown" || kind === "text" ? "Editar" : "Código"}</Button>
+        <div className="flex gap-1" aria-label={t("Artifact view")}>
+          <Button size="xs" variant={mode === "preview" ? "secondary" : "ghost"} disabled={kind === "code"} aria-pressed={mode === "preview"} onClick={() => setMode("preview")}><Eye />{t("Preview")}</Button>
+          <Button size="xs" variant={mode === "code" ? "secondary" : "ghost"} aria-pressed={mode === "code"} onClick={() => setMode("code")}><Code2 />{kind === "markdown" || kind === "text" ? t("Edit") : t("Code")}</Button>
         </div>
         <div className="flex gap-1">
-          <Button size="xs" variant="ghost" onClick={copy} aria-label="Copiar contenido" title="Copiar contenido"><Copy /></Button>
-          <Button size="xs" variant="ghost" onClick={() => downloadArtifact(artifact)} aria-label="Descargar archivo" title="Descargar archivo"><Download /></Button>
-          <Button size="xs" variant="ghost" onClick={share} aria-label="Compartir archivo" title="Compartir archivo"><Share2 /></Button>
-          <Button size="xs" variant="ghost" onClick={() => setRevision(v => v + 1)} aria-label="Reiniciar vista previa" title="Reiniciar vista previa" disabled={mode !== "preview" || !["html", "svg"].includes(kind)}><RotateCcw /></Button>
+          <Button size="xs" variant="ghost" onClick={copy} aria-label={t("Copy content")} title={t("Copy content")}><Copy /></Button>
+          <Button size="xs" variant="ghost" onClick={() => downloadArtifact(artifact)} aria-label={t("Download file")} title={t("Download file")}><Download /></Button>
+          <Button size="xs" variant="ghost" onClick={share} aria-label={t("Share file")} title={t("Share file")}><Share2 /></Button>
+          <Button size="xs" variant="ghost" onClick={() => setRevision(v => v + 1)} aria-label={t("Restart preview")} title={t("Restart preview")} disabled={mode !== "preview" || !["html", "svg"].includes(kind)}><RotateCcw /></Button>
         </div>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {mode === "code" ? (
           <div className="flex h-full flex-col">
-            {kind === "code" && <p className="border-b border-border-secondary px-4 py-2 text-xs text-text-secondary">Código editable. La vista previa ejecuta apps HTML con CSS y JavaScript incluidos.</p>}
-            <textarea aria-label={`Editar ${artifact.title}`} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={content} readOnly={streaming}
+            {kind === "code" && <p className="border-b border-border-secondary px-4 py-2 text-xs text-text-secondary">{t("Editable code. Preview runs HTML apps with embedded CSS and JavaScript.")}</p>}
+            <textarea aria-label={t("Edit {title}", { title: artifact.title === "Sin título" ? t("Untitled") : artifact.title })} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={content} readOnly={streaming}
               onChange={e => edit(artifact.key, e.target.value)}
               className="min-h-0 w-full flex-1 resize-none bg-background-primary p-4 font-mono text-sm leading-6 text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-border-primary" />
           </div>
         ) : kind === "html" || kind === "svg" ? (
-          <iframe key={revision} title={`Vista previa de ${artifact.title}`} sandbox={kind === "html" ? "allow-scripts" : ""} referrerPolicy="no-referrer"
+          <iframe key={revision} title={t("Preview of {title}", { title: artifact.title === "Sin título" ? t("Untitled") : artifact.title })} sandbox={kind === "html" ? "allow-scripts" : ""} referrerPolicy="no-referrer"
             allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
             srcDoc={artifactPreviewDocument(preview)} className="h-full w-full border-0 bg-white" />
         ) : (
@@ -102,14 +104,15 @@ function PanelContent({ artifact, artifacts, expanded, onExpand, streaming, mode
         )}
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border-secondary px-3 py-2 text-[11px] text-text-secondary">
-        <span role="status">{notice || (saveStatus === "error" ? "No se pudo guardar localmente. Descarga una copia." : streaming ? "Creando… Podrás editar al terminar." : saveStatus === "saving" ? "Guardando…" : "Guardado en este navegador")}{!notice && !streaming && !artifact.complete ? " · Respuesta incompleta" : ""}</span>
-        {artifact.editedContent !== undefined && <Button size="xs" variant="ghost" onClick={() => edit(artifact.key, undefined)}>Restaurar original</Button>}
+        <span role="status">{notice || (saveStatus === "error" ? t("Could not save locally. Download a copy.") : streaming ? t("Creating… You can edit when it is finished.") : saveStatus === "saving" ? t("Saving…") : t("Saved in this browser"))}{!notice && !streaming && !artifact.complete ? t(" · Incomplete response") : ""}</span>
+        {artifact.editedContent !== undefined && <Button size="xs" variant="ghost" onClick={() => edit(artifact.key, undefined)}>{t("Restore original")}</Button>}
       </footer>
     </div>
   );
 }
 
 export function ArtifactPanel({ artifacts, streamingKey }: { artifacts: Artifact[]; streamingKey?: string }) {
+  const { t } = useI18n();
   const { activeKey, isOpen, close } = useArtifacts();
   const [expanded, setExpanded] = useState(false);
   const [narrow, setNarrow] = useState(false);
@@ -139,11 +142,11 @@ export function ArtifactPanel({ artifacts, streamingKey }: { artifacts: Artifact
           onOpenAutoFocus={() => { lastFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
           onCloseAutoFocus={event => { event.preventDefault(); lastFocused.current?.focus(); }}
           className="fixed inset-y-2 right-2 z-50 w-[calc(100%-1rem)] overflow-hidden rounded-xl border border-border-secondary shadow-xl outline-none">
-          <Dialog.Title className="sr-only">{artifact.title}</Dialog.Title>
+          <Dialog.Title className="sr-only">{artifact.title === "Sin título" ? t("Untitled") : artifact.title}</Dialog.Title>
           {content}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
-  return <aside aria-label="Artifacts" className="my-2 mr-2 h-[calc(100%-1rem)] min-w-0 w-[52%] shrink-0 overflow-hidden rounded-xl border border-border-secondary shadow-sm">{content}</aside>;
+  return <aside aria-label={t("Artifacts")} className="my-2 mr-2 h-[calc(100%-1rem)] min-w-0 w-[52%] shrink-0 overflow-hidden rounded-xl border border-border-secondary shadow-sm">{content}</aside>;
 }

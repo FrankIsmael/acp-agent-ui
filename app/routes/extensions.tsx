@@ -7,6 +7,7 @@
  * separadas. Desde cada lista se puede cruzar a la otra: conectar una
  * declarada al hilo, o retirar del hilo una conectada.
  */
+import { useI18n } from "~/i18n";
 import { useRef, useState } from "react";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 import { Puzzle, Trash2 } from "lucide-react";
@@ -27,6 +28,7 @@ export async function loader() {
 type Reportadas = Awaited<ReturnType<typeof loader>>["reportadas"];
 
 export default function Extensions() {
+  const { t } = useI18n();
   const { demo, declaradas, reportadas: iniciales } = useLoaderData<typeof loader>();
   const [extensiones, setExtensiones] = useState<ExtensionSummary[]>(declaradas.extensions);
   const [reportadas, setReportadas] = useState<Reportadas>(iniciales);
@@ -57,17 +59,17 @@ export default function Extensions() {
         setExtensiones(json.extensions);
         setReportadas(json.session);
       }
-      if (!r.ok || !json.ok) return setError(json.error ?? "algo salió mal");
+      if (!r.ok || !json.ok) return setError(json.error ?? t("something went wrong"));
       if (body?.intent === "add") {
-        setAviso("Dada de alta. Conéctala al hilo abierto con su botón, o entra en el próximo que abras.");
+        setAviso(t("Extension added. Connect it to the open conversation using its button, or it will join the next conversation you open."));
       } else if (body?.intent === "session-add") {
-        setAviso("Conectada al hilo abierto: pregúntale al agente qué herramientas tiene.");
+        setAviso(t("Connected to the open conversation. Ask the agent which tools it has."));
       } else if (body?.intent === "session-remove") {
-        setAviso("Retirada del hilo abierto.");
+        setAviso(t("Removed from the open conversation."));
       }
       return true;
     } catch {
-      setError("No pude hablar con el cliente. Inténtalo de nuevo.");
+      setError(t("Could not reach the client. Please try again."));
     } finally {
       enCurso.current = false;
       setOcupado(false);
@@ -81,27 +83,24 @@ export default function Extensions() {
     <MainPanelLayout>
       <div className="mx-auto w-full max-w-3xl overflow-y-auto px-6 py-10">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-light text-text-primary">Extensiones</h1>
+          <h1 className="text-2xl font-light text-text-primary">{t("Extensions")}</h1>
           <button
             onClick={() => void mutar()}
             disabled={ocupado}
             className="cursor-pointer rounded-lg border border-border-primary px-3 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Actualizar
+            {t("Refresh")}
           </button>
         </div>
         <p className="mt-1 text-sm text-text-secondary">
-          Servidores MCP: procesos que le dan herramientas nuevas al agente. Los de{" "}
-          <span className="font-mono text-xs">stdio</span> viven dentro de la caja y los lanza el
-          agente; los de <span className="font-mono text-xs">http</span> viven en otro lado y sólo
-          hace falta la URL.
+          {t("extensions.description")}
         </p>
 
         <Formulario ocupado={ocupado} onCrear={(body) => mutar({ intent: "add", ...body })} />
 
         {error && (
           <p role="alert" className="mt-4 rounded-xl border border-red-500/40 px-4 py-3 text-sm text-red-500">
-            {error}
+            {t(error)}
           </p>
         )}
         {aviso && (
@@ -112,15 +111,15 @@ export default function Extensions() {
 
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-wide text-text-tertiary">
-            Las que damos de alta
+            {t("Configured extensions")}
           </h2>
           <p className="mb-3 mt-1 text-xs text-text-tertiary">
-            Viven en este cliente y se le mandan al agente cada vez que abre un hilo.
+            {t("These are stored in this client and sent to the agent whenever a conversation opens.")}
           </p>
           {extensiones.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-primary px-6 py-12 text-center">
               <Puzzle className="h-8 w-8 text-text-tertiary" />
-              <p className="text-sm text-text-secondary">Todavía no has dado de alta ninguna.</p>
+              <p className="text-sm text-text-secondary">{t("You have not added any extensions yet.")}</p>
             </div>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -140,41 +139,39 @@ export default function Extensions() {
             </ul>
           )}
           <p className="mt-3 text-xs text-text-tertiary">
-            Quitar una de esta lista no la desconecta del hilo que ya la tiene: el agente la
-            conserva hasta que ese hilo termine, o hasta que la retires abajo.
+            {t("Removing an extension from this list leaves it connected to the current conversation until that conversation ends or you remove it below.")}
           </p>
         </section>
 
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-wide text-text-tertiary">
-            Conectadas ahora mismo
+            {t("Currently connected")}
           </h2>
           <p className="mb-3 mt-1 text-xs text-text-tertiary">
-            Esto lo contesta el agente sobre el hilo que tienes abierto, y suma las que trae de
-            fábrica. La lista de arriba es lo que pedimos; ésta es lo que hay.
+            {t("The agent reports these extensions for the open conversation, including built-in tools. The list above shows what was requested; this list shows what is connected.")}
           </p>
           {!reportadas ? (
             <p className="rounded-xl border border-border-primary px-4 py-3 text-sm text-text-secondary">
-              Sin un hilo abierto no hay a quién preguntarle: entra al chat y vuelve.
+              {t("Open a conversation, then return here to see its connected extensions.")}
             </p>
           ) : (
             <>
               <p className="mb-3 text-xs text-text-tertiary">
-                Hilo abierto:{" "}
+                {t("Open conversation:")}{" "}
                 <Link className="underline" to={`/c/${encodeURIComponent(reportadas.id)}`}>
-                  {reportadas.title}
+                  {reportadas.title === "Nueva conversación" ? t("New conversation") : reportadas.title}
                 </Link>
                 {reportadas.busy && (
-                  <> — el agente está trabajando; detén el turno o espera para cambiar sus herramientas.</>
+                  <>  {t("— the agent is working; stop the turn or wait before changing its tools.")}</>
                 )}
               </p>
               {reportadas.error ? (
                 <p className="rounded-xl border border-border-primary px-4 py-3 text-sm text-text-secondary">
-                  {reportadas.error}
+                  {t(reportadas.error)}
                 </p>
               ) : reportadas.extensions.length === 0 ? (
                 <p className="rounded-xl border border-border-primary px-4 py-3 text-sm text-text-secondary">
-                  Este hilo no tiene ninguna conectada.
+                  {t("This conversation has no connected extensions.")}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2">
@@ -197,7 +194,7 @@ export default function Extensions() {
                           }
                           disabled={ocupado || reportadas.busy}
                           className="cursor-pointer text-text-tertiary transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-                          title="Retirar del hilo"
+                          title={t("Remove from conversation")}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -216,19 +213,20 @@ export default function Extensions() {
 
 /** The public catalog exposes available tools, never another guest's active session. */
 function DemoExtensions({ extensions, error }: { extensions: ExtensionSummary[]; error: string | null }) {
+  const { t } = useI18n();
   const revalidator = useRevalidator();
   const available = extensions.filter(extension => extension.enabled);
   return <MainPanelLayout>
     <div className="mx-auto w-full max-w-3xl overflow-y-auto px-6 py-10">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-light text-text-primary">Extensiones</h1>
+        <h1 className="text-2xl font-light text-text-primary">{t("Extensions")}</h1>
         <button onClick={() => revalidator.revalidate()} disabled={revalidator.state !== "idle"}
-          className="rounded-lg border border-border-primary px-3 py-1 text-xs disabled:opacity-40">Actualizar</button>
+          className="rounded-lg border border-border-primary px-3 py-1 text-xs disabled:opacity-40">{t("Refresh")}</button>
       </div>
-      <p className="mt-2 text-sm text-text-secondary">Herramientas disponibles para el agente. Pídele en el chat que las use.</p>
-      <p className="mt-2 text-sm text-text-secondary">Ismael administra la configuración de las extensiones de esta demo.</p>
-      {error && <p role="alert" className="mt-4 text-text-danger">{error}</p>}
-      {!error && available.length === 0 && <p className="mt-6 text-sm text-text-secondary">Todavía no hay extensiones configuradas.</p>}
+      <p className="mt-2 text-sm text-text-secondary">{t("Tools available to the agent. Ask the agent to use them in chat.")}</p>
+      <p className="mt-2 text-sm text-text-secondary">{t("Ismael manages this demo's extension settings.")}</p>
+      {error && <p role="alert" className="mt-4 text-text-danger">{t(error)}</p>}
+      {!error && available.length === 0 && <p className="mt-6 text-sm text-text-secondary">{t("No extensions are configured yet.")}</p>}
       <ul className="mt-6 flex flex-col gap-2">{available.map((extension, index) =>
         <li key={extension.key ?? index} className="rounded-xl border border-border-primary p-4">
           <h2 className="text-sm font-medium">{extension.name}</h2>
@@ -254,6 +252,7 @@ function Fila({
   onToggle: (enabled: boolean) => void;
   onQuitar: () => void;
 }) {
+  const { t } = useI18n();
   const [confirmando, setConfirmando] = useState(false);
   return (
     <li className="flex items-center gap-3 rounded-xl border border-border-primary px-4 py-3">
@@ -270,7 +269,7 @@ function Fila({
           disabled={ocupado}
           className="cursor-pointer rounded-lg border border-border-primary px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Conectar al hilo
+          {t("Connect to conversation")}
         </button>
       )}
       <Switch checked={e.enabled} disabled={ocupado || !e.key} onCheckedChange={onToggle} />
@@ -281,14 +280,14 @@ function Fila({
             disabled={ocupado}
             className="cursor-pointer text-xs text-red-500 disabled:opacity-40"
           >
-            Quitar
+            {t("Remove")}
           </button>
           <button
             onClick={() => setConfirmando(false)}
             disabled={ocupado}
             className="cursor-pointer text-xs text-text-tertiary hover:text-text-secondary disabled:opacity-40"
           >
-            Cancelar
+            {t("Cancel")}
           </button>
         </>
       ) : (
@@ -296,7 +295,7 @@ function Fila({
           onClick={() => setConfirmando(true)}
           disabled={ocupado || !e.key}
           className="cursor-pointer text-text-tertiary transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Quitar"
+          title={t("Remove")}
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -312,6 +311,7 @@ function Formulario({
   ocupado: boolean;
   onCrear: (body: Record<string, string>) => Promise<true | void>;
 }) {
+  const { t } = useI18n();
   const [transport, setTransport] = useState<Transport>("stdio");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -346,14 +346,14 @@ function Formulario({
 
       <input
         className={campo}
-        placeholder="nombre (así lo verá el agente)"
+        placeholder={t("name (as the agent will see it)")}
         maxLength={80}
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
       <input
         className={campo}
-        placeholder="descripción (opcional)"
+        placeholder={t("description (optional)")}
         maxLength={500}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
@@ -374,8 +374,7 @@ function Formulario({
             onChange={(e) => setArgs(e.target.value)}
           />
           <p className="text-xs text-text-tertiary">
-            Ruta absoluta en los dos: quien lanza el proceso es el agente, dentro de su caja, y no
-            hereda tu PATH.
+            {t("Use absolute paths for both fields. The agent starts the process inside its box and does not inherit your PATH.")}
           </p>
         </>
       ) : (
@@ -393,16 +392,16 @@ function Formulario({
         spellCheck={false}
         placeholder={
           transport === "stdio"
-            ? "variables de entorno (opcional)\nAPI_KEY=abc123"
-            : "cabeceras (opcional)\nAuthorization=Bearer abc123"
+            ? t("extensions.environment")
+            : t("extensions.headers")
         }
         value={pares}
         onChange={(e) => setPares(e.target.value)}
       />
       <p className="text-xs text-text-tertiary">
         {transport === "stdio"
-          ? "Se le pasan al proceso como variables de entorno."
-          : "Van en cada petición al servidor. Quedan guardadas en claro en la base de este cliente."}
+          ? t("These are passed to the process as environment variables.")
+          : t("These are sent with every server request and stored as plain text in this client's database.")}
       </p>
 
       <button
@@ -422,7 +421,7 @@ function Formulario({
         disabled={!name || ocupado}
         className="cursor-pointer self-start rounded-lg bg-background-inverse px-4 py-2 text-sm text-text-inverse transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        Dar de alta
+        {t("Add extension")}
       </button>
     </div>
   );

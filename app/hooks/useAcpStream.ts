@@ -1,3 +1,4 @@
+import { useI18n } from "~/i18n";
 /**
  * Consume el SSE de una conversación y arma el hilo de mensajes. Todo el ACP
  * ocurre del lado del servidor; aquí sólo llegan eventos ya traducidos.
@@ -62,6 +63,7 @@ export interface Usage {
 }
 
 export function useAcpStream(conversationId: string, initial: Turn[] = []) {
+  const { t } = useI18n();
   const [turns, setTurns] = useState<Turn[]>(initial);
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PendingPermission[]>([]);
@@ -208,15 +210,15 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           if (body?.code === "DEMO_LIMIT") window.dispatchEvent(new Event("demo-limit"));
-          setError(body?.error ?? 'No pude mandar el mensaje');
+          setError(body?.error ?? t("Could not send the message"));
           setBusy(false);
         }
       } catch {
-        setError('No pude mandar el mensaje. Inténtalo de nuevo.');
+        setError(t("Could not send the message. Please try again."));
         setBusy(false);
       }
     },
-    [conversationId],
+    [conversationId, t],
   );
 
   const stop = useCallback(async () => {
@@ -228,13 +230,13 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? 'No pude detener la respuesta. Inténtalo de nuevo.');
+        throw new Error(body?.error ?? t("Could not stop the response. Please try again."));
       }
       // Keep consuming final updates until ACP confirms the cancelled turn.
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No pude detener la respuesta. Inténtalo de nuevo.');
+      setError(e instanceof Error ? e.message : t("Could not stop the response. Please try again."));
     }
-  }, [conversationId]);
+  }, [conversationId, t]);
 
   const setConfig = useCallback(
     async (configId: string, value: string | boolean) => {
@@ -253,11 +255,11 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        setError(body?.error ?? 'No pude cambiar la configuración');
+        setError(body?.error ?? t("Could not change the configuration"));
         setConfigBusy(null);
       }
     },
-    [conversationId],
+    [conversationId, t],
   );
 
   return {

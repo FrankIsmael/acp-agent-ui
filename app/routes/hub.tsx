@@ -2,6 +2,7 @@
  * Hub — la pantalla de inicio: reloj grande, saludo, y el input centrado.
  * Enviar crea la conversación en el servidor y navega a /c/:id.
  */
+import { useI18n } from "~/i18n";
 import { demoEnabled } from "~/.server/demo";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
@@ -40,6 +41,7 @@ function useClock() {
 }
 
 export default function Hub({ loaderData }: { loaderData: { cwd: string; model: ConfigOption | null; preference: string | null } }) {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const clock = useClock();
   const [model, setModel] = useState(loaderData.model);
@@ -51,10 +53,10 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
   const greeting = !clock
     ? ""
     : clock.hour < 12
-      ? "Buenos días"
+      ? t("Good morning")
       : clock.hour < 18
-        ? "Buenas tardes"
-        : "Buenas noches";
+        ? t("Good afternoon")
+        : t("Good evening");
 
   const chooseModel = async (_id: string, value: string) => {
     if (!model) return;
@@ -62,9 +64,9 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
     try {
       const response = await fetch("/api/model-preference", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }) });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "No pude guardar el modelo.");
+      if (!response.ok) throw new Error(body.error ?? t("Could not save the model."));
       setModel({ ...model, currentValue: body.value });
-    } catch (error) { setError(error instanceof Error ? error.message : "No pude guardar el modelo."); }
+    } catch (error) { setError(error instanceof Error ? error.message : t("Could not save the model.")); }
     finally { setConfigBusy(null); }
   };
 
@@ -75,7 +77,7 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
     try {
       const res = await fetch("/api/conversations", { method: "POST" });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "no se pudo abrir la conversación");
+      if (!res.ok) throw new Error(body.error ?? t("could not open the conversation"));
       window.dispatchEvent(new Event("conversations-changed"));
       navigate(`/c/${encodeURIComponent(body.conversationId)}`, { state: { firstMessage: text } });
     } catch (e) {
@@ -107,15 +109,15 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
               configBusy={configBusy}
               onConfigChange={chooseModel}
               workingDir={loaderData.cwd}
-              placeholder="Pídele algo al agente que vive en la caja…"
+              placeholder={t("Ask your agent something…")}
             />
           </ChatInputCard>
 
-          {!model && loaderData.preference && <p className="mt-2 text-xs text-text-secondary">Modelo: {loaderData.preference}</p>}
-          {error && <p className="mt-3 text-sm text-text-danger">{error}</p>}
+          {!model && loaderData.preference && <p className="mt-2 text-xs text-text-secondary">{t("Model:")} {loaderData.preference}</p>}
+          {error && <p className="mt-3 text-sm text-text-danger">{t(error)}</p>}
           {creating && (
             <p className="mt-3 text-sm text-text-secondary">
-              Abriendo la conversación… si la caja estaba dormida o hay extensiones que arrancar, puede tardar hasta un minuto.
+              {t("Opening the conversation… this can take up to a minute if the box was asleep or extensions need to start.")}
             </p>
           )}
         </div>

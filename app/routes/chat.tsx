@@ -1,3 +1,5 @@
+import { useI18n } from "~/i18n";
+import { createTranslator, localeFromCookies } from "~/lib/i18n";
 /**
  * La conversación. El loader entrega los mensajes ya ocurridos (por si
  * recargas), y de ahí en adelante el hilo lo alimenta el SSE.
@@ -38,12 +40,13 @@ import { useArtifacts } from "~/components/artifacts/ArtifactContext";
 import { artifactKey, parseArtifacts, type Artifact, type ArtifactPart } from "~/lib/artifacts";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
+  const t = createTranslator(localeFromCookies(request.headers.get("cookie")));
   const tail = new URL(request.url).searchParams.get("tail");
   const replayTail = tail === null ? undefined : Number(tail);
-  if (replayTail !== undefined && (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)) throw new Response("Cola de historial inválida", { status: 400 });
+  if (replayTail !== undefined && (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)) throw new Response(t("Invalid history tail"), { status: 400 });
   const conversation = await loadConversation(params.id, { replayTail });
   if (!conversation) {
-    throw new Response("Esa conversación ya no existe", { status: 404 });
+    throw new Response(t("That conversation no longer exists"), { status: 404 });
   }
   return {
     id: params.id,
@@ -64,9 +67,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 }
 
 // Cómo se nombra cada canal en la etiqueta de la burbuja.
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: "vía WhatsApp" };
 
 function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: Turn; parts: ArtifactPart[]; conversationId: string; turnIndex: number; streaming: boolean }) {
+  const { t } = useI18n();
+  const CHANNEL_LABEL: Record<string, string> = { whatsapp: t("via WhatsApp") };
   if (turn.role === "user") {
     return (
       <div className="flex flex-col items-end gap-2">
@@ -83,7 +87,7 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
               <li key={i}>
                 <img
                   src={`data:${img.mimeType};base64,${img.data}`}
-                  alt={img.name ?? "Imagen adjunta"}
+                  alt={img.name ?? t("Attached image")}
                   title={img.name}
                   className="h-24 w-24 rounded-xl border border-border-secondary object-cover"
                 />
@@ -107,7 +111,7 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
             <li key={i}>
               <img
                 src={`data:${img.mimeType};base64,${img.data}`}
-                alt={img.name ?? "Imagen generada"}
+                alt={img.name ?? t("Generated image")}
                 className="max-h-80 max-w-full rounded-xl border border-border-secondary object-contain"
               />
             </li>
@@ -116,7 +120,7 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
       )}
       {turn.thought && (
         <details className="mb-3 text-xs text-text-secondary">
-          <summary className="cursor-pointer select-none">Pensando…</summary>
+          <summary className="cursor-pointer select-none">{t("Thinking…")}</summary>
           <p className="mt-2 whitespace-pre-wrap border-l-2 border-border-secondary pl-3">
             {turn.thought}
           </p>
@@ -155,25 +159,6 @@ const KIND_ICON: Record<string, LucideIcon> = {
   other: Wrench,
 };
 
-const KIND_LABEL: Record<string, string> = {
-  read: "Leer",
-  edit: "Editar",
-  delete: "Borrar",
-  move: "Mover",
-  search: "Buscar",
-  execute: "Ejecutar",
-  think: "Pensar",
-  fetch: "Traer",
-  other: "Herramienta",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "En cola",
-  in_progress: "Ejecutando",
-  completed: "Listo",
-  failed: "Falló",
-};
-
 /** El indicador de la derecha: spinner mientras corre, palomita al terminar. */
 function StatusDot({ status }: { status: string }) {
   if (status === "in_progress") {
@@ -189,6 +174,24 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function ToolRow({ tool }: { tool: ToolEntry }) {
+  const { t } = useI18n();
+  const KIND_LABEL: Record<string, string> = {
+    read: t("Read"),
+    edit: t("Edit"),
+    delete: t("Delete"),
+    move: t("Move"),
+    search: t("Search"),
+    execute: t("Execute"),
+    think: t("Think"),
+    fetch: t("Fetch"),
+    other: t("Tool"),
+  };
+  const STATUS_LABEL: Record<string, string> = {
+    pending: t("Queued"),
+    in_progress: t("Running"),
+    completed: t("Done"),
+    failed: t("Failed"),
+  };
   const status = tool.status ?? "pending";
   const running = status === "in_progress";
   const failed = status === "failed";
@@ -251,6 +254,7 @@ export default function Chat() {
 }
 
 function ChatView() {
+  const { t } = useI18n();
   const { id, cwd, messages, replayLimited } = useLoaderData<typeof loader>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -280,7 +284,6 @@ function ChatView() {
   const scrollContent = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
 
-
   // El primer mensaje viene del Hub; se manda una sola vez y en cuanto el
   // agente terminó de conectarse.
   useEffect(() => {
@@ -308,17 +311,17 @@ function ChatView() {
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           {conversationArtifacts.length > 0 && (
             <div className="flex justify-end px-4 pt-2">
-              <button onClick={() => open(conversationArtifacts[conversationArtifacts.length - 1].key)} className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"><PanelRightOpen className="h-4 w-4" />Artifacts · {conversationArtifacts.length}</button>
+              <button onClick={() => open(conversationArtifacts[conversationArtifacts.length - 1].key)} className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"><PanelRightOpen className="h-4 w-4" />{t("Artifacts ·")} {conversationArtifacts.length}</button>
             </div>
           )}
-          <div ref={scrollArea} aria-label="Mensajes" className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          <div ref={scrollArea} aria-label={t("Messages")} className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             onScroll={(event) => {
               const area = event.currentTarget;
               follow.current = area.scrollHeight - area.clientHeight - area.scrollTop < 48;
             }}
           >
             <div ref={scrollContent} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
-              {replayLimited && <p className="text-center text-xs text-text-secondary">Se muestran los últimos turnos. <Link to={`/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">Cargar historial completo</Link></p>}
+              {replayLimited && <p className="text-center text-xs text-text-secondary">{t("Showing the latest turns.")} <Link to={`/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">{t("Load full history")}</Link></p>}
               {!connected && turns.length === 0 && (
                 <ConnectingState phase={phase} error={error} />
               )}
@@ -341,7 +344,7 @@ function ChatView() {
                 </div>
               )}
               {error && (connected || turns.length > 0) && (
-                <p className="text-sm text-text-danger">{error}</p>
+                <p className="text-sm text-text-danger">{t(error)}</p>
               )}
             </div>
           </div>
@@ -359,7 +362,7 @@ function ChatView() {
                 configBusy={configBusy}
                 onConfigChange={setConfig}
                 disabled={!connected}
-                placeholder={connected ? "Sigue la conversación…" : "Conectando con el agente…"}
+                placeholder={connected ? t("Continue the conversation…") : t("Connecting to the agent…")}
               />
             </ChatInputCard>
           </div>

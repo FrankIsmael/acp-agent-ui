@@ -1,14 +1,15 @@
+import { useI18n } from "~/i18n";
 import { useState } from "react";
 import type { PendingPermission } from "~/.server/permissions";
-
-const labels = {
-  allow_once: "Permitir una vez", allow_always: "Permitir siempre",
-  reject_once: "Rechazar una vez", reject_always: "Rechazar siempre",
-};
 
 export function PermissionCard({ permission, conversationId, connected }: {
   permission: PendingPermission; conversationId: string; connected: boolean;
 }) {
+  const { t } = useI18n();
+  const labels = {
+    allow_once: t("Allow once"), allow_always: t("Always allow"),
+    reject_once: t("Reject once"), reject_always: t("Always reject"),
+  };
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,19 +23,19 @@ export function PermissionCard({ permission, conversationId, connected }: {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "No pude enviar la decisión");
+        throw new Error(body?.error ?? t("Could not submit your decision"));
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "No pude enviar la decisión");
+      setError(error instanceof Error ? error.message : t("Could not submit your decision"));
     } finally { setSaving(false); }
   }
 
   return (
-    <section aria-label="Permiso pendiente" className="rounded-xl border border-border-primary bg-background-secondary p-4">
-      <p className="text-xs text-text-secondary" role="status">Esperando tu permiso</p>
-      <h3 className="mt-1 break-words text-sm font-medium">{permission.title}</h3>
+    <section aria-label={t("Pending permission")} className="rounded-xl border border-border-primary bg-background-secondary p-4">
+      <p className="text-xs text-text-secondary" role="status">{t("Waiting for your permission")}</p>
+      <h3 className="mt-1 break-words text-sm font-medium">{permission.title === "La herramienta solicita permiso" ? t("The tool is requesting permission") : permission.title}</h3>
       {permission.input != null && <details className="mt-2 text-xs text-text-secondary">
-        <summary className="cursor-pointer">Ver detalles de la operación</summary>
+        <summary className="cursor-pointer">{t("View operation details")}</summary>
         <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(permission.input, null, 2)}</pre>
       </details>}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -47,9 +48,9 @@ export function PermissionCard({ permission, conversationId, connected }: {
         ))}
       </div>
       {permission.options.some(option => option.kind.endsWith("_always")) && (
-        <p className="mt-2 text-xs text-text-secondary">«Siempre» recuerda esta decisión según las reglas del agente.</p>
+        <p className="mt-2 text-xs text-text-secondary">{t("“Always” remembers this decision according to the agent's rules.")}</p>
       )}
-      {error && <p role="alert" className="mt-2 text-sm text-text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-text-danger">{t(error)}</p>}
     </section>
   );
 }

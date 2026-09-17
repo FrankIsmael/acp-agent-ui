@@ -5,6 +5,7 @@
  * Debajo del textarea va la barra de la sesión: adjuntar imágenes, los
  * selectores que expone el agente (el modelo, entre ellos) y el cwd.
  */
+import { useI18n } from "~/i18n";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, EyeOff, ImagePlus, Square, X } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -43,7 +44,7 @@ export function ChatInput({
   onStop,
   busy = false,
   autoFocus = true,
-  placeholder = "Pídele algo al agente…",
+  placeholder,
   workingDir,
   imageSupport = false,
   configOptions = [],
@@ -67,6 +68,7 @@ export function ChatInput({
   onConfigChange?: (configId: string, value: string) => void;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -153,15 +155,14 @@ export function ChatInput({
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background-warning/40 px-3 py-2 text-xs text-text-primary">
           <EyeOff className="h-3.5 w-3.5 shrink-0 text-text-warning" />
           <span className="min-w-0 flex-1">
-            El modelo actual no ve
-            imágenes: se enviarán descartadas.
+            {t("The current model cannot view images. Attached images will be omitted.")}
           </span>
           <button
             type="button"
             onClick={() => onConfigChange?.(modelOption!.id, visionModels[0])}
             className="shrink-0 rounded-md border border-border-primary px-2 py-1 font-medium transition-colors hover:bg-background-primary"
           >
-            Cambiar a {visionName}
+            {t("Switch to {model}", { model: visionName })}
           </button>
         </div>
       )}
@@ -178,7 +179,7 @@ export function ChatInput({
               />
               <button
                 type="button"
-                aria-label={`Quitar ${img.name}`}
+                aria-label={t("Remove {name}", { name: img.name ?? t("Attached image") })}
                 onClick={() => setImages((prev) => prev.filter((x) => x.key !== img.key))}
                 className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-background-inverse text-text-inverse opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               >
@@ -193,7 +194,7 @@ export function ChatInput({
         ref={ref}
         rows={1}
         value={value}
-        placeholder={dragging ? "Suelta la imagen aquí…" : placeholder}
+        placeholder={dragging ? t("Drop the image here…") : (placeholder ?? t("Ask the agent something…"))}
         onChange={(e) => setValue(e.target.value)}
         // Pegar una captura es la forma natural de mandar una imagen: sin esto
         // el Cmd+V no hace nada y hay que pasar por el diálogo de archivos.
@@ -230,8 +231,8 @@ export function ChatInput({
               />
               <button
                 type="button"
-                aria-label="Adjuntar imagen"
-                title="Adjuntar imagen (o pega una captura)"
+                aria-label={t("Attach image")}
+                title={t("Attach image (or paste a screenshot)")}
                 disabled={images.length >= MAX_IMAGES}
                 onClick={() => picker.current?.click()}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-background-secondary hover:text-text-primary disabled:opacity-40"
@@ -262,7 +263,7 @@ export function ChatInput({
           type="button"
           onClick={busy ? onStop : submit}
           disabled={!busy && value.trim().length === 0 && images.length === 0}
-          aria-label={busy ? "Detener" : "Enviar"}
+          aria-label={busy ? t("Stop") : t("Send")}
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
             busy || value.trim() || images.length > 0

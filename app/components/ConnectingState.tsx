@@ -3,15 +3,10 @@
  * reales (despertar la caja, abrir el WSS, crear la sesión) en vez de un
  * "Conectando…" mudo: el que espera sabe en qué va y cuánto suele tardar.
  */
+import { useI18n } from "~/i18n";
 import { motion, AnimatePresence } from "motion/react";
 import { Check } from "lucide-react";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
-
-const STEPS: { phase: ConnectPhase; label: string; hint: string }[] = [
-  { phase: "waking", label: "Despertando la caja", hint: "si estaba dormida, unos 15 s" },
-  { phase: "connecting", label: "Abriendo el canal ACP", hint: "WebSocket seguro a su microVM" },
-  { phase: "session", label: "Creando la sesión", hint: "el agente carga su contexto" },
-];
 
 export function ConnectingState({
   phase,
@@ -20,6 +15,12 @@ export function ConnectingState({
   phase: ConnectPhase;
   error: string | null;
 }) {
+  const { t } = useI18n();
+  const STEPS: { phase: ConnectPhase; label: string; hint: string }[] = [
+    { phase: "waking", label: t("Waking up the agent box"), hint: t("about 15 seconds if it was asleep") },
+    { phase: "connecting", label: t("Opening the ACP connection"), hint: t("Secure WebSocket to its microVM") },
+    { phase: "session", label: t("Creating the session"), hint: t("the agent is loading its context") },
+  ];
   const current = STEPS.findIndex((s) => s.phase === phase);
 
   return (
@@ -113,13 +114,13 @@ export function ConnectingState({
             animate={{ opacity: 1, y: 0 }}
             className="flex max-w-md flex-col items-center gap-3"
           >
-            <p className="text-sm text-text-danger">{error}</p>
+            <p className="text-sm text-text-danger">{t(error)}</p>
             <button
               type="button"
               onClick={() => window.location.reload()}
               className="rounded-full border border-border-primary px-4 py-1.5 text-sm text-text-primary hover:bg-background-secondary"
             >
-              Reintentar
+              {t("Retry")}
             </button>
           </motion.div>
         )}

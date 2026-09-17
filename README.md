@@ -102,6 +102,11 @@ atribución está en [`NOTICE`](NOTICE).
   tema, así que en la primera visita todo se ve bien.
 
 
+## Languages
+
+English is the default. Choose English or Spanish in **Settings → Language**.
+The preference persists across reloads. See [i18n documentation](docs/i18n.md) for translation catalogs and checks.
+
 ## Public demo
 
 Enable `PUBLIC_DEMO=true` for one conversation and a shared guest allowance across web chat and individually linked WhatsApp accounts. Turn it off to restore the existing behavior. See [setup, limits, and replacement notes](docs/public-demo.md).

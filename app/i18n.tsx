@@ -1,30 +1,30 @@
-/**
- * Shim de i18n — el Desktop usa react-intl; aquí sólo necesitamos el texto por
- * defecto. Mantener la misma firma permite copiar componentes sin editarlos.
- */
-import type { ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createTranslator, DEFAULT_LOCALE, type Locale, type MessageValues } from "./lib/i18n";
 
+const I18nContext = createContext({ locale: DEFAULT_LOCALE, t: createTranslator(DEFAULT_LOCALE) });
+
+export function I18nProvider({ locale, children }: { locale: Locale; children: ReactNode }) {
+  const value = useMemo(() => ({ locale, t: createTranslator(locale) }), [locale]);
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export const useI18n = () => useContext(I18nContext);
+
+// Preserve the descriptor API used by components ported from the desktop app.
 export type MessageDescriptor = { id: string; defaultMessage: string };
-
 export function defineMessages<T extends Record<string, MessageDescriptor>>(messages: T): T {
   return messages;
 }
 
-type Values = Record<string, ReactNode>;
-
-function format(descriptor: MessageDescriptor, values?: Values): string {
-  const raw = descriptor?.defaultMessage ?? "";
-  if (!values) return raw;
-  // Interpolación mínima de {placeholders}, suficiente para los textos portados.
-  return raw.replace(/\{(\w+)\}/g, (match, key) =>
-    key in values ? String(values[key]) : match
-  );
-}
-
 export function useIntl() {
-  return { formatMessage: format };
+  const { locale, t } = useI18n();
+  return {
+    locale,
+    formatMessage: (descriptor: MessageDescriptor, values?: MessageValues) =>
+      t(descriptor.id, values, descriptor.defaultMessage),
+  };
 }
 
-export function FormattedMessage({ id, defaultMessage }: MessageDescriptor) {
-  return <>{defaultMessage}</>;
+export function FormattedMessage({ values, ...descriptor }: MessageDescriptor & { values?: MessageValues }) {
+  return <>{useIntl().formatMessage(descriptor, values)}</>;
 }

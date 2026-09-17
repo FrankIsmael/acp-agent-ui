@@ -1,13 +1,15 @@
+import { useI18n } from "~/i18n";
 import { Clock } from "lucide-react";
 import { PlaceholderView } from "~/components/PlaceholderView";
 
 export default function Schedules() {
+  const { t } = useI18n();
   return (
     <PlaceholderView
-      title="Agenda"
-      description="Conversaciones que arrancan solas en un horario."
+      title={t("Schedules")}
+      description={t("Conversations that start automatically on a schedule.")}
       icon={Clock}
-      pending="Salen por ACP, con goose.schedulesList_unstable y compañía. Requieren que el agente corra con --enable-scheduler, que hoy la unidad de systemd no pasa."
+      pending={t("Schedules use ACP methods such as goose.schedulesList_unstable. They require the agent to run with --enable-scheduler, which the systemd unit does not currently pass.")}
     />
   );
 }

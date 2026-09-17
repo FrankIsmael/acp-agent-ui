@@ -2,6 +2,7 @@
  * Panel de navegación — mismo esqueleto que el del Desktop: items arriba, la
  * lista de chats en medio y Ajustes anclado abajo.
  */
+import { useI18n } from "~/i18n";
 import { Link, useLocation, useRouteLoaderData } from "react-router";
 import { motion } from "motion/react";
 import {
@@ -30,25 +31,6 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { id: "home", path: "/c/nuevo", label: "Nueva conversación", icon: MessageSquarePlus },
-  { id: "artifacts", path: "/artifacts", label: "Artifacts", icon: AppWindow },
-  { id: "recipes", path: "/recipes", label: "Recetas", icon: FileText },
-  { id: "skills", path: "/skills", label: "Habilidades", icon: Zap },
-  { id: "apps", path: "/apps", label: "Apps", icon: AppWindow },
-  { id: "schedules", path: "/schedules", label: "Agenda", icon: Clock },
-  { id: "extensions", path: "/extensions", label: "Extensiones", icon: Puzzle },
-  { id: "whatsapp", path: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
-  { id: "sessions", path: "/sessions", label: "Historial", icon: History },
-];
-
-const SETTINGS_ITEM: NavItem = {
-  id: "settings",
-  path: "/settings",
-  label: "Ajustes",
-  icon: Settings,
-};
-
 function NavRow({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   return (
@@ -74,6 +56,7 @@ function SessionRow({
   conversation: ConversationSummary;
   active: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Link
       to={`/c/${encodeURIComponent(conversation.id)}`}
@@ -88,13 +71,13 @@ function SessionRow({
       )}
     >
       <span className="truncate text-sm text-text-primary">
-        {conversation.title}
+        {conversation.title === "Nueva conversación" ? t("New conversation") : conversation.title}
       </span>
       <span className="flex items-center gap-2 text-[11px] text-text-tertiary">
         {conversation.busy && (
           <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-text-success" />
         )}
-        {conversation.messageCount} mensajes
+        {t("messages.count", { count: conversation.messageCount })}
       </span>
     </Link>
   );
@@ -105,6 +88,24 @@ export function NavigationPanel({
 }: {
   conversations: ConversationSummary[];
 }) {
+  const { t } = useI18n();
+  const NAV_ITEMS: NavItem[] = [
+    { id: "home", path: "/c/nuevo", label: t("New conversation"), icon: MessageSquarePlus },
+    { id: "artifacts", path: "/artifacts", label: t("Artifacts"), icon: AppWindow },
+    { id: "recipes", path: "/recipes", label: t("Recipes"), icon: FileText },
+    { id: "skills", path: "/skills", label: t("Skills"), icon: Zap },
+    { id: "apps", path: "/apps", label: t("Apps"), icon: AppWindow },
+    { id: "schedules", path: "/schedules", label: t("Schedules"), icon: Clock },
+    { id: "extensions", path: "/extensions", label: t("Extensions"), icon: Puzzle },
+    { id: "whatsapp", path: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+    { id: "sessions", path: "/sessions", label: t("History"), icon: History },
+  ];
+  const SETTINGS_ITEM: NavItem = {
+    id: "settings",
+    path: "/settings",
+    label: t("Settings"),
+    icon: Settings,
+  };
   const location = useLocation();
   const demo = useRouteLoaderData("root")?.demo;
   const { loaded, error } = useConversations();
@@ -136,13 +137,13 @@ export function NavigationPanel({
           ) : (
             <ChevronRight className="h-3 w-3" />
           )}
-          <span>Chats</span>
+          <span>{t("Chats")}</span>
         </button>
         {isChatsExpanded && (
           <div className="mt-1 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {conversations.length === 0 ? (
               <div className="px-3 py-2 text-xs text-text-secondary">
-                {error ?? (loaded ? "Todavía no hay conversaciones" : "Cargando conversaciones…")}
+                {error ? t(error) : (loaded ? t("No conversations yet") : t("Loading conversations…"))}
               </div>
             ) : (
               conversations.map((c) => (

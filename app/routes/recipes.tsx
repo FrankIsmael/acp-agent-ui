@@ -1,13 +1,15 @@
+import { useI18n } from "~/i18n";
 import { FileText } from "lucide-react";
 import { PlaceholderView } from "~/components/PlaceholderView";
 
 export default function Recipes() {
+  const { t } = useI18n();
   return (
     <PlaceholderView
-      title="Recetas"
-      description="Prompts guardados que arrancan una conversación con parámetros."
+      title={t("Recipes")}
+      description={t("Saved prompts that start a conversation with parameters.")}
       icon={FileText}
-      pending="Salen por ACP, con los métodos goose.recipesList_unstable y compañía (Save, Delete, Parse). Falta llamarlos desde app/.server/acp.ts sobre la conexión que ya existe."
+      pending={t("Recipes use ACP methods such as goose.recipesList_unstable (Save, Delete, Parse). Calling them from app/.server/acp.ts over the existing connection is pending.")}
     />
   );
 }

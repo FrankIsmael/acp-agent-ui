@@ -58,7 +58,7 @@ const request = (path, cookie, init = {}) => fetch(base + path, { ...init, heade
 const post = (path, cookie, body) => request(path, cookie, { method: 'POST', ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
 async function guest() {
   const r = await request('/'); assert.equal(r.status, 200);
-  const html = await r.text(); assert.ok(!html.includes('owner-secret')); assert.ok(html.includes('Demo gratuita'));
+  const html = await r.text(); assert.ok(!html.includes('owner-secret')); assert.ok(html.includes('Free demo'));
   const cookie = r.headers.get('set-cookie')?.split(';')[0]; assert.ok(cookie); return cookie;
 }
 try {
@@ -78,9 +78,9 @@ try {
   const extensionsPage = await request('/extensions', b);
   assert.equal(extensionsPage.status, 200);
   const extensionsHtml = await extensionsPage.text();
-  assert.match(extensionsHtml, /Herramientas disponibles/);
-  assert.ok(!extensionsHtml.includes('Hilo abierto'));
-  assert.ok(!extensionsHtml.includes('Dar de alta'));
+  assert.match(extensionsHtml, /Tools available/);
+  assert.ok(!extensionsHtml.includes('Open conversation'));
+  assert.ok(!extensionsHtml.includes('Add extension'));
   assert.ok(!extensionsHtml.includes(id));
   const history = await (await request('/api/conversations', a)).json(); assert.deepEqual(history.conversations.map(c => c.id), [id]);
   const bHistory = await (await request('/api/conversations', b)).json(); assert.deepEqual(bHistory.conversations, []);

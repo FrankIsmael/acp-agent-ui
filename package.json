@@ -7,6 +7,7 @@
     "build": "react-router build",
     "start": "node --env-file=.env server.js",
     "typecheck": "react-router typegen && tsc",
+    "test:i18n": "node --experimental-strip-types --test tests/i18n.test.mjs",
     "test:memory:backup": "node --test tests/memory-backup.test.mjs",
     "test:memory": "node tests/memory.test.mjs",
     "test:permissions": "node --experimental-strip-types --test tests/permissions.test.mjs && node tests/permissions.integration.mjs",

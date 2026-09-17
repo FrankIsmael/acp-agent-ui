@@ -1,13 +1,15 @@
+import { useI18n } from "~/i18n";
 import { AppWindow } from "lucide-react";
 import { PlaceholderView } from "~/components/PlaceholderView";
 
 export default function Apps() {
+  const { t } = useI18n();
   return (
     <PlaceholderView
-      title="Apps"
-      description="Interfaces que las extensiones MCP dibujan dentro del chat."
+      title={t("Apps")}
+      description={t("Interfaces that MCP extensions display in the chat.")}
       icon={AppWindow}
-      pending="El agente ya monta /mcp-app-guest y /mcp-app-proxy, y expone goose.appsList_unstable. Falta el lado web: @mcp-ui/client para dibujar la app dentro del chat."
+      pending={t("The agent provides /mcp-app-guest, /mcp-app-proxy, and goose.appsList_unstable. Web support using @mcp-ui/client to display apps in chat is pending.")}
     />
   );
 }

@@ -1,7 +1,9 @@
+import { useI18n } from "~/i18n";
 import { useEffect, useState } from "react";
 import { useRouteLoaderData } from "react-router";
 interface Status { enabled: boolean; exhausted: boolean; turns: number; turnLimit: number; tokens: number; tokenLimit: number; contactUrl: string | null }
 export function DemoNotice() {
+  const { t } = useI18n();
   const demo = useRouteLoaderData("root")?.demo;
   const [status, setStatus] = useState<Status | null>(null);
   useEffect(() => {
@@ -16,12 +18,12 @@ export function DemoNotice() {
   if (!demo) return null;
   return <aside role={status?.exhausted ? "alert" : "status"} className="border-b border-border-secondary bg-background-secondary px-4 py-3 text-sm">
     {status?.exhausted ? <>
-      <p className="font-medium">Llegaste al límite de esta demo.</p>
-      <p>¿Quieres conocer más o construir algo así? Hablemos.</p>
+      <p className="font-medium">{t("You have reached this demo's limit.")}</p>
+      <p>{t("Want to learn more or build something like this? Let's talk.")}</p>
       <div className="mt-2 flex gap-4">
-        <a className="underline" href={status.contactUrl ?? "mailto:ismaelfcom93@gmail.com"}>Contactar a Ismael</a>
+        <a className="underline" href={status.contactUrl ?? "mailto:ismaelfcom93@gmail.com"}>{t("Contact Ismael")}</a>
         <a className="underline" href="https://www.linkedin.com/in/ismaelfcom/" target="_blank" rel="noreferrer">LinkedIn</a>
       </div>
-    </> : <p>Demo gratuita · 1 conversación · {status ? `Hasta ${Math.max(0, status.turnLimit - status.turns)} mensajes más` : "Uso limitado"}. El chat y WhatsApp comparten tu límite en este navegador.</p>}
+    </> : <p>{t("demo.summary", { remaining: status ? t("demo.remaining", { count: Math.max(0, status.turnLimit - status.turns) }) : t("Limited use") })}</p>}
   </aside>;
 }

@@ -5,6 +5,7 @@
  * Desktop. En móvil no cabe: ahí se vuelve un cajón que flota encima, arranca
  * cerrado y se cierra al navegar o al tocar el velo.
  */
+import { useI18n } from "~/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
@@ -22,6 +23,7 @@ function AppLayoutContent({
   conversations: ConversationSummary[];
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   const { isNavExpanded, setIsNavExpanded, navWidth, setNavWidth } =
     useNavigationContext();
   const isMobile = useIsMobile();
@@ -67,7 +69,7 @@ function AppLayoutContent({
 
   const open = isMobile ? drawerOpen : isNavExpanded;
   const toggle = () => (isMobile ? setDrawerOpen(!drawerOpen) : setIsNavExpanded(!isNavExpanded));
-  const toggleTitle = open ? "Cerrar navegación" : "Abrir navegación";
+  const toggleTitle = open ? t("Close navigation") : t("Open navigation");
 
   return (
     <div className="relative flex h-dvh w-full overflow-hidden flex-1 flex-row bg-background-primary">
