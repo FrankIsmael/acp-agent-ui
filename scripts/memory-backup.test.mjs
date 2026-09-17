@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, writeFile, rm, chmod } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { backupSessions } from './backup-sessions.mjs';
+import { backupSessions, detectSessionDatabase } from './backup-sessions.mjs';
 import { restoreSessions } from './restore-sessions.mjs';
 import { skillsBootstrap } from './lib/skills-bootstrap.mjs';
 const run = promisify(execFile);
@@ -70,6 +70,22 @@ test('WAL-safe backup, private upload manifest, guarded restore, checksum, servi
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     await rm(folder, { recursive: true, force: true });
   }
+});
+
+test('database auto-detection: one known path wins, none or several refuse', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'acp-detect-test-'));
+  // Sustituye las rutas conocidas por las del directorio temporal, sin tocar la caja.
+  const remap = command => command.replaceAll("'/data/", `'${folder}/data/`).replaceAll("'/root/", `'${folder}/root/`);
+  const eb = { exec: async (_box, command) => (await run('/bin/sh', ['-c', remap(command)])).stdout.replaceAll(folder, '') };
+  try {
+    await assert.rejects(detectSessionDatabase({ eb, boxId: 'test' }), /No hay ninguna base/);
+    await mkdir(join(folder, 'data/ghosty/data/sessions'), { recursive: true });
+    await writeFile(join(folder, 'data/ghosty/data/sessions/sessions.db'), '');
+    assert.equal(await detectSessionDatabase({ eb, boxId: 'test' }), '/data/ghosty/data/sessions/sessions.db');
+    await mkdir(join(folder, 'data/state/goose/sessions'), { recursive: true });
+    await writeFile(join(folder, 'data/state/goose/sessions/sessions.db'), '');
+    await assert.rejects(detectSessionDatabase({ eb, boxId: 'test' }), /más de una base/);
+  } finally { await rm(folder, { recursive: true, force: true }); }
 });
 
 test('bootstrap rejects credential URLs and shell-shaped branch arguments', () => {

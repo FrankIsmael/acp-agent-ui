@@ -102,43 +102,6 @@ atribución está en [`NOTICE`](NOTICE).
   tema, así que en la primera visita todo se ve bien.
 
 
-USEFUL COMMANDS
-```bash
-curl -N -X DELETE https://www.easybits.cloud/api/v2/sandboxes/$SANDBOXID \
-  -H "Authorization: Bearer $EASYBITS_API_KEY" \
-  -H "Content-Type: application/json"
-```
-
-```bash
-curl https://www.easybits.cloud/api/v2/agents/$AGENT_ID \
-  -H "Authorization: Bearer $EASYBITS_API_KEY" \
-  | python3 -m json.tool
-```
-
-```bash
-curl -X POST https://www.easybits.cloud/api/v2/agents \
-  -H "Authorization: Bearer $EASYBITS_API_KEY" -H "Content-Type: application/json" \
-  -d "{\"template\":\"ghosty-lite\",\"name\":\"or-agente\",\"env\":{\"GHOSTY_PROVIDER\":\"openrouter\",\"GHOSTY_MODEL\":\"nvidia/nemotron-3.5-lightning:free\",\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\"}}"
-```
-
-```bash
-  curl -sS -X DELETE https://www.easybits.cloud/api/v2/agents/6aa43367d4f588c595df7fbc \
-  -H "Authorization: Bearer $EASYBITS_API_KEY"
-```
-
-```bash
-curl -X POST https://www.easybits.cloud/api/v2/agents \
-  -H "Authorization: Bearer $EASYBITS_API_KEY" -H "Content-Type: application/json" \
-  -d "{\"template\":\"ghosty-lite\",\"name\":\"or-agente\",\"env\":{\"GHOSTY_PROVIDER\":\"openrouter\",\"GHOSTY_MODEL\":\"nvidia/nemotron-3.5-lightning:free\",\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\"}}"
-```
-
-```bash
-read -rs "EASYBITS_API_KEY?Paste the new Easybits key: "
-echo
-launchctl setenv EASYBITS_API_KEY "$EASYBITS_API_KEY"
-unset EASYBITS_API_KEY
-```
-
 ## Public demo
 
 Enable `PUBLIC_DEMO=true` for one conversation and a shared guest allowance across web chat and individually linked WhatsApp accounts. Turn it off to restore the existing behavior. See [setup, limits, and replacement notes](docs/public-demo.md).

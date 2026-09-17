@@ -7,6 +7,12 @@ def inspect(path):
   counts = {table: db.execute("SELECT count(*) FROM " + table).fetchone()[0] for table in ("sessions", "messages")}
  return counts
 `;
+// Dónde guarda cada agente su memoria episódica. Ghosty Lite la deja en /data/ghosty
+// de fábrica; goose manual necesita XDG_DATA_HOME=/data/state para que sobreviva a la caja.
+export const knownDatabases = ['/data/ghosty/data/sessions/sessions.db', '/data/state/goose/sessions/sessions.db', '/root/.local/share/goose/sessions/sessions.db'];
+export const detectDatabase = `import pathlib, json, sys
+print(json.dumps([p for p in sys.argv[1:] if pathlib.Path(p).is_file()]))
+`;
 export const backupDatabase = `import pathlib, sqlite3, tempfile, json, hashlib, sys, os
 ${inspectDatabase}
 source = pathlib.Path(sys.argv[1])

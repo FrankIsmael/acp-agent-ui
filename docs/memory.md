@@ -55,9 +55,14 @@ mueve la memoria.
 ## Respaldar y restaurar
 
 ```sh
-node --env-file=.env scripts/backup-sessions.mjs \
-  --database /data/ghosty/data/sessions/sessions.db
+node --env-file=.env scripts/backup-sessions.mjs
 ```
+
+Sin `--database` ni `SESSION_DB_PATH`, el script busca la base entre las rutas
+conocidas (`/data/ghosty/data/…` en Ghosty Lite, `/data/state/goose/…` en goose
+manual, `~/.local/share/goose/…` si nunca se movió) y usa la única que exista.
+Si encuentra dos, se niega a adivinar y pide la ruta. El manifiesto guarda cuál
+se respaldó.
 
 El script ejecuta `sqlite3.Connection.backup` dentro de la caja, incluyendo WAL,
 y produce un archivo SQLite completo. Solicita un archivo **privado** a EasyBits

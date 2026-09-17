@@ -3,9 +3,18 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { easybitsClient, pythonCommand, required } from './lib/easybits.mjs';
-import { backupDatabase, uploadDatabase } from './lib/session-database.mjs';
+import { backupDatabase, detectDatabase, knownDatabases, uploadDatabase } from './lib/session-database.mjs';
+
+/** Sin SESSION_DB_PATH se busca la base entre las rutas conocidas; con dos candidatas no se adivina. */
+export async function detectSessionDatabase({ eb, boxId }) {
+  const found = JSON.parse(await eb.exec(boxId, pythonCommand(detectDatabase, knownDatabases)));
+  if (found.length === 1) return found[0];
+  if (found.length === 0) throw new Error(`No hay ninguna base de sesiones en la caja. Rutas probadas: ${knownDatabases.join(', ')}`);
+  throw new Error(`Hay más de una base de sesiones (${found.join(', ')}). Indica cuál con --database o SESSION_DB_PATH.`);
+}
 
 export async function backupSessions({ eb, boxId, database, manifestPath }) {
+  database ??= await detectSessionDatabase({ eb, boxId });
   const snapshot = JSON.parse(await eb.exec(boxId, pythonCommand(backupDatabase, [database])));
   const created = await eb.request('/files', { method: 'POST', body: {
     fileName: `sessions-${new Date().toISOString().replaceAll(':', '-')}.db`, contentType: 'application/vnd.sqlite3', size: snapshot.size, access: 'private',
@@ -38,10 +47,10 @@ export async function backupSessions({ eb, boxId, database, manifestPath }) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { values } = parseArgs({ options: { box: { type: 'string' }, database: { type: 'string' }, manifest: { type: 'string' }, help: { type: 'boolean' } } });
-  if (values.help) console.log('node --env-file=.env scripts/backup-sessions.mjs --database /data/ghosty/data/sessions/sessions.db [--box ID] [--manifest PATH]');
+  if (values.help) console.log('node --env-file=.env scripts/backup-sessions.mjs [--database /data/ghosty/data/sessions/sessions.db] [--box ID] [--manifest PATH]');
   else {
     const manifestPath = resolve(values.manifest ?? `.memory-backups/${Date.now()}.json`);
-    const result = await backupSessions({ eb: easybitsClient(), boxId: required(values.box ?? process.env.AGENT_BOX_ID, 'AGENT_BOX_ID / --box'), database: required(values.database ?? process.env.SESSION_DB_PATH, 'SESSION_DB_PATH / --database'), manifestPath });
-    console.log(JSON.stringify({ fileId: result.fileId, manifestPath, sessions: result.sessions, messages: result.messages, size: result.size }));
+    const result = await backupSessions({ eb: easybitsClient(), boxId: required(values.box ?? process.env.AGENT_BOX_ID, 'AGENT_BOX_ID / --box'), database: values.database || process.env.SESSION_DB_PATH || undefined, manifestPath });
+    console.log(JSON.stringify({ fileId: result.fileId, database: result.database, manifestPath, sessions: result.sessions, messages: result.messages, size: result.size }));
   }
 }

@@ -15,3 +15,5 @@ build/
 .memory-backups/
 .data/extensions.sqlite*
 .data
+
+CURLS.md
