@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { easybitsClient, required } from './lib/easybits.mjs';
+import { easybitsClient, required } from '../scripts/lib/easybits.mjs';
 const suspend = process.argv.includes('--suspend');
 const eb = suspend ? easybitsClient() : null;
 const port = 5398;

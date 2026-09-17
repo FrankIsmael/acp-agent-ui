@@ -7,9 +7,9 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { backupSessions, detectSessionDatabase } from './backup-sessions.mjs';
-import { restoreSessions } from './restore-sessions.mjs';
-import { skillsBootstrap } from './lib/skills-bootstrap.mjs';
+import { backupSessions, detectSessionDatabase } from '../scripts/backup-sessions.mjs';
+import { restoreSessions } from '../scripts/restore-sessions.mjs';
+import { skillsBootstrap } from '../scripts/lib/skills-bootstrap.mjs';
 const run = promisify(execFile);
 
 test('WAL-safe backup, private upload manifest, guarded restore, checksum, service lifecycle', async () => {

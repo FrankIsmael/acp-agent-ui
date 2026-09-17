@@ -91,7 +91,7 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-age
 - **La base de extensiones es la de la rama `sesion-4-mcp`** (columna por campo, `id` UUID,
   `name` único, `ACP_EXTENSIONS_DB` / `.data/extensions.db`): un archivo escrito en una rama se
   lee en la otra. Un `.db` del formato intermedio (`configuration` JSON) se convierte solo al abrir.
-- **`scripts/permissions.integration.mjs` corre contra `build/`**: si falla después de tocar
+- **`tests/permissions.integration.mjs` corre contra `build/`**: si falla después de tocar
   código, primero `npm run build`.
 - **El botón de parar sí interrumpe** (`session/cancel`).
 - **Los métodos son `_unstable`.** Todo lo que llene las vistas vacías lleva ese sufijo en goose:
