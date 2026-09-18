@@ -63,6 +63,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <Meta />
+          <title>Agent</title>
+          <meta name="description" content="UI for an Agent running inside a microVM, communicating via ACP" />
           <Links />
           <style dangerouslySetInnerHTML={{ __html: tokensToCss() }} />
         </head>
