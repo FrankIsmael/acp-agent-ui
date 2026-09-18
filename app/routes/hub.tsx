@@ -13,6 +13,7 @@ import type { Route } from "./+types/hub";
 import type { ConfigOption } from "~/hooks/useAcpStream";
 import { readModelPreference } from "~/.server/model-preference";
 import { config, getLastConfigOptions } from "~/.server/acp";
+import { useChatBase } from "~/lib/embed";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const preference = await readModelPreference(request);
@@ -43,6 +44,7 @@ function useClock() {
 export default function Hub({ loaderData }: { loaderData: { cwd: string; model: ConfigOption | null; preference: string | null } }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const base = useChatBase();
   const clock = useClock();
   const [model, setModel] = useState(loaderData.model);
   const [configBusy, setConfigBusy] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? t("could not open the conversation"));
       window.dispatchEvent(new Event("conversations-changed"));
-      navigate(`/c/${encodeURIComponent(body.conversationId)}`, { state: { firstMessage: text } });
+      navigate(`${base}/c/${encodeURIComponent(body.conversationId)}`, { state: { firstMessage: text } });
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);

@@ -37,6 +37,7 @@ import { config, loadConversation, getMessages } from "~/.server/acp";
 import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
 import { useArtifacts } from "~/components/artifacts/ArtifactContext";
+import { useChatBase } from "~/lib/embed";
 import { artifactKey, parseArtifacts, type Artifact, type ArtifactPart } from "~/lib/artifacts";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -258,6 +259,7 @@ function ChatView() {
   const { id, cwd, messages, replayLimited } = useLoaderData<typeof loader>();
   const location = useLocation();
   const navigate = useNavigate();
+  const base = useChatBase();
   const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
   const {
     turns, permissions, busy, connected, phase, error, send, stop,
@@ -321,7 +323,7 @@ function ChatView() {
             }}
           >
             <div ref={scrollContent} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
-              {replayLimited && <p className="text-center text-xs text-text-secondary">{t("Showing the latest turns.")} <Link to={`/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">{t("Load full history")}</Link></p>}
+              {replayLimited && <p className="text-center text-xs text-text-secondary">{t("Showing the latest turns.")} <Link to={`${base}/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">{t("Load full history")}</Link></p>}
               {!connected && turns.length === 0 && (
                 <ConnectingState phase={phase} error={error} />
               )}

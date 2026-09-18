@@ -28,6 +28,14 @@ app.use((request, _response, next) => {
   next();
 });
 
+// Quién puede meter la app en un iframe. Sin la variable sólo la propia app; con
+// PUBLIC_DEMO abierto, cualquiera podría incrustarla y gastar el presupuesto.
+const frameAncestors = ["'self'", ...(process.env.EMBED_ALLOWED_ORIGINS ?? "").split(",").map(v => v.trim()).filter(Boolean)];
+app.use((_request, response, next) => {
+  response.setHeader("Content-Security-Policy", `frame-ancestors ${frameAncestors.join(" ")}`);
+  next();
+});
+
 app.use(
   "/assets",
   express.static("build/client/assets", { immutable: true, maxAge: "1y" })

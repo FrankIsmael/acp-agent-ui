@@ -20,6 +20,12 @@ export default [
   route("api/conversations/:id/config", "routes/api.conversations.$id.config.ts"),
   route("api/conversations/:id/permissions", "routes/api.conversations.$id.permissions.ts"),
 
+  // Mismo hub y chat, sin cascarón: para incrustar en un iframe (ver lib/embed.ts).
+  route("embed", "routes/_embed.tsx", [
+    index("routes/hub.tsx", { id: "embed/hub" }),
+    route("c/:id", "routes/chat.tsx", { id: "embed/chat" }),
+  ]),
+
   layout("routes/_shell.tsx", [
     index("routes/hub.tsx"),
     route("c/nuevo", "routes/new-chat.tsx"),
