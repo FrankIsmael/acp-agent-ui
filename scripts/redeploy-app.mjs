@@ -71,7 +71,34 @@ async function mcp(name, args, secret = false) {
   try { return JSON.parse(text); } catch { return { text }; }
 }
 
-const run = async (command, seconds) => (dry ? console.log(`     (dry-run) ${command}`) || '' : eb.exec(box, command, seconds));
+/** /exec rejects timeoutSeconds > 600 with HTTP 400, so short commands are clamped to it. */
+const EXEC_MAX_SECONDS = 600;
+const run = async (command, seconds) =>
+  dry ? console.log(`     (dry-run) ${command}`) || '' : eb.exec(box, command, Math.min(seconds, EXEC_MAX_SECONDS));
+
+/**
+ * Anything that can outlast those 600s goes to the background and is polled instead: a build
+ * on a micro tier is exactly the case the foreground cap cannot cover.
+ */
+async function runLong(command, budgetMs = 1_200_000) {
+  if (dry) return console.log(`     (dry-run, background) ${command}`), '';
+  const { execId } = await mcp('sandbox_exec_background', { sandboxId: box, command });
+  if (!execId) throw new Error('sandbox_exec_background returned no execId');
+  const deadline = Date.now() + budgetMs;
+  for (let tick = 0; ; tick++) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    const status = await mcp('sandbox_exec_status', { sandboxId: box, execId });
+    if (status.status !== 'running') {
+      if (status.exitCode !== 0) {
+        const tail = String(status.stderr || status.stdout || '').split('\n').filter(Boolean).slice(-8).join('\n     ');
+        throw new Error(`${command.slice(0, 40)}… exited ${status.exitCode}\n     ${tail}`);
+      }
+      return String(status.stdout ?? '');
+    }
+    if (Date.now() > deadline) throw new Error(`still running after ${(budgetMs / 60000).toFixed(0)} min (execId ${execId})`);
+    if (tick % 6 === 5) console.log(`     …still building (${since()})`);
+  }
+}
 
 /** The box answers before the service does, so never trust the restart call alone. */
 async function waitForApp(budgetMs = 120_000) {
@@ -158,7 +185,7 @@ console.log(`     ${head.trim() || '(dry run)'}`);
 if (has('skip-build')) say('build skipped (--skip-build)');
 else {
   say('npm ci || npm install, then npm run build');
-  const build = await run('cd /app && (npm ci || npm install) && npm run build 2>&1 | tail -5', 900);
+  const build = await runLong('cd /app && (npm ci || npm install) && npm run build 2>&1 | tail -5');
   console.log(build.split('\n').filter(Boolean).map(l => `     ${l}`).join('\n'));
 }
 
