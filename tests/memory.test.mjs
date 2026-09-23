@@ -59,9 +59,12 @@ mock.on('connection', ws => {
         respond({ configOptions: configOptions.map(option => ({ ...option, currentValue: params.value })) });
       } else if (method === 'session/prompt') {
         const row = saved.get(params.sessionId);
-        const chunks = [...params.prompt.filter(c => c.type === 'text').map(c => user(c.text)), assistant('Partial persisted response')];
+        // El texto del usuario es el ÚLTIMO bloque de texto: delante puede ir la marca de canal
+        // o, con ACP_INLINE_INSTRUCTIONS, las instrucciones enteras.
+        const texts = params.prompt.filter(c => c.type === 'text').map(c => c.text);
+        const chunks = [...texts.map(user), assistant('Partial persisted response')];
         row.updates.push(...chunks);
-        if (!/^untitled:/.test(chunks[1]?.content.text ?? '')) {
+        if (!/^untitled:/.test(texts.at(-1) ?? '')) {
           row.title = 'Agent generated title';
           update(params.sessionId, { sessionUpdate: 'session_info_update', title: row.title });
         }

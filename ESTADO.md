@@ -1,6 +1,6 @@
 # Dónde estamos
 
-> Actualizado el 14 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
+> Actualizado el 19 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
 > hay que saber para retomar sin releer todo. Lo conceptual va en [`docs/`](docs/).
 
 ## Lo que funciona hoy
@@ -130,8 +130,24 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-age
     `web.mjs` está roto en esta caja (falta `.gs-turn.json`). Para que "busca X" vaya al MCP hay
     que cambiar esa regla en los dos archivos, con orden de preferencia (MCP de EasyBits si está en
     la sesión → `web.mjs` → nativa). Aplicado el 13 sep en los dos archivos; el texto está en la
-    [spec 4](docs/spec4-permisos-extensiones.md). Vale para conversaciones nuevas, y sobrevive al
-    reinicio porque `.goosehints` es la fuente.
+    [spec 4](docs/spec4-permisos-extensiones.md). Vale para conversaciones nuevas.
+  - **Ojo: ninguno de los dos archivos es la fuente.** `/usr/local/bin/ghosty-lite-start` (viene
+    en la imagen del template, no de este repo) hace en cada arranque de la unidad
+    `cp /opt/goose/goosehints.md → /data/ghosty/config/.goosehints`, le añade la sección `hilos`
+    desde un heredoc del propio script y copia el resultado a `/data/work/CLAUDE.md`. Lo que se
+    edite en `/data` dura hasta el siguiente arranque: `restart_machine`, `systemctl restart`, o
+    un crash de `ghosty serve` (`Restart=on-failure`). Suspender/despertar NO cuenta: es un
+    snapshot de memoria, el script no corre (comprobado el 19 sep: un solo boot desde el 12 sep,
+    `NRestarts=0`, 31 h de uptime en 6 días). Los cambios del 13 sep siguen vivos por eso, no
+    porque sobrevivan. Para que duren hay que tocar también `/opt/goose/goosehints.md` (raíz del
+    disco de imagen: aguanta reboots, no una caja nueva ni un rebake).
+  - **19 sep:** los dos archivos de `/data` traducidos al inglés (copias `.es.bak` al lado) y con
+    el bloque `## Output format by channel` (`HINTS_BLOCK` en `artifact-instructions.ts`). La app
+    ya no manda `ARTIFACT_INSTRUCTIONS` en cada `session/prompt`: `ensureHints` comprueba la marca
+    `<!-- acp-agent-ui:output-format v1 -->` en cada conexión y la añade si falta (por eso un boot
+    que pise los archivos se repara solo); los turnos de WhatsApp llevan sólo la línea
+    `[channel: whatsapp-group]`. Sin SDK, o con `ACP_INLINE_INSTRUCTIONS=1`, vuelve a ir todo en
+    línea como antes.
 
 ## Producción
 

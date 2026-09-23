@@ -12,7 +12,7 @@ import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-
 import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
 import { parseSkills, replayMetadata } from "./goose-adapter";
-import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS } from "./artifact-instructions";
+import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER } from "./artifact-instructions";
 import { PermissionQueue, type PendingPermission } from "./permissions";
 import { extensionStore, summarizeExtensions } from "./extensions";
 import { isGenericTitle, titleFromPrompt, titleStore } from "./titles";
@@ -163,6 +163,29 @@ export async function ensureAgentBox() {
     `[lifecycle] caja recreada (${child.id}) — ⚠️ su URL es otra: actualiza ACP_WS_URL o seguirás hablando con la anterior`
   );
   return child;
+}
+
+/**
+ * Las reglas de formato (HINTS_BLOCK) viven en el `CLAUDE.md` de la caja, no en el prompt: con
+ * `claude-acp` ese archivo es lo único que el cerebro lee del sistema, y mandarlas en cada turno
+ * costaba ~350 tokens que además se acumulaban en el historial del hilo.
+ *
+ * ⚠️ La app NO lo comprueba: da por hecho que la caja las trae. Quien la provisiona es
+ * responsable de que el bloque esté en `/opt/goose/goosehints.md` (de ahí lo copia
+ * `ghosty-lite-start` a `.goosehints` y a `CLAUDE.md` en cada arranque). El texto canónico es
+ * `HINTS_BLOCK`; `scripts/install-hints.mjs` lo escribe en una caja.
+ *
+ * Si un día se habla con un agente que no las tenga, `ACP_INLINE_INSTRUCTIONS=1` vuelve a
+ * mandarlas en cada turno, que es como funcionaba antes.
+ */
+const FORCE_INLINE = process.env.ACP_INLINE_INSTRUCTIONS === "1";
+
+/** Bloque(s) de texto que preceden al mensaje del usuario en `session/prompt`. */
+function prefixFor(channel: unknown): { type: "text"; text: string }[] {
+  // La marca de canal sí viaja siempre: web y WhatsApp comparten hilo, así que el archivo no
+  // puede saber por dónde entra el turno. Son ~10 tokens.
+  if (channel) return [{ type: "text", text: FORCE_INLINE ? CHANNEL_INSTRUCTIONS : CHANNEL_MARKER }];
+  return FORCE_INLINE ? [{ type: "text", text: ARTIFACT_INSTRUCTIONS }] : [];
 }
 
 async function suspendAgentBox() {
@@ -512,7 +535,7 @@ class GooseSession extends EventEmitter {
       // El prompt añade las instrucciones de artifacts como bloque separado.
       // Nunca se muestran esas instrucciones como si las hubiera escrito el humano.
       const content = { ...u.content };
-      for (const prefix of [ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS]) {
+      for (const prefix of [ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER]) {
         if (content.type === "text" && content.text.startsWith(prefix)) {
           content.text = content.text.slice(prefix.length).trimStart();
           if (!content.text) return;
@@ -627,8 +650,9 @@ class GooseSession extends EventEmitter {
       try {
         const result: any = await connection!.agent.request("session/prompt", {
           sessionId: this.sessionId,
-          // Por un canal de mensajería no hay panel de artifacts: se le dice otra cosa al agente.
-          prompt: [{ type: "text", text: channel ? CHANNEL_INSTRUCTIONS : ARTIFACT_INSTRUCTIONS }, { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
+          // Las reglas de formato viven en el CLAUDE.md de la caja; aquí sólo va la marca del
+          // canal. Ver `prefixFor` y `ACP_INLINE_INSTRUCTIONS`.
+          prompt: [...prefixFor(channel), { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
         });
         this.emit("event", { type: "done", stopReason: result.stopReason, usage: this.assistant?.usage ?? null });
         if (result.stopReason === "cancelled") error = "El turno se detuvo antes de terminar.";

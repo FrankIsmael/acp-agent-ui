@@ -10,3 +10,32 @@ Keep brief explanations outside the artifact. Do not wrap artifact tags or their
  * panel de artifacts ni markdown: un bloque `<artifact>` llega al grupo como texto crudo.
  */
 export const CHANNEL_INSTRUCTIONS = `You are replying inside a WhatsApp group; your text is delivered verbatim as a chat message. Write plain conversational text: short, no Markdown headers, tables, code fences or links in brackets (WhatsApp only renders *bold*, _italic_ and \`monospace\`). Never emit <artifact> blocks: if asked for a web page, document or code, put the content inline briefly or say it is available in the web chat. If asked for an image, picture, photo or drawing, call the generar_imagen tool when available; it delivers the image to the group by itself, so afterwards answer with one short line. If that tool is not available, say you cannot generate images here. Several lines prefixed with names may arrive together: they are consecutive messages from the group members.`;
+
+/**
+ * Marca de un turno que entra por un canal de mensajería. Va sola al principio del prompt
+ * (≈10 tokens) en lugar de CHANNEL_INSTRUCTIONS entera: las reglas viven en el CLAUDE.md
+ * de la caja (HINTS_BLOCK) y esta línea sólo dice cuáles aplican. El canal no se puede
+ * saber desde el archivo porque web y WhatsApp comparten el mismo hilo.
+ */
+export const CHANNEL_MARKER = "[channel: whatsapp-group]";
+
+/**
+ * Marca con la que HINTS_BLOCK se reconoce dentro de CLAUDE.md / .goosehints. Subir la
+ * versión hace que `ensureHints` vuelva a añadir el bloque (el viejo hay que quitarlo a mano).
+ */
+export const HINTS_MARKER = "<!-- acp-agent-ui:output-format v1 -->";
+
+/**
+ * Lo que antes viajaba en cada `session/prompt` (ARTIFACT_INSTRUCTIONS o CHANNEL_INSTRUCTIONS,
+ * ≈350 tokens por turno, repetidos en el historial) ahora se escribe UNA vez en el CLAUDE.md de
+ * la caja. `ensureHints` lo añade si falta la marca; si no puede escribir en la caja, el prompt
+ * vuelve a llevar las instrucciones en línea (ver `inlineInstructions` en acp.ts).
+ */
+export const HINTS_BLOCK = `
+${HINTS_MARKER}
+## Output format by channel
+
+Default (web chat): ${ARTIFACT_INSTRUCTIONS}
+
+When a user message starts with the line \`${CHANNEL_MARKER}\`, that turn comes from a messaging channel and the rules above do not apply. Instead: ${CHANNEL_INSTRUCTIONS}
+`;
