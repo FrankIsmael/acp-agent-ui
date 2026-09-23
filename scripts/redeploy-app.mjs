@@ -25,7 +25,7 @@
  *
  * Env: EASYBITS_API_KEY (required), APP_BOX_ID and APP_URL override the defaults below.
  */
-import { easybitsClient, required, shellQuote } from './lib/easybits.mjs';
+import { easybitsClient, required } from './lib/easybits.mjs';
 
 const URL_APP = 'https://acp-agent.ismaelfrancisco.tech';
 const BASE = (process.env.EASYBITS_BASE_URL ?? 'https://www.easybits.cloud').replace(/\/+$/, '');
@@ -100,28 +100,6 @@ async function runLong(command, budgetMs = 1_200_000) {
   }
 }
 
-/** The box answers before the service does, so never trust the restart call alone. */
-async function waitForApp(budgetMs = 120_000) {
-  say(`waiting for ${url}`);
-  if (dry) return;
-  const deadline = Date.now() + budgetMs;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const probe = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
-      if (probe.status < 500) return console.log(`     HTTP ${probe.status} after ${since()}`);
-      if (Date.now() > deadline) throw new Error(`still HTTP ${probe.status}`);
-    } catch (error) {
-      if (Date.now() > deadline) {
-        console.error(`\n✗ ${url} did not come back: ${error.message}`);
-        console.error(`  logs:     node --env-file=.env -e "import('./scripts/lib/easybits.mjs').then(m => m.easybitsClient().exec(${shellQuote(box)}, 'tail -50 /var/log/easybits-app.log').then(console.log))"`);
-        console.error('  rollback: MCP rollback_machine { sandboxId, releaseId } — list_machine_releases has the ids');
-        process.exit(1);
-      }
-    }
-    await new Promise(resolve => setTimeout(resolve, Math.min(2000 * attempt, 8000)));
-  }
-}
-
 const secrets = all('secret');
 const unsets = all('unset');
 const mode = has('secrets') ? 'list-secrets' : secrets.length || unsets.length ? 'secrets' : has('restart') ? 'restart' : 'deploy';
@@ -160,7 +138,6 @@ if (mode === 'secrets') {
     await mcp('unset_machine_secret', { sandboxId: box, name });
     console.log('     no longer injected (the value stays in the vault)');
   }
-  await waitForApp();
   console.log(`\n✓ done in ${since()}. New code still needs a full deploy — this only changed the environment.`);
   process.exit(0);
 }
@@ -168,8 +145,7 @@ if (mode === 'secrets') {
 if (mode === 'restart') {
   say('restart_machine');
   await mcp('restart_machine', { sandboxId: box });
-  await waitForApp();
-  console.log(`\n✓ back in ${since()}. Same code as before: a restart does not pull anything.`);
+  console.log(`\n✓ restart triggered in ${since()}. Same code as before: a restart does not pull anything.\n  Check it yourself: ${url}`);
   process.exit(0);
 }
 
@@ -197,5 +173,4 @@ await mcp('deploy_machine', { sandboxId: box, message: String(message) });
 say('restart_machine');
 await mcp('restart_machine', { sandboxId: box });
 
-await waitForApp();
-console.log(`\n✓ live in ${since()}. Open conversations reconnect by themselves; the ACP engine is process state, so in-flight turns are lost.`);
+console.log(`\n✓ deployed and restart triggered in ${since()}. The service takes a few seconds more to answer.\n  Check it yourself: ${url}\n  In-flight turns are lost: the ACP engine is process state.`);
