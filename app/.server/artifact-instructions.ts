@@ -20,6 +20,17 @@ export const CHANNEL_INSTRUCTIONS = `You are replying inside a WhatsApp group; y
 export const CHANNEL_MARKER = "[channel: whatsapp-group]";
 
 /**
+ * Marca de idioma del turno, del mismo tamaño que la de canal (~6 tokens) y por la misma razón:
+ * va pegada al mensaje del usuario, no en un bloque al principio de un CLAUDE.md de 10 KB.
+ *
+ * Medido el 23 sep 2026 (ver `docs/spanish-replies.md`): con una sección `## Language` en el
+ * archivo, "hello" se contestaba en español 3 de 4 veces — el archivo entero está en inglés,
+ * pero la persona (Ghosty Studio, marca de mercado hispano) pesa más que una regla lejana.
+ * Quitar la sección bajó a 1 de 4; determinista sólo se consigue por turno.
+ */
+export const languageMarker = (locale: "en" | "es") => `[reply-language: ${locale}]`;
+
+/**
  * Marca con la que HINTS_BLOCK se reconoce dentro de CLAUDE.md / .goosehints. Subir la
  * versión hace que `ensureHints` vuelva a añadir el bloque (el viejo hay que quitarlo a mano).
  */
@@ -38,4 +49,8 @@ ${HINTS_MARKER}
 Default (web chat): ${ARTIFACT_INSTRUCTIONS}
 
 When a user message starts with the line \`${CHANNEL_MARKER}\`, that turn comes from a messaging channel and the rules above do not apply. Instead: ${CHANNEL_INSTRUCTIONS}
+
+## Reply language
+
+When a user message starts with the line \`[reply-language: xx]\`, answer in that language: \`en\` = English, \`es\` = Spanish. It is the language the person picked in the UI, and it wins over the language of these instructions, of your persona and of the skill list. With no such line, answer in the language of the user's message.
 `;
