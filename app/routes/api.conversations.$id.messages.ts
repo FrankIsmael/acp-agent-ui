@@ -3,7 +3,6 @@ import { DemoLimitError } from "~/.server/demo";
 import { data } from "react-router";
 import type { Route } from "./+types/api.conversations.$id.messages";
 import { askConversation, type PromptImage } from "~/.server/acp";
-import { localeFromCookies } from "~/lib/i18n";
 
 // Un base64 de 8 MB son ~6 MB de imagen: más que eso no lo acepta ningún
 // modelo y sí tumba el proceso, así que se corta aquí y no en el agente.
@@ -31,9 +30,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
   }
   try {
-    // El idioma que eligió quien escribe viaja con el turno, no en el CLAUDE.md de la caja.
-    const locale = localeFromCookies(request.headers.get("cookie"));
-    const ok = askConversation(params.id, String(body.text ?? ""), images, locale);
+    const ok = askConversation(params.id, String(body.text ?? ""), images);
     if (!ok) return data({ error: "La conversación no está disponible o ya está respondiendo." }, { status: 409 });
     return data({ queued: true });
   } catch (error) {

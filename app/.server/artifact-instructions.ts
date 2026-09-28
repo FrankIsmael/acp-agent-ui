@@ -20,27 +20,16 @@ export const CHANNEL_INSTRUCTIONS = `You are replying inside a WhatsApp group; y
 export const CHANNEL_MARKER = "[channel: whatsapp-group]";
 
 /**
- * Marca de idioma del turno, del mismo tamaño que la de canal (~6 tokens) y por la misma razón:
- * va pegada al mensaje del usuario, no en un bloque al principio de un CLAUDE.md de 10 KB.
- *
- * Medido el 23 sep 2026 (ver `docs/spanish-replies.md`): con una sección `## Language` en el
- * archivo, "hello" se contestaba en español 3 de 4 veces — el archivo entero está en inglés,
- * pero la persona (Ghosty Studio, marca de mercado hispano) pesa más que una regla lejana.
- * Quitar la sección bajó a 1 de 4; determinista sólo se consigue por turno.
- */
-export const languageMarker = (locale: "en" | "es") => `[reply-language: ${locale}]`;
-
-/**
  * Marca con la que HINTS_BLOCK se reconoce dentro de CLAUDE.md / .goosehints. Subir la
- * versión hace que `ensureHints` vuelva a añadir el bloque (el viejo hay que quitarlo a mano).
+ * versión hace que `scripts/install-hints.mjs` añada el bloque (el viejo hay que quitarlo a mano).
  */
 export const HINTS_MARKER = "<!-- acp-agent-ui:output-format v1 -->";
 
 /**
  * Lo que antes viajaba en cada `session/prompt` (ARTIFACT_INSTRUCTIONS o CHANNEL_INSTRUCTIONS,
  * ≈350 tokens por turno, repetidos en el historial) ahora se escribe UNA vez en el CLAUDE.md de
- * la caja. `ensureHints` lo añade si falta la marca; si no puede escribir en la caja, el prompt
- * vuelve a llevar las instrucciones en línea (ver `inlineInstructions` en acp.ts).
+ * la caja mediante `scripts/install-hints.mjs`. Quien provisiona la caja es responsable de
+ * instalarlo también en `/opt/goose/goosehints.md`, la copia que restaura el arranque.
  */
 export const HINTS_BLOCK = `
 ${HINTS_MARKER}
@@ -52,5 +41,5 @@ When a user message starts with the line \`${CHANNEL_MARKER}\`, that turn comes 
 
 ## Reply language
 
-When a user message starts with the line \`[reply-language: xx]\`, answer in that language: \`en\` = English, \`es\` = Spanish. It is the language the person picked in the UI, and it wins over the language of these instructions, of your persona and of the skill list. With no such line, answer in the language of the user's message.
+Reply in the language of the user's latest message unless they explicitly request another language. If the message has no clear language (for example, only an image or code), follow the conversation's language. The UI language, your persona, these instructions and skill descriptions do not determine the reply language.
 `;

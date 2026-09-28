@@ -12,8 +12,7 @@ import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-
 import { WebSocket } from "ws";
 import type { ConnectPhase } from "~/hooks/useAcpStream";
 import { parseSkills, replayMetadata } from "./goose-adapter";
-import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER, languageMarker } from "./artifact-instructions";
-import type { Locale } from "~/lib/i18n";
+import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER } from "./artifact-instructions";
 import { PermissionQueue, type PendingPermission } from "./permissions";
 import { extensionStore, summarizeExtensions } from "./extensions";
 import { isGenericTitle, titleFromPrompt, titleStore } from "./titles";
@@ -164,34 +163,6 @@ export async function ensureAgentBox() {
     `[lifecycle] caja recreada (${child.id}) — ⚠️ su URL es otra: actualiza ACP_WS_URL o seguirás hablando con la anterior`
   );
   return child;
-}
-
-/**
- * Las reglas de formato (HINTS_BLOCK) viven en el `CLAUDE.md` de la caja, no en el prompt: con
- * `claude-acp` ese archivo es lo único que el cerebro lee del sistema, y mandarlas en cada turno
- * costaba ~350 tokens que además se acumulaban en el historial del hilo.
- *
- * ⚠️ La app NO lo comprueba: da por hecho que la caja las trae. Quien la provisiona es
- * responsable de que el bloque esté en `/opt/goose/goosehints.md` (de ahí lo copia
- * `ghosty-lite-start` a `.goosehints` y a `CLAUDE.md` en cada arranque). El texto canónico es
- * `HINTS_BLOCK`; `scripts/install-hints.mjs` lo escribe en una caja.
- *
- * Si un día se habla con un agente que no las tenga, `ACP_INLINE_INSTRUCTIONS=1` vuelve a
- * mandarlas en cada turno, que es como funcionaba antes.
- */
-const FORCE_INLINE = process.env.ACP_INLINE_INSTRUCTIONS === "1";
-
-/** Bloque(s) de texto que preceden al mensaje del usuario en `session/prompt`. */
-function prefixFor(channel: unknown, locale?: Locale): { type: "text"; text: string }[] {
-  // La marca de canal sí viaja siempre: web y WhatsApp comparten hilo, así que el archivo no
-  // puede saber por dónde entra el turno. Son ~10 tokens.
-  const parts: { type: "text"; text: string }[] = [];
-  if (channel) parts.push({ type: "text", text: FORCE_INLINE ? CHANNEL_INSTRUCTIONS : CHANNEL_MARKER });
-  else if (FORCE_INLINE) parts.push({ type: "text", text: ARTIFACT_INSTRUCTIONS });
-  // El idioma sólo viaja desde el navegador, que es donde hay un selector; un turno de WhatsApp
-  // no trae `locale` y el agente sigue la regla de siempre: contestar en el idioma del mensaje.
-  if (locale) parts.push({ type: "text", text: languageMarker(locale) });
-  return parts;
 }
 
 async function suspendAgentBox() {
@@ -538,8 +509,8 @@ class GooseSession extends EventEmitter {
     const emit = (event: AcpEvent) => { if (!this.replaying) this.emit("event", event); };
     if (u.sessionUpdate === "user_message_chunk") {
       if (!this.replaying) return;
-      // El prompt añade las instrucciones de artifacts como bloque separado.
-      // Nunca se muestran esas instrucciones como si las hubiera escrito el humano.
+      // Los hilos antiguos pueden contener instrucciones en línea; los nuevos sólo la marca
+      // de canal. Ninguno de esos prefijos se muestra como si lo hubiera escrito el humano.
       const content = { ...u.content };
       for (const prefix of [ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER]) {
         if (content.type === "text" && content.text.startsWith(prefix)) {
@@ -629,7 +600,7 @@ class GooseSession extends EventEmitter {
   /** El turno terminó, con o sin error. Un canal externo espera aquí su respuesta. */
   whenIdle() { return (this.running ?? Promise.resolve()).catch(() => {}); }
 
-  ask(text: string, images: PromptImage[] = [], channel?: ChannelTurn, locale?: Locale) {
+  ask(text: string, images: PromptImage[] = [], channel?: ChannelTurn) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions) return false;
     this.demoOwner = conversationOwner(this.sessionId);
     this.demoStopped = false;
@@ -656,9 +627,13 @@ class GooseSession extends EventEmitter {
       try {
         const result: any = await connection!.agent.request("session/prompt", {
           sessionId: this.sessionId,
-          // Las reglas de formato viven en el CLAUDE.md de la caja; aquí sólo va la marca del
-          // canal. Ver `prefixFor` y `ACP_INLINE_INSTRUCTIONS`.
-          prompt: [...prefixFor(channel, locale), { type: "text", text }, ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
+          // Las reglas de formato e idioma viven en CLAUDE.md / .goosehints de la caja.
+          // Sólo el canal varía por turno: web y WhatsApp comparten hilo.
+          prompt: [
+            ...(channel ? [{ type: "text" as const, text: CHANNEL_MARKER }] : []),
+            { type: "text", text },
+            ...images.map(img => ({ type: "image" as const, data: img.data, mimeType: img.mimeType })),
+          ],
         });
         this.emit("event", { type: "done", stopReason: result.stopReason, usage: this.assistant?.usage ?? null });
         if (result.stopReason === "cancelled") error = "El turno se detuvo antes de terminar.";
@@ -825,8 +800,8 @@ export function loadConversation(id: string, options: { replayTail?: number; rel
 export function getConversation(id: string) { return active?.sessionId === id && !active.closed ? active : null; }
 export function getMessages(id: string): StoredMessage[] { return getConversation(id)?.messages ?? []; }
 export function closeConversation(id: string) { return exclusive(async () => { const s = getConversation(id); if (!s) return false; await s.close(); return true; }); }
-export function askConversation(id: string, text: string, images: PromptImage[] = [], locale?: Locale) {
-  const s = getConversation(id); if (!s) return false; markActivity(); return s.ask(text, images, undefined, locale);
+export function askConversation(id: string, text: string, images: PromptImage[] = []) {
+  const s = getConversation(id); if (!s) return false; markActivity(); return s.ask(text, images);
 }
 /**
  * Un turno pedido desde fuera del navegador (WhatsApp…). Va al hilo abierto, o abre uno si no

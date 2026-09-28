@@ -1,6 +1,35 @@
 # The agent answers in Spanish to English messages
 
-Status: **open**. Measured 2026-09-23 on the agent box `sb_76f0708e-…`.
+Status: **per-turn marker removed; existing box instructions verified via EasyBits MCP
+on 2026-09-28; live reply validation pending**.
+Historical measurements below were taken 2026-09-23 on the agent box `sb_76f0708e-…`.
+
+## Current policy (2026-09-28)
+
+The agent replies in the language of the user's latest message, unless the user explicitly
+requests another language. For messages with no clear language (such as an image or code
+alone), it follows the conversation's language. This applies to both web chat and WhatsApp.
+The UI locale only controls the interface; it does not select the agent's reply language.
+
+The shared rule lives in the `## Reply language` section of `HINTS_BLOCK` in
+`app/.server/artifact-instructions.ts`, installed in the agent's `CLAUDE.md` / `.goosehints`.
+The app no longer reads the locale cookie when sending a message or prepends a
+`[reply-language: …]` marker. Format and language instructions are owned by the box;
+there is no inline-instruction fallback. Only the channel marker travels with a messaging
+turn, since web chat and WhatsApp can share a conversation.
+
+Read-only inspection via EasyBits MCP confirmed that the configured agent box already has
+this fallback in its `## Reply language` section: "With no such line, answer in the language
+of the user's message." It appears in `/data/work/CLAUDE.md`, `/data/work/.goosehints`, and
+`/data/ghosty/config/.goosehints` at line 153, and in the baked `/opt/goose/goosehints.md` at
+line 137. Removing the app's marker activates that existing rule; no box update is required
+for the basic behavior. No remote files were changed during this verification.
+
+The installed section still describes the old marker override. Future cleanup can replace
+it with the current `HINTS_BLOCK` language rule in all four files, including the baked copy. The
+installer skips blocks whose marker already exists, so rerunning it alone does not update
+an existing block. Checking the files does not establish how reliably the model follows
+the rule; live reply validation remains pending.
 
 ## Symptom
 
@@ -63,9 +92,11 @@ only unambiguous result.
 
 Skill **bodies** are still Spanish (~200 KB). They only enter context when a skill fires.
 
-## Next
+## Superseded approach
 
-1. Delete the `## Language` section — it measurably makes things worse.
-2. Add a per-turn language marker in the app, next to the `CHANNEL_MARKER` that `prefixFor`
-   already prepends (`app/.server/acp.ts`): `[reply-language: en]` from the UI locale. Recency
-   beats a static block at the top of a 10 KB file, and it is deterministic.
+The previous proposal removed the old `## Language` section and added a per-turn
+`[reply-language: en]` marker from the UI locale. That marker was implemented, but it tied
+replies to the interface setting instead of the language the user typed and repeated
+metadata in every turn. It has now been removed. The small historical samples above do
+not establish deterministic behavior for either policy; validate the current rule on a
+live agent with greetings, language switches, and a UI locale different from the message.

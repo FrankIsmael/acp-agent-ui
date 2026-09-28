@@ -143,11 +143,10 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-age
     disco de imagen: aguanta reboots, no una caja nueva ni un rebake).
   - **19 sep:** los dos archivos de `/data` traducidos al inglés (copias `.es.bak` al lado) y con
     el bloque `## Output format by channel` (`HINTS_BLOCK` en `artifact-instructions.ts`). La app
-    ya no manda `ARTIFACT_INSTRUCTIONS` en cada `session/prompt`: `ensureHints` comprueba la marca
-    `<!-- acp-agent-ui:output-format v1 -->` en cada conexión y la añade si falta (por eso un boot
-    que pise los archivos se repara solo); los turnos de WhatsApp llevan sólo la línea
-    `[channel: whatsapp-group]`. Sin SDK, o con `ACP_INLINE_INSTRUCTIONS=1`, vuelve a ir todo en
-    línea como antes.
+    ya no manda instrucciones en cada `session/prompt`: quien provisiona la caja las instala
+    con `scripts/install-hints.mjs`, incluida la copia horneada que restaura el arranque.
+    Los turnos de WhatsApp llevan sólo la línea `[channel: whatsapp-group]`.
+    No hay comprobación automática ni fallback de instrucciones en línea.
 
 ## Producción
 

@@ -59,8 +59,7 @@ mock.on('connection', ws => {
         respond({ configOptions: configOptions.map(option => ({ ...option, currentValue: params.value })) });
       } else if (method === 'session/prompt') {
         const row = saved.get(params.sessionId);
-        // El texto del usuario es el ÚLTIMO bloque de texto: delante puede ir la marca de canal
-        // o, con ACP_INLINE_INSTRUCTIONS, las instrucciones enteras.
+        // El texto del usuario es el ÚLTIMO bloque de texto: delante puede ir la marca de canal.
         const texts = params.prompt.filter(c => c.type === 'text').map(c => c.text);
         const chunks = [...texts.map(user), assistant('Partial persisted response')];
         row.updates.push(...chunks);
