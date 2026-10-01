@@ -11,7 +11,7 @@ export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, pa
     const path = new URL(request.url).pathname.replace(/\.data$/, "").replace(/\/$/, "") || "/";
     // Default-deny future endpoints until they explicitly join the demo surface.
     const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/embed(?:\/c\/[^/]+)?|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|cancel|close|permissions))?)$/;
-    if (!allowed.test(path)) return Response.json({ error: "Esta sección no está disponible en la demo." }, { status: 403 });
+    if (!allowed.test(path)) return Response.json({ error: "This section is unavailable in the demo." }, { status: 403 });
     const identity = identifyDemo(request, () => consumeDemoIp(demoDb(), request, "guests"));
     if (params.id) assertDemoOwner(identity.id!, params.id);
     // Reloads perform reads, reconnect SSE, and create/resume the guest's single

@@ -15,7 +15,7 @@ export function demoContact() {
   const value = process.env.DEMO_CONTACT_URL ?? "mailto:ismaelfcom93@gmail.com";
   return /^(https:\/\/|mailto:)/i.test(value) ? value : null;
 }
-export const demoMessage = () => `Llegaste al límite de esta demo. ¿Quieres conocer más o construir algo así? Contacta a quien te compartió esta app.${demoContact() ? ` ${demoContact()}` : ""}`;
+export const demoMessage = () => `You have reached this demo's limit. Want to learn more or build something like this? Contact the person who shared this app with you.${demoContact() ? ` ${demoContact()}` : ""}`;
 export class DemoLimitError extends Error { constructor() { super(demoMessage()); } }
 interface Guest { id: string; conversation: string | null; tokens: number; turns: number }
 let database: DatabaseSync | undefined;
@@ -38,14 +38,14 @@ export function demoUser(request: Request): string | undefined {
   if (requests.has(request)) return requests.get(request);
   const token = /(?:^|;\s*)demo_guest=([a-f0-9]{64})(?:;|$)/.exec(request.headers.get("cookie") ?? "")?.[1];
   const row = token ? demoDb().prepare("SELECT id FROM demo_guests WHERE proof = ?").get(hash(token)) as { id: string } | undefined : undefined;
-  if (!row) throw new Response("Abre la app para iniciar tu demo.", { status: 401 });
+  if (!row) throw new Response("Open the app to start your demo.", { status: 401 });
   return row.id;
 }
 export function identifyDemo(request: Request, beforeCreate: () => void = () => {}) {
   try { return { id: demoUser(request), cookie: undefined }; } catch (error) {
     if (!(error instanceof Response) || error.status !== 401) throw error;
   }
-  if (request.method !== "GET" || new URL(request.url).pathname.startsWith("/api/")) throw new Response("Abre la app para iniciar tu demo.", { status: 401 });
+  if (request.method !== "GET" || new URL(request.url).pathname.startsWith("/api/")) throw new Response("Open the app to start your demo.", { status: 401 });
   const count = demoDb().prepare("SELECT count(*) AS n FROM demo_guests").get() as { n: number };
   if (count.n >= demoLimits().users) throw new DemoLimitError();
   beforeCreate();
@@ -61,7 +61,7 @@ export function conversationOwner(conversation: string) {
   return (demoDb().prepare("SELECT id FROM demo_guests WHERE conversation = ?").get(conversation) as { id: string } | undefined)?.id;
 }
 export function assertDemoOwner(id: string, conversation: string) {
-  if (conversationOwner(conversation) !== id) throw new Response("Conversación no encontrada", { status: 404 });
+  if (conversationOwner(conversation) !== id) throw new Response("Conversation not found", { status: 404 });
 }
 export function bindDemoConversation(id: string, conversation: string) {
   const result = demoDb().prepare("UPDATE demo_guests SET conversation = ? WHERE id = ? AND conversation IS NULL").run(conversation, id);
