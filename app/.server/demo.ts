@@ -46,8 +46,6 @@ export function identifyDemo(request: Request, beforeCreate: () => void = () => 
     if (!(error instanceof Response) || error.status !== 401) throw error;
   }
   if (request.method !== "GET" || new URL(request.url).pathname.startsWith("/api/")) throw new Response("Open the app to start your demo.", { status: 401 });
-  const count = demoDb().prepare("SELECT count(*) AS n FROM demo_guests").get() as { n: number };
-  if (count.n >= demoLimits().users) throw new DemoLimitError();
   beforeCreate();
   const token = randomBytes(32).toString("hex"), id = randomUUID();
   demoDb().prepare("INSERT INTO demo_guests(id, proof) VALUES (?, ?)").run(id, hash(token));
@@ -63,15 +61,18 @@ export function conversationOwner(conversation: string) {
 export function assertDemoOwner(id: string, conversation: string) {
   if (conversationOwner(conversation) !== id) throw new Response("Conversation not found", { status: 404 });
 }
+/** The user cap counts guests who started a demo; visits that never chat (crawlers, link previews) don't use it up. */
+const startedGuests = () => (demoDb().prepare("SELECT count(*) AS n FROM demo_guests WHERE conversation IS NOT NULL").get() as { n: number }).n;
 export function bindDemoConversation(id: string, conversation: string) {
-  const result = demoDb().prepare("UPDATE demo_guests SET conversation = ? WHERE id = ? AND conversation IS NULL").run(conversation, id);
+  const result = demoDb().prepare(`UPDATE demo_guests SET conversation = ? WHERE id = ? AND conversation IS NULL
+    AND (SELECT count(*) FROM demo_guests WHERE conversation IS NOT NULL) < ?`).run(conversation, id, demoLimits().users);
   if (!result.changes) throw new DemoLimitError();
 }
 export function demoStatus(id: string) {
   const guest = demoGuest(id), limits = demoLimits();
   const total = demoDb().prepare("SELECT coalesce(sum(tokens), 0) AS n FROM demo_guests").get() as { n: number };
   return { enabled: true as const, tokens: guest.tokens, turns: guest.turns, tokenLimit: limits.tokens, turnLimit: limits.turns,
-    exhausted: guest.tokens >= limits.tokens || guest.turns >= limits.turns || total.n >= limits.globalTokens,
+    exhausted: guest.tokens >= limits.tokens || guest.turns >= limits.turns || total.n >= limits.globalTokens || (!guest.conversation && startedGuests() >= limits.users),
     conversationId: guest.conversation, contactUrl: demoContact(), message: demoMessage() };
 }
 /** An atomic reservation also works across workers. A failed/interrupted turn stays charged. */

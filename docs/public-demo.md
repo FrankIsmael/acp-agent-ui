@@ -53,7 +53,7 @@ Persist the directory containing `DEMO_DB` (default `.data/demo.db`). It contain
 | `DEMO_TOKEN_LIMIT` | `16000` | Estimated lifetime token allowance per guest |
 | `DEMO_TURN_LIMIT` | `4` | Lifetime prompt allowance, web + WhatsApp |
 | `DEMO_GLOBAL_TOKEN_LIMIT` | `500000` | Combined estimated allowance across all guests |
-| `DEMO_USER_LIMIT` | `200` | Maximum guest records in this demo database |
+| `DEMO_USER_LIMIT` | `200` | Maximum guests who can start a demo conversation (cookie-only visits do not count) |
 | `DEMO_CONTACT_URL` | `mailto:ismaelfcom93@gmail.com` | HTTPS or email contact link |
 
 Guest token/turn limits and the global/user caps do not reset daily. Increasing them and restarting extends the allowance. Browser guests are intentionally lightweight: clearing cookies can create another web guest only within the per-IP guest allowance and global/user caps. Changing networks or using a VPN can still obtain another IP allowance. Run one app process/replica; ACP state and the WhatsApp socket registry are process-local.

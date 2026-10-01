@@ -57,6 +57,16 @@ test('global usage ceiling blocks fresh guests', () => {
   assert.throws(() => policy.beginDemoTurn(a.id, 2), policy.DemoLimitError);
   process.env.DEMO_GLOBAL_TOKEN_LIMIT = '500';
 });
+test('user cap counts started demos, not cookie-only visits', async () => {
+  const started = policy.demoDb().prepare('SELECT count(*) AS n FROM demo_guests WHERE conversation IS NOT NULL').get().n;
+  process.env.DEMO_USER_LIMIT = String(started + 1);
+  for (let i = 0; i < started + 3; i++) guest();
+  const a = guest(), b = guest();
+  assert.equal(await policy.demoConversation(a.id, async () => 'cap-a'), 'cap-a');
+  assert.equal(policy.demoStatus(b.id).exhausted, true);
+  await assert.rejects(async () => policy.demoConversation(b.id, async () => 'cap-b'), policy.DemoLimitError);
+  delete process.env.DEMO_USER_LIMIT;
+});
 test('kill switch disables identity and ownership hooks', () => {
   process.env.PUBLIC_DEMO = 'false';
   assert.equal(policy.demoUser(new Request('https://demo.example/')), undefined);
