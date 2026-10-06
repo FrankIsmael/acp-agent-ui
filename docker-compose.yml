@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    command: ["node", "server.js"]
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      # WhatsApp pairing credentials and the current SQLite stores survive rebuilds.
+      - ./.data:/app/.data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
+    volumes:
+      - ./deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
