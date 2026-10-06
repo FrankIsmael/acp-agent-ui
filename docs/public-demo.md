@@ -7,7 +7,7 @@ A removable guest policy for sharing this app from one server. No signup, passwo
 Set these environment variables and restart the app:
 
 ```dotenv
-PUBLIC_DEMO=true
+DEMO=true
 DEMO_TOKEN_LIMIT=16000
 DEMO_TURN_LIMIT=4
 DEMO_CONTACT_URL=mailto:ismaelfcom93@gmail.com
@@ -15,7 +15,7 @@ DEMO_CONTACT_URL=mailto:ismaelfcom93@gmail.com
 
 The defaults allow **one conversation per browser guest**, with up to four prompts and 16,000 estimated tokens shared between the web chat and that guest's WhatsApp. Start with an image request and a few short questions; adjust the limits after trying the model you host. The contact banner includes the configured email and [Ismael's LinkedIn](https://www.linkedin.com/in/ismaelfcom/). WhatsApp sends the same invitation and contact URL.
 
-`PUBLIC_DEMO=true` replaces the WhatsApp admin key check with guest ownership. Existing owner WhatsApp credentials are never given to guests. Leave the owner key configured so switching demo mode off restores the gate.
+`DEMO=true` replaces the WhatsApp admin key check with guest ownership. Existing owner WhatsApp credentials are never given to guests. Leave the owner key configured so switching demo mode off restores the gate.
 
 Use a **separate demo agent/VM containing only public material**, with a provider spending cap. This layer isolates HTTP conversations and WhatsApp credentials, but the current ACP agent still has a shared filesystem, skills, memory, and tool access. It is not a tenant sandbox: visitors can ask its tools to access whatever that agent can access. Do not point a public demo at a private working agent.
 
@@ -48,7 +48,7 @@ Persist the directory containing `DEMO_DB` (default `.data/demo.db`). It contain
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PUBLIC_DEMO` | `false` | Master toggle, only literal `true` enables it |
+| `DEMO` | `false` | Master toggle, only literal `true` enables it |
 | `DEMO_DB` | `.data/demo.db` | Separate demo data store |
 | `DEMO_TOKEN_LIMIT` | `16000` | Estimated lifetime token allowance per guest |
 | `DEMO_TURN_LIMIT` | `4` | Lifetime prompt allowance, web + WhatsApp |
@@ -60,7 +60,7 @@ Guest token/turn limits and the global/user caps do not reset daily. Increasing 
 
 ## Per-IP protection
 
-IP limits apply automatically when `PUBLIC_DEMO=true`; there is no additional service or signup flow.
+IP limits apply automatically when `DEMO=true`; there is no additional service or signup flow.
 
 | Variable | Default | Window / scope |
 | --- | --- | --- |
@@ -88,11 +88,11 @@ DEMO_TRUSTED_PROXIES=loopback
 
 For a separate proxy, list its actual IPs or narrowly scoped CIDRs, separated by commas. The proxy must sanitize/append forwarding headers appropriately. Do not trust `0.0.0.0/0`, `::/0`, arbitrary client networks, or a blanket number of hops. With no trusted proxy configured, requests arriving through one proxy safely share that proxy's IP allowance; configure the actual proxy addresses to distinguish visitors. Restrict direct access to the app port when hosted behind a proxy.
 
-To change the limits, edit the values and restart. `PUBLIC_DEMO=false` disables all demo IP limits along with the existing demo policy. The replaceable limiter lives in `app/.server/demo-ip.ts`.
+To change the limits, edit the values and restart. `DEMO=false` disables all demo IP limits along with the existing demo policy. The replaceable limiter lives in `app/.server/demo-ip.ts`.
 
 ## Disable or replace later
 
-Set `PUBLIC_DEMO=false` and restart. Demo middleware and agent quota checks become no-ops; the original WhatsApp admin gate and shared owner channel return. Guest data remains on disk, and guest channels are not started. This toggle restores the existing app's access behavior; it does not add a site-wide admin gate.
+Set `DEMO=false` and restart. Demo middleware and agent quota checks become no-ops; the original WhatsApp admin gate and shared owner channel return. Guest data remains on disk, and guest channels are not started. This toggle restores the existing app's access behavior; it does not add a site-wide admin gate.
 
 The policy lives in `app/.server/demo.ts`; the route boundary is `app/.server/demo-middleware.ts`. Future authentication can replace `demoUser` with a real user ID and migrate the conversation/WhatsApp ownership mappings. Future billing can replace the reservation and charging functions without redesigning chat. `DemoNotice` and `/api/demo` expose the small UI contract.
 

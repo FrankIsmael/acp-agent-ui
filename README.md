@@ -109,4 +109,4 @@ The preference persists across reloads. See [i18n documentation](docs/i18n.md) f
 
 ## Public demo
 
-Enable `PUBLIC_DEMO=true` for one conversation and a shared guest allowance across web chat and individually linked WhatsApp accounts. Turn it off to restore the existing behavior. See [setup, limits, and replacement notes](docs/public-demo.md).
+Enable `DEMO=true` for one conversation and a shared guest allowance across web chat and individually linked WhatsApp accounts. Turn it off to restore the existing behavior. See [setup, limits, and replacement notes](docs/public-demo.md).

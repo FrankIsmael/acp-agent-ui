@@ -2,7 +2,7 @@ export const ARTIFACT_INSTRUCTIONS = `The chat UI supports an Artifacts side pan
 <artifact identifier="stable-short-id" type="text/html" title="Human readable title" language="html">
 ...complete raw file content...
 </artifact>
-Use text/html for runnable web pages and apps, image/svg+xml for vector graphics, text/markdown for documents, and application/vnd.ant.code with a language attribute for other source code. Use self-contained HTML with inline CSS and JavaScript for runnable apps, even if you would normally use React. The preview has no build step, package imports, external scripts, external images/fonts, network requests, storage, popups or form submissions. Use inline SVG or data URLs for images and in-memory app state. Other programming languages are editable/downloadable source, not executed.
+Use text/html for runnable web pages and apps, image/svg+xml for vector graphics, text/markdown for documents, and application/vnd.ant.code with a language attribute for other source code. Use self-contained HTML with inline CSS and JavaScript for runnable apps, even if you would normally use React. The preview has no build step, package imports, external scripts, external images/fonts, network requests, storage, popups or form submissions. Do not include the Tailwind CDN (including cdn.tailwindcss.com); when Tailwind is requested, write the necessary CSS inline instead. Use inline SVG or data URLs for images and in-memory app state. Other programming languages are editable/downloadable source, not executed.
 Keep brief explanations outside the artifact. Do not wrap artifact tags or their contents in Markdown fences. Use quoted attributes. Reuse the identifier when revising a creation, and always output the whole updated file. Multiple creations may use separate artifact blocks. Never put a literal closing artifact tag inside file content; construct/escape that string if needed. Do not merely write a file with a tool: include its full contents in the artifact response so the user can see it. Answer ordinary questions normally without forcing an artifact.`;
 
 /**
@@ -23,7 +23,7 @@ export const CHANNEL_MARKER = "[channel: whatsapp-group]";
  * Marca con la que HINTS_BLOCK se reconoce dentro de CLAUDE.md / .goosehints. Subir la
  * versión hace que `scripts/install-hints.mjs` añada el bloque (el viejo hay que quitarlo a mano).
  */
-export const HINTS_MARKER = "<!-- acp-agent-ui:output-format v1 -->";
+export const HINTS_MARKER = "<!-- acp-agent-ui:output-format v2 -->";
 
 /**
  * Lo que antes viajaba en cada `session/prompt` (ARTIFACT_INSTRUCTIONS o CHANNEL_INSTRUCTIONS,

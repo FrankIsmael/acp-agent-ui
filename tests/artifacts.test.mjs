@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { artifactContent, artifactFile, artifactKey, artifactPreviewDocument, mergeArtifacts, parseArtifacts, previewKind, readArtifactStorage } from "../app/lib/artifacts.ts";
+import { ARTIFACT_INSTRUCTIONS, HINTS_MARKER } from "../app/.server/artifact-instructions.ts";
 
 const source = '<artifact identifier="counter" type="text/html" title="Counter &amp; tools" language="html"><button onclick="this.textContent++">0</button></artifact>';
 const parsed = parseArtifacts(source)[0].artifact;
@@ -77,4 +78,10 @@ test("preview restrictions precede untrusted markup and prohibit external resour
   assert.ok(html.indexOf("default-src 'none'") < html.indexOf("default-src *"));
   for (const directive of ["connect-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-src 'none'", "worker-src 'none'", "object-src 'none'"]) assert.ok(html.includes(directive));
   assert.ok(!html.includes("unsafe-eval"));
+});
+
+test("artifact instructions keep Tailwind CDN out of the sandboxed preview", () => {
+  assert.match(ARTIFACT_INSTRUCTIONS, /Do not include the Tailwind CDN/);
+  assert.match(ARTIFACT_INSTRUCTIONS, /cdn\.tailwindcss\.com/);
+  assert.equal(HINTS_MARKER, "<!-- acp-agent-ui:output-format v2 -->");
 });

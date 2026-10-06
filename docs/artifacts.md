@@ -79,7 +79,9 @@ Como en cualquier iframe, esto no es un límite de CPU/memoria para scripts.
 
 Las apps deben ser HTML autónomo con CSS/JavaScript incluidos e imágenes SVG
 inline o data URLs. No hay bundler, paquetes npm, servidor backend, CDN ni APIs
-externas. Un proyecto React/TypeScript se conserva como fuente editable; para
+externas. En particular, aunque se pida Tailwind, no puede usarse
+`cdn.tailwindcss.com`: hay que escribir los estilos necesarios directamente en
+un bloque `<style>`. Un proyecto React/TypeScript se conserva como fuente editable; para
 una app ejecutable, las instrucciones solicitan su equivalente en HTML autónomo.
 La vista previa se actualiza como máximo cuatro veces por segundo y al recargarse
 reinicia su estado interno. El botón Reiniciar permite hacerlo manualmente.

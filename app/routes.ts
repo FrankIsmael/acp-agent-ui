@@ -3,41 +3,58 @@ import {
   index,
   layout,
   route,
-} from "@react-router/dev/routes";
+} from '@react-router/dev/routes';
 
 export default [
   // Rutas de recurso: la API que consume el navegador (SSE incluido).
-  route("api/demo", "routes/api.demo.ts"),
-  route("api/model-preference", "routes/api.model-preference.ts"),
-  route("api/extensions", "routes/api.extensions.ts"),
-  route("api/whatsapp", "routes/api.whatsapp.ts"),
-  route("api/whatsapp/events", "routes/api.whatsapp.events.ts"),
-  route("api/conversations", "routes/api.conversations.ts"),
-  route("api/conversations/:id/events", "routes/api.conversations.$id.events.ts"),
-  route("api/conversations/:id/messages", "routes/api.conversations.$id.messages.ts"),
-  route("api/conversations/:id/close", "routes/api.conversations.$id.close.ts"),
-  route("api/conversations/:id/cancel", "routes/api.conversations.$id.cancel.ts"),
-  route("api/conversations/:id/config", "routes/api.conversations.$id.config.ts"),
-  route("api/conversations/:id/permissions", "routes/api.conversations.$id.permissions.ts"),
+  route('api/demo', 'routes/api.demo.ts'),
+  route('api/model-preference', 'routes/api.model-preference.ts'),
+  route('api/extensions', 'routes/api.extensions.ts'),
+  route('api/whatsapp', 'routes/api.whatsapp.ts'),
+  route('api/whatsapp/events', 'routes/api.whatsapp.events.ts'),
+  route('api/conversations', 'routes/api.conversations.ts'),
+  route(
+    'api/conversations/:id/events',
+    'routes/api.conversations.$id.events.ts',
+  ),
+  route(
+    'api/conversations/:id/messages',
+    'routes/api.conversations.$id.messages.ts',
+  ),
+  route('api/conversations/:id/close', 'routes/api.conversations.$id.close.ts'),
+  route(
+    'api/conversations/:id/cancel',
+    'routes/api.conversations.$id.cancel.ts',
+  ),
+  route(
+    'api/conversations/:id/config',
+    'routes/api.conversations.$id.config.ts',
+  ),
+  route(
+    'api/conversations/:id/permissions',
+    'routes/api.conversations.$id.permissions.ts',
+  ),
 
   // Mismo hub y chat, sin cascarón: para incrustar en un iframe (ver lib/embed.ts).
-  route("embed", "routes/_embed.tsx", [
-    index("routes/hub.tsx", { id: "embed/hub" }),
-    route("c/:id", "routes/chat.tsx", { id: "embed/chat" }),
+  route('embed', 'routes/_embed.tsx', [
+    index('routes/hub.tsx', { id: 'embed/hub' }),
+    route('c/:id', 'routes/chat.tsx', { id: 'embed/chat' }),
   ]),
 
-  layout("routes/_shell.tsx", [
-    index("routes/hub.tsx"),
-    route("c/nuevo", "routes/new-chat.tsx"),
-    route("c/:id", "routes/chat.tsx"),
-    route("artifacts", "routes/artifacts.tsx"),
-    route("sessions", "routes/sessions.tsx"),
-    route("recipes", "routes/recipes.tsx"),
-    route("skills", "routes/skills.tsx"),
-    route("apps", "routes/apps.tsx"),
-    route("schedules", "routes/schedules.tsx"),
-    route("extensions", "routes/extensions.tsx"),
-    route("whatsapp", "routes/whatsapp.tsx"),
-    route("settings", "routes/settings.tsx"),
+  layout('routes/_shell.tsx', [
+    index('routes/hub.tsx'),
+    route('c/nuevo', 'routes/new-chat.tsx'),
+    route('c/:id', 'routes/chat.tsx'),
+    route('artifacts', 'routes/artifacts.tsx'),
+    route('sessions', 'routes/sessions.tsx'),
+    route('recipes', 'routes/recipes.tsx'),
+    route('skills', 'routes/skills.tsx'),
+    route('apps', 'routes/apps.tsx'),
+    route('schedules', 'routes/schedules.tsx'),
+    route('extensions', 'routes/extensions.tsx'),
+    route('whatsapp', 'routes/whatsapp.tsx'),
+    route('settings', 'routes/settings.tsx'),
+    route('gmaps', 'routes/gmaps.tsx'),
   ]),
+  route('test', 'routes/test.tsx'),
 ] satisfies RouteConfig;
