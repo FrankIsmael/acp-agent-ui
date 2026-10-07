@@ -11,9 +11,10 @@ export function DemoNotice() {
     const controller = new AbortController();
     const refresh = () => fetch("/api/demo", { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(s => { if (s && !controller.signal.aborted) setStatus(s); }).catch(() => {});
     void refresh();
-    const timer = setInterval(refresh, 3000);
-    window.addEventListener("demo-limit", refresh);
-    return () => { controller.abort(); clearInterval(timer); window.removeEventListener("demo-limit", refresh); };
+    // El estado solo cambia al terminar un turno: se refresca por eventos, sin sondeo.
+    const events = ["demo-limit", "conversations-changed", "focus"];
+    for (const name of events) window.addEventListener(name, refresh);
+    return () => { controller.abort(); for (const name of events) window.removeEventListener(name, refresh); };
   }, [demo]);
   if (!demo) return null;
   return <aside role={status?.exhausted ? "alert" : "status"} className="border-b border-border-secondary bg-background-secondary px-4 py-3 text-sm">

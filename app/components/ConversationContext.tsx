@@ -1,6 +1,5 @@
 import { useI18n } from "~/i18n";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { useLocation } from "react-router";
 import type { getHistorySnapshot } from "~/.server/acp";
 
 type HistoryState = ReturnType<typeof getHistorySnapshot>;
@@ -10,7 +9,6 @@ const Context = createContext<HistoryState>({ conversations: [], error: null, lo
 export function ConversationProvider({ initial, children }: { initial: HistoryState; children: ReactNode }) {
   const { t } = useI18n();
   const [state, setState] = useState(initial);
-  const { pathname } = useLocation();
   useEffect(() => {
     const controller = new AbortController();
     let pending = false;
@@ -27,7 +25,8 @@ export function ConversationProvider({ initial, children }: { initial: HistorySt
       } finally { pending = false; }
     };
     void refresh();
-    const timer = setInterval(refresh, 15_000);
+    // Los cambios propios llegan por "conversations-changed"; el intervalo solo cubre otras pestañas.
+    const timer = setInterval(refresh, 60_000);
     window.addEventListener("conversations-changed", refresh);
     window.addEventListener("focus", refresh);
     return () => {
@@ -35,7 +34,7 @@ export function ConversationProvider({ initial, children }: { initial: HistorySt
       window.removeEventListener("conversations-changed", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [pathname, t]);
+  }, [t]);
   return <Context.Provider value={state}>{children}</Context.Provider>;
 }
 export const useConversations = () => useContext(Context);
