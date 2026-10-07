@@ -61,7 +61,8 @@ and is what the automatic deploy below runs.
 `.github/workflows/deploy.yml` deploys every push to `main`. It never opens an
 SSH connection: with an OCI API key it creates a Run Command, and the Oracle
 Cloud Agent on the VM runs `deploy.sh` as `opc`. SSH can stay restricted to your
-own IP. The agent polls for commands, so a deploy takes a minute or two to start.
+own IP. The agent polls for commands about every 4 minutes, so a deploy can
+take that long to start.
 
 ### 1. Enable the plugin
 
@@ -94,7 +95,12 @@ sudo -u ocarun sudo -n -u opc /home/opc/acp-agent-ui/deploy/oracle/deploy.sh
    ```
    Allow dynamic-group 'Default'/'acp-agent-vm' to use instance-agent-command-execution-family in tenancy where request.instance.id = target.instance.id
    Allow group 'Default'/'github-deployers' to manage instance-agent-command-family in tenancy
+   Allow group 'Default'/'github-deployers' to read instance-agent-command-execution-family in tenancy
+   Allow group 'Default'/'github-deployers' to read instance-family in tenancy
    ```
+
+   Without the two `read` lines the deploy still runs, but the workflow cannot
+   read its result and times out.
 
    This lets the key run commands on any instance in the tenancy, which is
    fine while this VM is the only one. Move the VM to its own compartment and
@@ -116,3 +122,18 @@ gh secret set OCI_COMPARTMENT_ID    # tenancy OCID while the VM is in root
 
 Run the workflow once from the Actions tab (**Run workflow**) to check the
 setup. Its log shows the tail of `deploy.sh` output from the VM.
+
+### Troubleshooting
+
+- **Commands stay `ACCEPTED`:** check
+  `/var/log/oracle-cloud-agent/plugins/runcommand/runcommand.log` on the VM.
+  After a `404 NotAuthorizedOrNotFound` (for example, a poll made before the
+  dynamic group policy existed) the agent stops polling for an hour
+  (`circuitbreaker:[pollCommand] is open`). Fix the policy, then
+  `sudo systemctl restart oracle-cloud-agent`. A healthy log shows
+  `poll command status: 200`.
+- **`NotAuthorizedOrNotFound` in the workflow's `command create`:** the
+  deployer user's group or policy, or a wrong `OCI_COMPARTMENT_ID` secret. To
+  isolate it, run the same `oci instance-agent command create` in Cloud Shell:
+  as your admin user it checks the OCIDs; with a profile for the deployer's
+  API key (`--profile DEPLOYER --auth api_key`) it checks its permissions.

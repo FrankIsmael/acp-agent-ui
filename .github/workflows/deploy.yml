@@ -64,11 +64,14 @@ jobs:
           echo "command: $command_id"
 
           # The execution only exists once the agent picks the command up
-          # (it polls every minute or so), so early lookups may fail.
+          # (it polls about every 4 minutes), so early lookups may fail.
           for _ in $(seq 1 120); do
             sleep 10
-            execution=$(oci instance-agent command-execution get \
-              --command-id "$command_id" --instance-id "$INSTANCE_ID" 2>/dev/null) || continue
+            if ! execution=$(oci instance-agent command-execution get \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" 2>/tmp/oci-err); then
+              echo "no execution yet: $(grep -o '"code": "[^"]*"' /tmp/oci-err || head -c 200 /tmp/oci-err)"
+              continue
+            fi
             state=$(jq -r '.data["lifecycle-state"]' <<<"$execution")
             echo "state: $state"
             case "$state" in
