@@ -6,12 +6,28 @@ Function deployment: the process owns the live ACP and WhatsApp WebSockets.
 
 ## Before deploying
 
-1. Create an Oracle Always Free VM and assign it a public IPv4 address.
-2. In the VM's OCI security list (or network security group), allow inbound TCP
-   ports `80` and `443`. Keep SSH (`22`) restricted to your own IP address.
-3. Create an `A` DNS record for your chosen hostname pointing to the VM's public
-   IPv4 address. DNS must be live before Caddy can obtain its TLS certificate.
-4. Install Docker Engine and the Docker Compose plugin on the VM.
+1. Create an Always Free VM (`VM.Standard.A1.Flex`, Oracle Linux 9). If the
+   instance's Networking tab offers **Connect public subnet to internet**, run
+   it: the VCN has no internet gateway yet.
+2. Assign a **reserved** public IP (VNIC → IP administration → Edit), so the
+   address survives stop/start.
+3. In the subnet's security list, allow inbound TCP `80,443` from `0.0.0.0/0`.
+   Keep SSH (`22`) restricted to your own IP. An empty network security group
+   does not block anything: OCI allows traffic that any list or group allows.
+4. Point an `A` record at the IP before the first start, so Caddy can obtain its
+   certificate. Without a domain, `APP_DOMAIN=<ip-with-dashes>.sslip.io` works.
+5. On the VM, open the host firewall and install Docker CE (Oracle Linux ships
+   Podman, which Compose does not handle well):
+
+   ```sh
+   sudo firewall-cmd --permanent --add-service=http --add-service=https
+   sudo firewall-cmd --reload
+   sudo dnf install -y git dnf-plugins-core
+   sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+   sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+   sudo systemctl enable --now docker
+   sudo usermod -aG docker opc   # then log out and back in
+   ```
 
 ## Deploy
 
@@ -39,7 +55,21 @@ It must survive deployment updates. Back it up before changing hosts:
 tar -C . -czf acp-agent-data-backup.tgz .data
 ```
 
-Keep that archive private: it includes WhatsApp session credentials. Turso is
+The app container runs as the unprivileged `node` user (uid 1000), so
+`.data` must be owned by uid 1000. On a new VM create it before the first start;
+on a VM that ran the older root image, run this once **before** deploying the
+non-root image, or the app fails with `unable to open database file`:
+
+```sh
+mkdir -p .data && sudo chown -R 1000:1000 .data
+```
+
+Run `sqlite3` against these files as that user (`sudo -u '#1000' sqlite3 …`),
+never as root. See `ORACLE-SSH.md`.
+
+Keep that archive private: it includes WhatsApp session credentials. Pair
+WhatsApp fresh on the server rather than copying a local session: the same
+Baileys session running in two places keeps disconnecting both. Turso is
 configured in the environment template for the planned data-layer migration,
 but it does not yet replace the local SQLite stores.
 
@@ -108,7 +138,9 @@ sudo -u ocarun sudo -n -u opc /home/opc/acp-agent-ui/deploy/oracle/deploy.sh
 
 ### 4. GitHub secrets
 
-Repository → Settings → Secrets and variables → Actions, or with `gh`:
+Repository → Settings → Secrets and variables → Actions, or with `gh`. In a
+clone that also has the upstream remote, `gh` targets upstream by default, so
+run `gh repo set-default FrankIsmael/acp-agent-ui` first.
 
 ```sh
 gh secret set OCI_CLI_USER          # user OCID from the configuration preview
@@ -125,6 +157,15 @@ setup. Its log shows the tail of `deploy.sh` output from the VM.
 
 ### Troubleshooting
 
+- **Every visitor hits the demo limit ("This network has reached the limit"):**
+  `DEMO_TRUSTED_PROXIES=uniquelocal` is missing from `.env`, so all requests
+  count as Caddy's IP. Add it, `docker compose up -d --force-recreate app`, and
+  clear the shared bucket with
+  `sudo -u '#1000' sqlite3 .data/demo.db "DELETE FROM demo_ip_limits;"`.
+- **App returns 500 / logs `unable to open database file`:** something in
+  `.data` is not owned by uid 1000 (e.g. a `-wal` file created by root
+  `sqlite3`). Fix with `sudo chown -R 1000:1000 .data` and
+  `docker compose restart app`.
 - **Commands stay `ACCEPTED`:** check
   `/var/log/oracle-cloud-agent/plugins/runcommand/runcommand.log` on the VM.
   After a `404 NotAuthorizedOrNotFound` (for example, a poll made before the
@@ -132,6 +173,9 @@ setup. Its log shows the tail of `deploy.sh` output from the VM.
   (`circuitbreaker:[pollCommand] is open`). Fix the policy, then
   `sudo systemctl restart oracle-cloud-agent`. A healthy log shows
   `poll command status: 200`.
+- **Workflow times out after `no execution yet: NotAuthorizedOrNotFound`:**
+  the deploy ran but the deployer cannot read its result; add the two `read`
+  policy lines above.
 - **`NotAuthorizedOrNotFound` in the workflow's `command create`:** the
   deployer user's group or policy, or a wrong `OCI_COMPARTMENT_ID` secret. To
   isolate it, run the same `oci instance-agent command create` in Cloud Shell:

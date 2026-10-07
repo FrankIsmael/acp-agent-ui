@@ -20,4 +20,8 @@ COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/build /app/build
 COPY server.js /app/
 WORKDIR /app
+# Run unprivileged. .data is the only writable path; on the VM it is a bind
+# mount that must be owned by uid 1000 (see docs/oracle-deployment.md).
+RUN mkdir -p .data && chown node:node .data
+USER node
 CMD ["node", "server.js"]

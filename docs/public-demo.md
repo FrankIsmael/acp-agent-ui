@@ -86,6 +86,10 @@ For direct hosting, leave `DEMO_TRUSTED_PROXIES` empty. If Caddy connects from t
 DEMO_TRUSTED_PROXIES=loopback
 ```
 
+When Caddy runs in Docker Compose next to the app (the Oracle deployment), it
+connects from the Compose network, so use `uniquelocal`. That is safe only
+because the app port is not published outside that network.
+
 For a separate proxy, list its actual IPs or narrowly scoped CIDRs, separated by commas. The proxy must sanitize/append forwarding headers appropriately. Do not trust `0.0.0.0/0`, `::/0`, arbitrary client networks, or a blanket number of hops. With no trusted proxy configured, requests arriving through one proxy safely share that proxy's IP allowance; configure the actual proxy addresses to distinguish visitors. Restrict direct access to the app port when hosted behind a proxy.
 
 To change the limits, edit the values and restart. `DEMO=false` disables all demo IP limits along with the existing demo policy. The replaceable limiter lives in `app/.server/demo-ip.ts`.

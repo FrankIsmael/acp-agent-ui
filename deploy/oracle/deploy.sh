@@ -31,8 +31,10 @@ main() {
     sleep 2
   done
 
-  docker compose logs --tail 40 app
-  echo "app did not respond within 60s"
+  # No app logs here: this output lands in the public Actions log, and request
+  # logs can carry secrets (e.g. /whatsapp?key=...). Read them on the VM.
+  docker compose ps app
+  echo "app did not respond within 60s; check: docker compose logs app"
   exit 1
 }
 

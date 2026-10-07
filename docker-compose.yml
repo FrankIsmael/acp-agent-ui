@@ -4,6 +4,9 @@ services:
     command: ["node", "server.js"]
     env_file: .env
     restart: unless-stopped
+    # Runs as `node` (uid 1000, set in the Dockerfile); it needs no capabilities.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     volumes:
       # WhatsApp pairing credentials and the current SQLite stores survive rebuilds.
       - ./.data:/app/.data

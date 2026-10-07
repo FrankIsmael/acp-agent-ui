@@ -9,6 +9,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: deploy-oracle
   cancel-in-progress: false
@@ -23,7 +25,7 @@ jobs:
       OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: 'True'
     steps:
       - name: Install OCI CLI
-        run: pipx install oci-cli
+        run: pipx install oci-cli==3.94.2
 
       - name: Write OCI credentials
         env:
