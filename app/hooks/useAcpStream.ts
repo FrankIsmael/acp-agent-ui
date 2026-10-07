@@ -120,7 +120,12 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     });
     es.addEventListener('title', () => window.dispatchEvent(new Event('conversations-changed')));
     es.addEventListener('permissions', (e) => setPermissions(JSON.parse((e as MessageEvent).data).permissions));
-    es.addEventListener('busy', (e) => setBusy(JSON.parse((e as MessageEvent).data).busy));
+    es.addEventListener('busy', (e) => {
+      const { busy } = JSON.parse((e as MessageEvent).data);
+      setBusy(busy);
+      // El servidor envía busy:false al cerrar cualquier turno (éxito, error, cancelado o límite de demo).
+      if (!busy) window.dispatchEvent(new Event('conversations-changed'));
+    });
     es.addEventListener('started', () => setConnected(true));
     es.addEventListener('config', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
@@ -169,7 +174,6 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
       });
     });
     es.addEventListener('done', () => {
-      window.dispatchEvent(new Event('conversations-changed'));
       streaming.current = false;
       setBusy(false);
     });
