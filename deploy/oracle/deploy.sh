@@ -4,7 +4,9 @@
 #
 # Everything lives in main() so bash parses the whole file before `git pull`
 # can rewrite it mid-run.
-set -euo pipefail
+set -Eeuo pipefail
+# Say where it stopped; otherwise a failing step exits with no output.
+trap 'echo "failed at line $LINENO: $BASH_COMMAND"' ERR
 
 main() {
   cd "$(dirname "$0")/../.."
@@ -20,11 +22,16 @@ main() {
     echo "build failed"
     exit 1
   fi
-  docker compose up -d --remove-orphans >>"$log" 2>&1
+  if ! docker compose up -d --remove-orphans >>"$log" 2>&1; then
+    tail -n 20 "$log"
+    echo "compose up failed"
+    exit 1
+  fi
 
   for _ in $(seq 1 30); do
-    if docker compose exec -T app wget -qO /dev/null http://127.0.0.1:3000/ 2>/dev/null; then
-      docker image prune -f >/dev/null
+    if docker compose exec -T app wget -qO /dev/null http://127.0.0.1:3000/healthz 2>/dev/null; then
+      # Cleanup only; never fail a healthy deploy over it.
+      docker image prune -f >/dev/null 2>&1 || true
       echo "app is up"
       exit 0
     fi

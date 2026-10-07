@@ -61,6 +61,12 @@ app.use(
   express.static('build/client/assets', { immutable: true, maxAge: '1y' }),
 );
 app.use(express.static('build/client', { maxAge: '1h' }));
+// Liveness for deploy/oracle/deploy.sh. Answered before the app so it never
+// creates a demo guest or spends the per-IP limits, and before morgan so it
+// stays out of the request log.
+app.get('/healthz', (_request, response) => {
+  response.type('text/plain').send('ok');
+});
 app.use(morgan('tiny'));
 
 // Express 5 ya no acepta "*" como ruta (path-to-regexp 8 exige nombre en el
