@@ -1,0 +1,82 @@
+name: Deploy to Oracle VM
+
+# Asks the VM's Oracle Cloud Agent to run deploy/oracle/deploy.sh through
+# OCI Run Command, so SSH never has to be reachable from GitHub.
+# Setup: docs/oracle-deployment.md ("Automatic deploys").
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Forks and the upstream repo have no VM to deploy to.
+    if: github.repository == 'FrankIsmael/acp-agent-ui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: 'True'
+    steps:
+      - name: Install OCI CLI
+        run: pipx install oci-cli
+
+      - name: Write OCI credentials
+        env:
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+          OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_CLI_KEY_CONTENT" > ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=$OCI_CLI_USER
+          tenancy=$OCI_CLI_TENANCY
+          fingerprint=$OCI_CLI_FINGERPRINT
+          region=$OCI_CLI_REGION
+          key_file=$HOME/.oci/key.pem
+          EOF
+          chmod 600 ~/.oci/config ~/.oci/key.pem
+
+      - name: Run deploy script on the VM
+        env:
+          INSTANCE_ID: ${{ secrets.OCI_INSTANCE_ID }}
+          COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+        run: |
+          content=$(jq -n '{
+            source: {sourceType: "TEXT", text: "sudo -n -u opc /home/opc/acp-agent-ui/deploy/oracle/deploy.sh"},
+            output: {outputType: "TEXT"}
+          }')
+          command_id=$(oci instance-agent command create \
+            --compartment-id "$COMPARTMENT_ID" \
+            --target "{\"instanceId\": \"$INSTANCE_ID\"}" \
+            --content "$content" \
+            --display-name "deploy ${GITHUB_SHA::7}" \
+            --timeout-in-seconds 1200 \
+            --query 'data.id' --raw-output)
+          echo "command: $command_id"
+
+          # The execution only exists once the agent picks the command up
+          # (it polls every minute or so), so early lookups may fail.
+          for _ in $(seq 1 120); do
+            sleep 10
+            execution=$(oci instance-agent command-execution get \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" 2>/dev/null) || continue
+            state=$(jq -r '.data["lifecycle-state"]' <<<"$execution")
+            echo "state: $state"
+            case "$state" in
+              ACCEPTED|IN_PROGRESS) continue ;;
+            esac
+            jq -r '.data.content.text // empty' <<<"$execution"
+            [ "$state" = SUCCEEDED ] && [ "$(jq -r '.data.content["exit-code"]' <<<"$execution")" = 0 ]
+            exit
+          done
+          echo "timed out waiting for the VM"
+          exit 1
