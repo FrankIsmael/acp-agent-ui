@@ -16,7 +16,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A commit that does not typecheck or build never reaches the VM.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
   deploy:
+    needs: check
     # Forks and the upstream repo have no VM to deploy to.
     if: github.repository == 'FrankIsmael/acp-agent-ui'
     runs-on: ubuntu-latest

@@ -14,4 +14,11 @@ declare module 'react' {
   }
 }
 
+declare global {
+  interface Window {
+    // Injected by app/root.tsx.
+    ENV?: { GOOGLE_MAPS_KEY?: string };
+  }
+}
+
 export {};

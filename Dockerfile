@@ -1,5 +1,6 @@
 FROM node:24-alpine AS development-dependencies-env
-COPY . /app
+# Only the manifests, so npm ci stays cached until dependencies change.
+COPY ./package.json package-lock.json /app/
 WORKDIR /app
 RUN npm ci
 

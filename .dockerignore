@@ -1,8 +1,19 @@
 .react-router
 build
 node_modules
-README.md
 .data
 .env
 .env.*
 !.env.example
+# Not needed by the build; excluding them keeps unrelated commits from
+# invalidating the build cache.
+.git
+.github
+.agents
+deploy
+docs
+legacy
+scripts
+tests
+*.md
+test.js

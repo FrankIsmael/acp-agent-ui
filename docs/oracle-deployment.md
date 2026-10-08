@@ -84,11 +84,20 @@ An update restarts the app and briefly disconnects WhatsApp; the persisted
 credentials reconnect it automatically. In-flight ACP turns are interrupted.
 
 `deploy/oracle/deploy.sh` does the same (plus a health check and image prune)
-and is what the automatic deploy below runs.
+and is what the automatic deploy below runs. Before building it tags the
+running image `acp-agent-ui-app:previous`; if the new one fails the health
+check, it starts the previous image again and exits non-zero. The checkout then
+stays at the failed commit, so fix forward with a new push, or pin the old code
+with `git checkout <good-sha> && docker compose up -d --build`.
+
+Edit code only through git. A local change in this checkout makes
+`git merge --ff-only` fail and blocks every automatic deploy; `git status` must
+be clean.
 
 ## Automatic deploys (OCI Run Command)
 
-`.github/workflows/deploy.yml` deploys every push to `main`. It never opens an
+`.github/workflows/deploy.yml` deploys every push to `main` that passes
+`npm run typecheck` and `npm run build` in its `check` job. It never opens an
 SSH connection: with an OCI API key it creates a Run Command, and the Oracle
 Cloud Agent on the VM runs `deploy.sh` as `opc`. SSH can stay restricted to your
 own IP. The agent polls for commands about every 4 minutes, so a deploy can

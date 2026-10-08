@@ -1,7 +1,8 @@
 services:
   app:
     build: .
-    command: ["node", "server.js"]
+    # Fixed name so deploy.sh can tag the running image for rollback.
+    image: acp-agent-ui-app:latest
     env_file: .env
     restart: unless-stopped
     # Runs as `node` (uid 1000, set in the Dockerfile); it needs no capabilities.
