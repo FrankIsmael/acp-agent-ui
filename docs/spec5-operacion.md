@@ -67,15 +67,15 @@ Cloud API si el cliente la pide.
   `{ type: "content", content: { type: "image", data, mimeType } }`. Sólo cuentan las de
   extensiones (`mcp:`): un `Read` de un PNG también devuelve imagen, pero ésa la leyó el agente.
 
-### La herramienta — `mcp/imagen.ts`
+### La herramienta — `mcp/image.ts`
 
-`generar_imagen(prompt)`: pide la imagen a un generador por HTTP y la devuelve como bloque
+`generate_image(prompt)`: pide la imagen a un generador por HTTP y la devuelve como bloque
 `image` de MCP. Sin dependencias ni llave. Corre por stdio o como Streamable HTTP
 (`--http 4123`), porque el adaptador `claude-acp` sólo monta MCPs http. El agente no sabe de
 WhatsApp ni de la web: devuelve la imagen por el protocolo y cada canal decide cómo entregarla.
 
-En la caja vive como unidad de systemd (`imagen.service`, `Restart=always`, arranca con la
-caja): la instala `scripts/install-imagen-mcp.mjs`, que además deja un `CLAUDE.md` en
+En la caja vive como unidad de systemd (`image.service`, `Restart=always`, arranca con la
+caja): la instala `scripts/install-image-mcp.mjs`, que además deja un `CLAUDE.md` en
 `/data/work` para que el agente use la tool a la primera y no se vaya a leer SDKs. Después de
 instalarla o reiniciarla hay que abrir hilo nuevo: el hilo abierto se queda con la conexión MCP
 vieja.
@@ -93,7 +93,7 @@ Un `POST /api/v2/agents` con `template: ghosty-lite`, el token OAuth de Claude
 2. **La URL del agente del POST es provisional** (`sandbox://…`); la real la da `GET /agents/:id`
    ya en `running`, y unas veces trae `/acp` y otras no.
 3. **claude-acp sólo monta MCPs http** (`mcpCapabilities: {http:true}`). Un stdio se declara,
-   se acepta y desaparece sin aviso. Por eso `imagen.ts` también escucha por HTTP.
+   se acepta y desaparece sin aviso. Por eso `image.ts` también escucha por HTTP.
 4. **Ghosty no entrega la respuesta del permiso.** Con `claude-acp`, ghosty reenvía
    `session/request_permission` al Cliente, pero cuando contestamos tira
    `No task waiting for confirmation` y la herramienta se queda colgada para siempre
@@ -135,13 +135,13 @@ prueba solo antes del siguiente.
    de la tool empieza con `mcp:`.
 4. **Modo `auto`**: tras `session/new`, si `modes.currentModeId !== "auto"`,
    `session/set_mode { sessionId, modeId: "auto" }`. Sin esto toda tool se cuelga con claude-acp.
-5. **El MCP de imagen** (`mcp/imagen.ts`, sin dependencias): `initialize`, `tools/list`,
+5. **El MCP de imagen** (`mcp/image.ts`, sin dependencias): `initialize`, `tools/list`,
    `tools/call` → `content: [{ type: "image", data, mimeType }, { type: "text", … }]`. Con
    `--http PORT`: POST `/mcp` → JSON; notificación (sin id) → 202; GET → stream SSE abierto con
    latido; DELETE → 200. Generador: `https://image.pollinations.ai/prompt/<prompt>?width=&height=`.
-   Instalarlo con `node scripts/install-imagen-mcp.mjs` (unidad de systemd en la caja) y
+   Instalarlo con `node scripts/install-image-mcp.mjs` (unidad de systemd en la caja) y
    darlo de alta en `/extensions` como http `http://127.0.0.1:4123/mcp`. **Hilo nuevo** después.
-   Comprobar en la web: "usa generar_imagen para…" → la foto aparece en la burbuja.
+   Comprobar en la web: "usa generate_image para…" → la foto aparece en la burbuja.
 6. **El canal** (`app/.server/whatsapp.ts`, `npm i @whiskeysockets/baileys@7.0.0-rc13 @hapi/boom qrcode`):
    - auth sobre sqlite: `creds` e `keys` serializados con `BufferJSON`; `keys.set` con debounce
      de 600 ms; `makeCacheableSignalKeyStore`.

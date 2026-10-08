@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Arma los ganchos de system prompt que el cerebro SÍ lee (.goosehints del config y del
+# workspace, y CLAUDE.md del workspace para `claude-acp`). Lo llama el launcher al arrancar
+# y cualquier API después de cambiar la identidad, sin reboot.
+#
+# Fuentes, en orden:
+#   /opt/goose/goosehints.md      prompt de casa (Ghosty). Se OMITE en modo `replace`.
+#   `hilos`                       párrafo de memoria de conversaciones (sólo lite, si existe).
+#   /data/agent/PROMPT.md         identidad del agente. Si no existe y llegó SYSTEM_PROMPT por
+#                                 env, se siembra de ahí UNA vez (la API luego lo pisa).
+#   /data/agent/PROMPT.mode       `append` (default) o `replace`. Si no existe, SYSTEM_PROMPT_MODE.
+#
+# `replace` = el agente es SÓLO lo que dice PROMPT.md: sin persona Ghosty, sin idioma de casa.
+set -euo pipefail
+GHOSTY_PATH_ROOT="${GHOSTY_PATH_ROOT:-/data/ghosty}"
+ACP_WORKSPACE="${ACP_WORKSPACE:-/data/work}"
+AGENT_DIR=/data/agent
+PROMPT_FILE="$AGENT_DIR/PROMPT.md"
+MODE_FILE="$AGENT_DIR/PROMPT.mode"
+mkdir -p "$AGENT_DIR" "$GHOSTY_PATH_ROOT/config" "$ACP_WORKSPACE"
+
+# Siembra desde env (EasyBits: SYSTEM_PROMPT / SYSTEM_PROMPT_MODE al crear el agente).
+if [ ! -s "$PROMPT_FILE" ] && [ -n "${SYSTEM_PROMPT:-}" ]; then
+  printf '%s\n' "$SYSTEM_PROMPT" > "$PROMPT_FILE"
+fi
+if [ ! -s "$MODE_FILE" ] && [ -n "${SYSTEM_PROMPT_MODE:-}" ]; then
+  printf '%s\n' "$SYSTEM_PROMPT_MODE" > "$MODE_FILE"
+fi
+MODE=append
+[ -s "$MODE_FILE" ] && MODE="$(tr -d '[:space:]' < "$MODE_FILE")"
+[ "$MODE" = replace ] || MODE=append
+# Sin identidad propia no hay nada con qué reemplazar: cae a append para no dejar al cerebro mudo.
+[ "$MODE" = replace ] && [ ! -s "$PROMPT_FILE" ] && MODE=append
+
+OUT="$GHOSTY_PATH_ROOT/config/.goosehints"
+: > "$OUT"
+if [ "$MODE" = append ] && [ -f /opt/goose/goosehints.md ]; then
+  cat /opt/goose/goosehints.md >> "$OUT"
+fi
+# ⚠️ Con claude-acp el cerebro NO ve las platform tools ni el bloque `# Skills`: lo que sabe
+# de la caja lo sabe por este archivo. Sin este párrafo juraba «no tengo memoria» con `hilos`
+# en el PATH (medido 2026-09-11). Va en los dos modos: es de la caja, no de la persona.
+if command -v hilos >/dev/null 2>&1; then
+  cat >> "$OUT" <<'HINT'
+
+## Your memory of this conversation: `hilos`
+
+In a long conversation the beginning falls out of your context, but it is still stored. If the
+person takes for granted something that was said earlier here and you no longer see it,
+**look it up** instead of making it up or saying you don't remember:
+
+```bash
+hilos grep "palabra clave"      # where it was said, with context
+hilos read --tail 10            # the end of this conversation (user/agent, no tools)
+```
+
+It only reads THIS conversation: other people's conversations are isolated and cannot be seen.
+Read `/opt/goose/skills/hilos/SKILL.md` if you need more.
+
+## Your disk
+
+Your working folder is your current directory (`$HOME`): it belongs to this conversation only,
+and what you write there is not visible to any other. The agent's knowledge files are in
+`/data/work/` (read-only); read them by their absolute path.
+HINT
+fi
+if [ -s "$PROMPT_FILE" ]; then
+  if [ "$MODE" = replace ]; then
+    # La identidad va PRIMERO y sin el rótulo «Quién eres»: es el prompt entero.
+    { cat "$PROMPT_FILE"; printf '\n'; cat "$OUT"; } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+  else
+    printf '\n\n## Who you are (agent identity)\n\n' >> "$OUT"
+    cat "$PROMPT_FILE" >> "$OUT"
+  fi
+fi
+# ⚠️ Por `claude-acp` el system prompt de goose se TIRA (`AcpProvider::stream` ignora
+# `_system`): Claude Code sólo lee CLAUDE.md del cwd y ~/.claude/skills.
+cp -f "$OUT" "$ACP_WORKSPACE/.goosehints"
+cp -f "$OUT" "$ACP_WORKSPACE/CLAUDE.md"
+echo "prompt-hooks: mode=$MODE identity=$([ -s "$PROMPT_FILE" ] && echo yes || echo no) bytes=$(wc -c < "$OUT")"
