@@ -5,6 +5,7 @@ import { useI18n } from "~/i18n";
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PendingPermission } from '~/.server/permissions';
+import type { MapData } from '~/lib/maps';
 
 /** Por dónde va la conexión con el agente antes del primer `started`. */
 export type ConnectPhase = 'waking' | 'connecting' | 'session';
@@ -53,6 +54,8 @@ export interface Turn {
   from?: string;
   thought?: string;
   tools?: ToolEntry[];
+  /** Lugares y rutas de Google Maps que trajeron las herramientas del turno. */
+  map?: MapData;
   usage?: { used: number; size: number; cost: number };
 }
 
@@ -161,6 +164,11 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     es.addEventListener('image', (e) => {
       const img = JSON.parse((e as MessageEvent).data) as PromptImage;
       patchCurrent((t) => ({ ...t, images: [...(t.images ?? []), img] }));
+    });
+    // El servidor manda el mapa ya juntado con lo anterior del turno: se reemplaza entero.
+    es.addEventListener('map', (e) => {
+      const { map } = JSON.parse((e as MessageEvent).data) as { map: MapData };
+      patchCurrent((t) => ({ ...t, map }));
     });
     es.addEventListener('usage', (e) => {
       const u = JSON.parse((e as MessageEvent).data) as Usage;

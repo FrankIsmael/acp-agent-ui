@@ -30,6 +30,7 @@ import { ChatInputCard } from "~/components/ChatInputCard";
 import { ChatInput } from "~/components/ChatInput";
 import { Markdown } from "~/components/Markdown";
 import { MessageUsageStats } from "~/components/MessageUsageStats";
+import { MapCard } from "~/components/MapCard";
 import { ConnectingState } from "~/components/ConnectingState";
 import { PermissionCard } from "~/components/PermissionCard";
 import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
@@ -62,6 +63,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       from: m.from,
       thought: m.thought,
       tools: m.tools,
+      map: m.map,
       usage: m.usage,
     })),
   };
@@ -139,6 +141,7 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
       ) : (
         <ArtifactCard key={index} artifact={part.artifact} artifactKey={artifactKey(conversationId, turnIndex, part.index)} streaming={streaming && !part.artifact.complete} />
       ))}
+      {turn.map && <MapCard data={turn.map} />}
       {turn.usage && <MessageUsageStats {...turn.usage} />}
     </div>
   );

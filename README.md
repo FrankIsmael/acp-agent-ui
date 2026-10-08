@@ -1,105 +1,103 @@
-# Un agente en su propia máquina
+# An agent on its own machine
 
-Una interfaz web para un agente que **no corre en la tuya**: vive dentro de una microVM, opera su
-propio disco, y se le habla por el [Agent Client Protocol](https://agentclientprotocol.com) sobre
+A web interface for an agent that **does not run on yours**: it lives inside a microVM, runs its
+own disk, and you interact with it through the [Agent Client Protocol](https://agentclientprotocol.com) over
 WebSocket.
 
 ```text
-[ Navegador ]
-     │  SSE — eventos ya traducidos, el navegador nunca habla ACP
-[ Esta app ]         React Router · SSR · Express
+[ Browser ]
+     │  SSE — events already translated, the browser never speaks ACP
+[ This app ]         React Router · SSR · Express
      │  wss://sb-<id>-3000.sandboxes.easybits.cloud/acp
-[ La caja ]          goose serve · microVM de EasyBits · LLM propio
+[ The box ]          goose serve · EasyBits microVM · own LLM
 ```
 
-## Las ramas
+## Branches
 
-| Rama | Qué tiene |
+| Branch | What's in it |
 |---|---|
-| `main` | La app al terminar la **sesión 1**: un turno completo contra el agente. Punto de partida. |
-| `sesion-2` | `main` + lo de la **sesión 2**: hub con conversaciones, tarjetas de herramienta y pensamiento, selector de modelo. |
+| `main` | The app at the end of **session 1**: a full turn against the agent. Starting point. |
+| `sesion-2` | `main` + what's in **session 2**: conversation hub, tool and thought cards, model selector. |
 
 ```sh
 git clone https://github.com/blissito/acp-agent-ui
-git switch sesion-2      # o quédate en main para arrancar desde cero
+git switch sesion-2      # or stay on main to start from scratch
 ```
 
-## El taller
+## The workshop
 
-Material de **[Sistemas Agénticos](https://www.fixtergeek.com/sistemas-agenticos)**, seis sesiones,
-un documento por sesión en [`docs/`](docs/).
+Material from **[Sistemas Agénticos](https://www.fixtergeek.com/sistemas-agenticos)**, six sessions,
+one document per session in [`docs/`](docs/).
 
-| | Sesión | Documento | Estado |
+| | Session | Document | Status |
 |---|---|---|---|
-| 1 | Vive fuera de tu compu y despierta cuando lo llamas | [`spec1-agente-fuera.md`](docs/spec1-agente-fuera.md) | ✅ |
-| 2 | UI propia, mostrando lo que hace mientras lo hace | [`spec2-ui-solida.md`](docs/spec2-ui-solida.md) | ✅ |
-| 3 | Lo matas a media tarea y revive donde iba | [`spec3-revivir.md`](docs/spec3-revivir.md) | plan |
-| 4 | Contesta por WhatsApp y te pide permiso desde ahí | [`spec4-permisos-extensiones.md`](docs/spec4-permisos-extensiones.md) | extensiones y permisos ✅ · WhatsApp plan |
-| 5 | Sólido, corriendo, y con forma de saber si se rompe | [`spec5-operacion.md`](docs/spec5-operacion.md) | plan |
-| 6 | Haciendo lo tuyo: habilidades | [`spec6-habilidades.md`](docs/spec6-habilidades.md) | plan |
+| 1 | Lives outside your computer and wakes up when you call it | [`spec1-agente-fuera.md`](docs/spec1-agente-fuera.md) | ✅ |
+| 2 | Its own UI, showing what it's doing as it does it | [`spec2-ui-solida.md`](docs/spec2-ui-solida.md) | ✅ |
+| 3 | You kill it mid-task and it resumes where it left off | [`spec3-revivir.md`](docs/spec3-revivir.md) | planned |
+| 4 | Answers via WhatsApp and asks for permission there | [`spec4-permisos-extensiones.md`](docs/spec4-permisos-extensiones.md) | extensions and permissions ✅ · WhatsApp planned |
+| 5 | Robust, running, and able to detect if it breaks | [`spec5-operacion.md`](docs/spec5-operacion.md) | planned |
+| 6 | Doing your thing: skills | [`spec6-habilidades.md`](docs/spec6-habilidades.md) | planned |
 
-El estado operativo del día a día vive en [`ESTADO.md`](ESTADO.md). Un primer intento de la
-interfaz, en SPA, quedó en [`legacy/`](legacy/).
+Day-to-day operational status lives in [`ESTADO.md`](ESTADO.md). An early attempt at the
+interface, as SPA, ended up in [`legacy/`](legacy/).
 
-## Correrlo
+## Running it
 
-Del otro lado hace falta un agente que hable ACP. Dos caminos:
+On the other side, you need an agent that speaks ACP. Two ways:
 
-- **[Ghosty Lite](https://www.easybits.cloud/docs#ghosty-lite)** — el atajo. Un agente en Rust que
-  ya habla ACP nativo, corre en su microVM con `/data` persistente y usa tu llave de EasyBits como
-  cerebro (sin credenciales de OpenAI ni Anthropic aparte). Se crea con un `POST /api/v2/agents` y
-  `template: "ghosty-lite"`; cuando queda `running`, su `agentUrl` y su `embedToken` son las dos
-  variables de abajo. Duerme a las 2 h de ocio y despierta en ~1 s con el disco intacto.
-- **goose en una caja tuya** — el camino largo, el de la sesión 1.
-  [`scripts/install-goose-unit.mjs`](scripts/install-goose-unit.mjs) la deja lista y escribe el
+- **[Ghosty Lite](https://www.easybits.cloud/docs#ghosty-lite)** — the shortcut. A Rust agent that
+  already speaks native ACP, runs in its own microVM with persistent `/data`, and uses your EasyBits key as
+  its brain (no extra OpenAI or Anthropic credentials). Create it with a `POST /api/v2/agents` and
+  `template: "ghosty-lite"`; when it's `running`, its `agentUrl` and its `embedToken` are the two
+  variables below. It sleeps after 2 hours idle and wakes up in ~1s with its disk intact.
+- **goose in your own box** — the long path, session 1.
+  [`scripts/install-goose-unit.mjs`](scripts/install-goose-unit.mjs) readies it and creates the
   `.env`.
 
 ```sh
 npm install
-cp .env.example .env      # y llénalo
+cp .env.example .env      # and fill it in
 npm run dev               # http://localhost:5173
-npm run build && npm start   # producción
+npm run build && npm start   # production
 ```
 
-Dos variables bastan:
+You only need two variables:
 
 ```sh
-ACP_WS_URL=wss://acp-<agentId>.sandboxes.easybits.cloud/acp   # el `agentUrl` del agente
-ACP_TOKEN=<el token del agente>                               # el `embedToken` de Ghosty Lite, o el ACP_AGENT_TOKEN que le pusieras a goose
+ACP_WS_URL=wss://acp-<agentId>.sandboxes.easybits.cloud/acp   # the agent's `agentUrl`
+ACP_TOKEN=<the agent's token>                                  # `embedToken` from Ghosty Lite, or ACP_AGENT_TOKEN if using goose
 ```
 
-Opcionales: `ACP_CWD` (por defecto `/data/work`), y `AGENT_BOX_ID` + `EASYBITS_API_KEY` para que la
-app despierte y suspenda la caja sola. Sin esas dos, el agente tiene que estar ya arriba.
+Optional: `ACP_CWD` (defaults to `/data/work`), and `AGENT_BOX_ID` + `EASYBITS_API_KEY` so the
+app can wake and suspend the box for you. Without these two, the agent must already be up.
 
-Node ≥ 22.22. `react-router dev` no lee `.env` por su cuenta: los scripts pasan `--env-file`.
+Node ≥ 22.22. `react-router dev` doesn't read `.env` on its own: scripts pass `--env-file`.
 
-## Cómo está armado
+## How it's built
 
-El chat incluye [Artifacts](docs/artifacts.md): un panel con vista previa, edición,
-descarga y biblioteca local para código, documentos, gráficos SVG y apps HTML.
+The chat includes [Artifacts](docs/artifacts.md): a panel with preview, editing,
+download, and a local library for code, documents, SVG graphics, and HTML apps.
 
-| Ruta | Qué es |
+| Path | Description |
 |---|---|
-| `app/.server/acp.ts` | El motor: una conexión ACP por conversación, ciclo de vida de la caja. |
-| `app/routes/api.conversations.$id.events.ts` | El SSE, como ruta de recurso. |
-| `app/routes/_shell.tsx` | Layout con el panel de navegación. |
-| `app/routes/hub.tsx` · `chat.tsx` | Inicio y conversación. |
-| `app/lib/theme.ts` | El tema, en cookie — con SSR no puede vivir en `localStorage`. |
-| `server.js` | Express para producción. |
-| `scripts/` | Auditoría de arranque y la unidad de systemd del agente. |
+| `app/.server/acp.ts` | The engine: one ACP connection per conversation, box lifecycle. |
+| `app/routes/api.conversations.$id.events.ts` | SSE as a resource route. |
+| `app/routes/_shell.tsx` | Layout with navigation panel. |
+| `app/routes/hub.tsx` · `chat.tsx` | Home and conversation. |
+| `app/lib/theme.ts` | Theme stored in a cookie — with SSR, it can't live in `localStorage`. |
+| `server.js` | Express for production. |
+| `scripts/` | Startup audit and the systemd unit for the agent. |
 
-La capa visual es un port de [goose Desktop](https://github.com/block/goose) (Apache-2.0); la
-atribución está en [`NOTICE`](NOTICE).
+The UI layer is a port of [goose Desktop](https://github.com/block/goose) (Apache-2.0); attribution is in [`NOTICE`](NOTICE).
 
-## Tres cosas que cuestan una tarde si no te las cuentan
+## Three things that will cost you a day if no one tells you
 
-- **`goose serve` escucha en `127.0.0.1:3284`.** El proxy del sandbox llega a la IP de la microVM,
-  no a su loopback: sin `--host 0.0.0.0` no lo alcanza.
-- **El token no es el `GOOSE_SERVER__SECRET_KEY` de la caja.** Ése es interno, se regenera en cada
-  arranque y nunca sale de la microVM; mandarlo da un 401 que parece de credenciales.
-- **El tema no puede vivir en `localStorage` con SSR.** El script que marca la clase antes de
-  hidratar desajusta el HTML del servidor y React tira la página — y sólo le pasa a quien ya eligió
-  tema, así que en la primera visita todo se ve bien.
+- **`goose serve` listens on `127.0.0.1:3284`.** The sandbox proxy reaches the microVM's IP,
+  not its loopback: without `--host 0.0.0.0` it won't be reachable.
+- **The token is not the box's `GOOSE_SERVER__SECRET_KEY`.** That one is internal, regenerated at
+  every startup, and never leaves the microVM; sending it will get you a 401 that looks like a credentials error.
+- **The theme can't live in `localStorage` with SSR.** The script that sets the class before
+  hydration causes server HTML mismatch and React breaks the page — and it only happens to users who’ve already chosen a theme, so it all looks fine on first visit.
 
 
 ## Languages

@@ -15,6 +15,7 @@ import { parseSkills, replayMetadata } from "./goose-adapter";
 import { ARTIFACT_INSTRUCTIONS, CHANNEL_INSTRUCTIONS, CHANNEL_MARKER } from "./artifact-instructions";
 import { PermissionQueue, type PendingPermission } from "./permissions";
 import { extensionStore, summarizeExtensions } from "./extensions";
+import { mapDataFromToolContent, mergeMapData, type MapData } from "~/lib/maps";
 import { isGenericTitle, titleFromPrompt, titleStore } from "./titles";
 
 // Sin URL no se inventa una: un fallback hardcodeado manda la sesión a la caja de otro y el
@@ -218,6 +219,8 @@ export type AcpEvent =
   // Una imagen que devolvió una herramienta MCP dentro del turno; se cuelga del mensaje
   // del agente que está en curso.
   | { type: "image"; mimeType: string; data: string }
+  // Lugares y rutas de una tool de Google Maps del turno, ya juntos con los anteriores.
+  | { type: "map"; map: MapData }
   | {
       // Una herramienta del agente: tool_call la crea, tool_call_update la
       // avanza. El mismo id llega varias veces; el navegador hace upsert.
@@ -284,6 +287,7 @@ export interface StoredMessage {
   from?: string;
   thought?: string;
   tools?: { id: string; title?: string; kind?: string; status?: string; path?: string }[];
+  map?: MapData;
   usage?: { used: number; size: number; cost: number };
   at: number;
 }
@@ -554,6 +558,11 @@ class GooseSession extends EventEmitter {
           const image: PromptImage = { mimeType: content.mimeType || "image/png", data: content.data };
           (answer.images ??= []).push(image);
           emit({ type: "image", ...image });
+        }
+        const map = mapDataFromToolContent(u.content);
+        if (map) {
+          answer.map = mergeMapData(answer.map, map);
+          emit({ type: "map", map: answer.map });
         }
       }
     } else if (u.sessionUpdate === "config_option_update") {

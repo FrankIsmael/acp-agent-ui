@@ -1,246 +1,247 @@
-# Dónde estamos
+# Where we are
 
-> Actualizado el 19 de septiembre de 2026. Este archivo es la foto operativa: qué corre, dónde, y qué
-> hay que saber para retomar sin releer todo. Lo conceptual va en [`docs/`](docs/).
+> Updated September 19, 2026. This file is the operational snapshot: what is running, where, and what
+> you need to know to resume without rereading everything. Conceptual notes are in [`docs/`](docs/).
 
-## Lo que funciona hoy
+## What works today
 
-Un turno completo desde el navegador: llega al agente, el agente escribe en el disco de su caja,
-responde en markdown y reporta tokens y costo. Verificado el 31 de agosto con
+A full turn from the browser: reaches the agent, the agent writes to the disk of its box,
+responds in markdown and reports tokens and cost. Verified August 31 with
 `/root/web3-ok.txt` → `WEB3_OK`.
 
-| Pieza | Dónde | Estado |
+| Piece | Where | Status |
 |---|---|---|
-| Interfaz | la raíz de este repo | ✅ SSR, 9 rutas |
-| Motor ACP | `app/.server/acp.ts` | ✅ una conexión por conversación |
-| SSE | `app/routes/api.conversations.$id.events.ts` | ✅ con latido cada 25 s |
-| Agente | `mi-agente-claude` (`sb_76f0708e-…`), ghosty-lite 1.48.0, `claude-acp`/sonnet, `GOOSE_MODE=approve` | ✅ `ghosty-lite-runtime` |
-| Extensiones | `/extensions`, SQLite en `.data/extensions.db` | ✅ http y stdio, en `session/new` y en caliente |
-| Permisos | `PermissionCard`, `/api/conversations/:id/permissions` | ✅ el turno espera la decisión |
-| WhatsApp | `/whatsapp`, `app/.server/whatsapp.ts` (Baileys), tablas `whatsapp_*` en la misma SQLite | ✅ QR o código, grupos con switch, ráfagas, fotos y reacciones |
-| Repo | [blissito/acp-agent-ui](https://github.com/blissito/acp-agent-ui) | público |
+| Interface | repo root | ✅ SSR, 9 routes |
+| ACP engine | `app/.server/acp.ts` | ✅ one connection per conversation |
+| SSE | `app/routes/api.conversations.$id.events.ts` | ✅ with heartbeat every 25 s |
+| Agent | `mi-agente-claude` (`sb_76f0708e-…`), ghosty-lite 1.48.0, `claude-acp`/sonnet, `GOOSE_MODE=approve` | ✅ `ghosty-lite-runtime` |
+| Extensions | `/extensions`, SQLite at `.data/extensions.db` | ✅ http and stdio, in `session/new` and hot-reloaded |
+| Permissions | `PermissionCard`, `/api/conversations/:id/permissions` | ✅ turn waits for decision |
+| WhatsApp | `/whatsapp`, `app/.server/whatsapp.ts` (Baileys), `whatsapp_*` tables in same SQLite | ✅ QR or code, groups with switch, bursts, photos and reactions |
+| Google Maps | `google-maps` extension (Grounding Lite), `app/lib/maps.ts`, `MapCard` in chat | ✅ places, weather, routes; map with markers and route line |
+| Repo | [blissito/acp-agent-ui](https://github.com/blissito/acp-agent-ui) | public |
 
-## Para arrancar
+## To start
 
 ```sh
 npm install
-npm run dev        # necesita .env
+npm run dev        # needs .env
 ```
 
-El `.env` (fuera del repo) lleva `ACP_WS_URL`, `ACP_SECRET`, `ACP_CWD`, `AGENT_BOX_ID` y
-`EASYBITS_API_KEY`. Para WhatsApp en prod, además `WHATSAPP_ADMIN_KEY` (una cadena larga al
-azar): sin ella `/whatsapp` no abre en producción; se entra una vez con `/whatsapp?key=<llave>`
-y el navegador queda autorizado 30 días por cookie. **Sin la llave la app funciona pero no gestiona la caja** (el log dice
-"sin SDK"); `@easybits.cloud/sdk` ya es dependencia.
+The `.env` (outside the repo) should have `ACP_WS_URL`, `ACP_SECRET`, `ACP_CWD`, `AGENT_BOX_ID`, and
+`EASYBITS_API_KEY`. For WhatsApp in prod, also `WHATSAPP_ADMIN_KEY` (a long random string): without this `/whatsapp` will not open in production; enter once with `/whatsapp?key=<key>`
+and the browser is authorized for 30 days by cookie. **Without the key the app works but doesn't manage the box** (the log says
+"no SDK"); `@easybits.cloud/sdk` is already a dependency.
 
-Si la caja muere, [`scripts/new-ghosty-agent.mjs`](scripts/new-ghosty-agent.mjs) crea otro agente
-`ghosty-lite` con Claude (`CLAUDE_CODE_OAUTH_TOKEN` de `claude setup-token`, o `ANTHROPIC_API_KEY`)
-y reescribe el `.env`; guarda `ACP_SECRET` y `AGENT_BOX_ID` nada más crear, porque `createAgent`
-devuelve la URL como `sandbox://…` y la `wss://` real sólo aparece después en `getAgent`. Ha pasado
-dos veces que la caja desaparece del host con 404 "sandbox not found" mientras figura `running`
-(2 sep y 12 sep); sin `AGENT_SNAPSHOT_ID` no hay recuperación automática. Para goose sobre DeepSeek
-queda [`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
+If the box dies, [`scripts/new-ghosty-agent.mjs`](scripts/new-ghosty-agent.mjs) creates another
+`ghosty-lite` agent with Claude (`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, or `ANTHROPIC_API_KEY`)
+and rewrites the `.env`; saves `ACP_SECRET` and `AGENT_BOX_ID` right after creation, because `createAgent`
+returns a URL like `sandbox://…` and the real `wss://` only shows up later in `getAgent`. It has happened
+twice that the box disappears from host with 404 "sandbox not found" while showing as `running`
+(2 Sep and 12 Sep); without `AGENT_SNAPSHOT_ID` there is no automatic recovery. For goose on DeepSeek use
+[`scripts/new-goose-box.mjs`](scripts/new-goose-box.mjs).
 
 
 ```sh
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oa... node --env-file=.env scripts/new-ghosty-agent.mjs mi-agente-claude
 ```
 
-## Lo que hay que saber
+## What you need to know
 
-- **WhatsApp entra al mismo hilo que el chat web** ([`docs/spec5-operacion.md`](docs/spec5-operacion.md)).
-  `askFromChannel` en `acp.ts` mete el turno en el hilo abierto (o abre uno) y espera la
-  respuesta entera; el navegador lo ve como burbuja etiquetada "vía WhatsApp" (evento `user`)
-  y las imágenes de herramientas `mcp:` como evento `image`. Las credenciales de Baileys viven
-  en `whatsapp_auth` dentro de `ACP_EXTENSIONS_DB`: al hostear, esa ruta debe estar en disco
-  persistente o habrá que escanear otra vez tras cada despliegue. Al abrir el hilo se fuerza
-  `session/set_mode auto` (`ACP_MODE`; vacío para no tocarlo), porque ghosty no entrega la
-  respuesta del permiso con claude-acp y la herramienta se queda colgada.
+- **WhatsApp enters the same thread as the web chat** ([`docs/spec5-operacion.md`](docs/spec5-operacion.md)).
+  `askFromChannel` in `acp.ts` puts the turn in the open thread (or opens one) and waits for the
+  full response; the browser sees it as a bubble labeled "via WhatsApp" (event `user`)
+  and tool images `mcp:` as `image` event. Baileys credentials live
+  in `whatsapp_auth` inside `ACP_EXTENSIONS_DB`: when hosting, that path must be on persistent disk
+  or you'll have to rescan after every deploy. When opening the thread, it forces
+  `session/set_mode auto` (`ACP_MODE`; empty means don’t touch), because ghosty doesn't deliver
+  the permission response with claude-acp and the tool gets stuck.
 
-- **Las herramientas y el pensamiento se ven.** `tool_call` / `tool_call_update` llegan al
-  navegador como evento `tool` (upsert por id) y `agent_thought_chunk` como `thought`; el chat
-  pinta el pensamiento colapsado y una fila por herramienta con su estado. Hecho el 2 sep para la
-  sesión 2.
-- **`terminal: false` en `initialize`.** Con `true` goose pide `terminal/create` al cliente y,
-  como no lo implementamos, cada `shell` termina en `failed`. El shell corre en la caja.
-- **`POST /extend` da 500 en una caja con TTL vencido** (viva por la siesta): el host suma sobre
-  el `expiresAt` viejo y rechaza con 400, y EasyBits lo convierte en 500. Arreglos en rama en
-  `sandbox-host` y `easybits`, pendientes de desplegar.
+- **You can see tools and thought.** `tool_call` / `tool_call_update` arrive to
+  the browser as event `tool` (upsert by id) and `agent_thought_chunk` as `thought`; the chat renders
+  the thought collapsed and a row per tool with its state. Done Sep 2 for session 2.
+- **`terminal: false` in `initialize`.** With `true` goose asks the client for `terminal/create` and,
+  since we don’t implement it, every `shell` ends in `failed`. The shell runs inside the box.
+- **`POST /extend` gives 500 on a box with expired TTL** (alive by nap): the host adds over the
+  old `expiresAt` and rejects with 400, and EasyBits turns it into 500. Fixes pending in
+  `sandbox-host` and `easybits` branches, yet to deploy.
 
-- **La caja se suspende sola** al quedar inactiva. La despierta el propio `Upgrade` del WebSocket
-  (verificado el 1 sep 2026); `ensureAgentBox` sólo extiende el TTL, suspende al ocio y avisa si la
-  caja ya no existe. La unidad de systemd relanza `goose serve` al arrancar. Antes de eso, cada
-  suspensión dejaba la app muerta con un 401 que parecía de credenciales.
-- **Node 22.16 contra 22.22.** React Router pide ≥ 22.22 y avisa en cada arranque; funciona igual.
-  Vale la pena subir la versión para dejar de leer el aviso.
-- **Las conversaciones sí sobreviven (verificado en prod el 14 sep).** Viven en la caja del
-  agente (`/data/ghosty/data/sessions/sessions.db`, raíz persistente) y la lista sale de
-  `session/list`; reiniciar la app no borra nada. Lo que *parece* pérdida son tres cosas:
-  1. todas se llaman `New Chat` — el agente no está generando títulos en esta caja (pendiente);
-  2. al suspenderse la caja por ocio (15 min) el WebSocket cae, el server manda `closed` y el
-     navegador **no reconecta** (`useAcpStream.ts`, handler `closed`): el chat abierto queda muerto
-     hasta recargar. Pendiente: reabrir el `EventSource` con backoff;
-  3. la primera petición tras el sueño tarda ~19 s y `/sessions` enseña "Cargando…" vacío.
-  Lo único que sí se pierde es la caja entera (ha pasado dos veces): `backup-sessions.mjs`
-  existe pero nadie lo programa.
-- **El permiso ya no se auto-aprueba.** El turno espera la decisión en el chat; sin timeout, se
-  cancela al detener, cerrar o desconectar. Ver [`docs/permissions-extensions.md`](docs/permissions-extensions.md).
-- **Un `session/new` colgado ya no cuelga la app.** Tope `ACP_SESSION_TIMEOUT_MS` (60 s); el
-  error llega al navegador nombrando las extensiones activas, y la causa real al log del servidor
-  (`[conversations] …`). Antes cualquier fallo era "Revisa la conexión con el agente".
-- **La base de extensiones es la de la rama `sesion-4-mcp`** (columna por campo, `id` UUID,
-  `name` único, `ACP_EXTENSIONS_DB` / `.data/extensions.db`): un archivo escrito en una rama se
-  lee en la otra. Un `.db` del formato intermedio (`configuration` JSON) se convierte solo al abrir.
-- **`tests/permissions.integration.mjs` corre contra `build/`**: si falla después de tocar
-  código, primero `npm run build`.
-- **El botón de parar sí interrumpe** (`session/cancel`).
-- **Los métodos son `_unstable`.** Todo lo que llene las vistas vacías lleva ese sufijo en goose:
-  pueden cambiar sin aviso.
-- **El MCP http de EasyBits no entrega tools con goose/ghosty — y no es el provider.** Investigado
-  el 12 sep 2026. El servidor funciona (por curl `tools/list` devuelve 87 tools, entre ellas
-  `research_search` y `research_scrape`), goose lo acepta en `session/new`, pero el modelo no ve
-  ninguna; sólo llegan los recursos `ui://easybits/*`. La causa está en el log de la caja
-  (`/data/ghosty/state/logs/cli/<fecha>/*.log`, no en journald):
-  `extension_manager "Failed to list tools" error="Unexpected response type"`. Es rmcp 3.1.4
-  (el cliente MCP de ghosty 1.48.0) rechazando la respuesta de `tools/list`: EasyBits manda
-  `"cacheScope":"connection"` y el enum de rmcp —y el esquema MCP— sólo admite `"public"` o
-  `"private"`. Falla `ListToolsResult`, el `ServerResult` untagged cae en el comodín, y goose
-  descarta la lista entera. `resources/list` no lleva `cacheScope`, por eso los recursos sí
-  aparecen. Le pasa igual a la extensión `easybits` que la caja trae de serie y al paquete stdio
-  `@easybits.cloud/mcp` (es un proxy al mismo endpoint). Arreglo: EasyBits (una palabra en su
-  servidor); mientras, un proxy stdio que reescriba `cacheScope` es la única salida desde goose.
-  - **Por qué "funcionó" en la rama `sesion-4-mcp` con `claude-acp` + Sonnet:** no es goose con
-    otro modelo, es otro agente con otro cliente MCP (el SDK de TypeScript, tolerante con el enum).
-    Mismo servidor, mismo bug; sólo un cliente es estricto. Lo que la rama anotó como "era el
-    provider" es este mismo fallo visto desde el otro lado.
-  - **Lo que sí vale de aquella sesión:** la credencial va en la URL (`?token=`), no en
-    `headers[]`. EasyBits contesta al 401 con `WWW-Authenticate: Bearer resource_metadata=…` y
-    goose lo toma por OAuth: arranca un login en navegador (`If the browser did not open,
-    authorize … at:` en journald) y `session/new` se queda colgado. Con `?token=` conecta en 2 s.
-    Y con `claude-acp` hace falta `GOOSE_MODE=approve` o el turno muere con `Internal error`.
-  - **Verificado el 12 sep con el agente nuevo (`claude-acp`/sonnet):** la extensión http con
-    `?token=` carga en 1 s y el modelo invocó `mcp__EasybitsTools__research_search` con resultado
-    real. Y desde goose/DeepSeek también hay salida: la caja trae
-    `/data/tools/easybits-mcp-proxy.mjs`, que reescribe `cacheScope`; como extensión stdio
+- **The box suspends itself** when inactive. It is awoken by the `Upgrade` of the WebSocket
+  itself (verified Sep 1, 2026); `ensureAgentBox` only extends TTL, suspends on idle and warns if
+  box no longer exists. The systemd unit restarts `goose serve` when booting. Before that, every
+  suspension would leave the app dead with a 401 that looked like a credentials error.
+- **Node 22.16 versus 22.22.** React Router requires ≥ 22.22 and warns on every start; works anyway.
+  Worth upgrading to stop seeing the warning.
+- **Conversations do persist (verified prod Sep 14).** They live in the agent box (`/data/ghosty/data/sessions/sessions.db`, persistent root) and the list comes from
+  `session/list`; restarting the app doesn't erase anything. What *looks* like loss is three things:
+  1. all are called `New Chat` — agent isn't generating titles on this box (pending);
+  2. when the box sleeps (15 min idle) WebSocket drops, server sends `closed`, and browser **does not reconnect** (`useAcpStream.ts`, handler `closed`): open chat remains dead until reload. Pending: reopen `EventSource` with backoff;
+  3. first request after sleep takes ~19 s and `/sessions` shows "Loading..." empty.
+  The only thing that is actually lost is the entire box (happened twice): `backup-sessions.mjs`
+  exists but nobody schedules it.
+- **Permission is not auto-approved anymore.** The turn waits for decision in chat; no timeout, it
+  cancels when stopping, closing or disconnecting. See [`docs/permissions-extensions.md`](docs/permissions-extensions.md).
+- **A stuck `session/new` no longer hangs the app.** Limit `ACP_SESSION_TIMEOUT_MS` (60 s); the
+  error arrives to the browser naming active extensions, and the real cause to the server log
+  (`[conversations] …`). Before, every error was "Check connection with agent".
+- **The extension db is from branch `sesion-4-mcp`** (one col per field, `id` UUID,
+  `name` unique, `ACP_EXTENSIONS_DB` / `.data/extensions.db`): a file written in one branch is
+  read in another. A `.db` of intermediate format (`configuration` JSON) auto-converts on open.
+- **`tests/permissions.integration.mjs` runs against `build/`**: if it fails after code changes,
+  first `npm run build`.
+- **Google Maps (Oct 7, 2026).** Grounding Lite MCP (`https://mapstools.googleapis.com/mcp`) as an
+  http extension; register it with `scripts/install-maps-mcp.mjs` (uses `GM_MCP_KEY` or `GM_DEMO_KEY`)
+  on each app box, then open a new thread. Skill `.agents/skills/trip-planner` plans around the weather
+  forecast; it reaches the box only after push + `bootstrap-memory.mjs`. Tool results become a `map`
+  event (places + routes) rendered by `MapCard`. Grounding Lite gives no route geometry: the
+  browser asks Routes API for the line and drops it if the distance differs >20 %. No transit
+  routes. `GM_DEMO_KEY` is exposed to the browser and the demo key is not for production.
+- **The stop button does interrupt** (`session/cancel`).
+- **The methods are `_unstable`.** Everything that fills empty views is named like that in goose:
+  might change without warning.
+- **EasyBits http MCP does not deliver tools with goose/ghosty — and is not the provider.** Investigated
+  Sep 12, 2026. The server works (curl `tools/list` returns 87 tools, including
+  `research_search` and `research_scrape`), goose accepts in `session/new`, but the model sees
+  none; only `ui://easybits/*` resources arrive. The cause is in the box log
+  (`/data/ghosty/state/logs/cli/<date>/*.log`, not journald):
+  `extension_manager "Failed to list tools" error="Unexpected response type"`. It's rmcp 3.1.4
+  (ghosty 1.48.0 MCP client) rejecting the `tools/list` response: EasyBits sends
+  `"cacheScope":"connection"` and the rmcp enum —and MCP schema— only accepts `"public"` or
+  `"private"`. `ListToolsResult` fails, untagged `ServerResult` falls through, and goose
+  discards the list. `resources/list` doesn't have `cacheScope`, so resources show up. Same thing
+  happens to the builtin `easybits` extension and the stdio package
+  `@easybits.cloud/mcp` (proxy to same endpoint). Fix: EasyBits (a server-side change); meanwhile,
+  a stdio proxy that rewrites `cacheScope` is the only way out from goose.
+  - **Why it "worked" in branch `sesion-4-mcp` with `claude-acp` + Sonnet:** it’s not goose with
+    another model, it's another agent with a different MCP client (the TypeScript SDK, tolerant of the enum).
+    Same server, same bug; strict in only one client. The branch annotated as "it was the
+    provider" is the same bug but from the other side.
+  - **What did work from that session:** credential goes in the URL (`?token=`), not in
+    `headers[]`. EasyBits responds to 401 with `WWW-Authenticate: Bearer resource_metadata=…` and
+    goose sees it as OAuth: starts browser login (`If the browser did not open,
+    authorize … at:` in journald) and `session/new` hangs. With `?token=` connects in 2 s.
+    And with `claude-acp` you need `GOOSE_MODE=approve` or the turn dies with `Internal error`.
+  - **Verified Sep 12 with agent (`claude-acp`/sonnet):** the http extension with
+    `?token=` loads in 1 s and the model called `mcp__EasybitsTools__research_search` with real results.
+    From goose/DeepSeek you also get output: the box includes
+    `/data/tools/easybits-mcp-proxy.mjs`, which rewrites `cacheScope`; as stdio extension
     (`/usr/local/bin/node /data/tools/easybits-mcp-proxy.mjs`, env `EASYBITS_API_KEY` +
-    `EASYBITS_MCP_URL=https://www.easybits.cloud/api/mcp?tools=web`) entrega las 11 tools de `web`.
-  - **Pero el agente no las usa solo:** con `claude-acp` el cerebro sólo lee `/data/work/CLAUDE.md`
-    (copia de `/data/ghosty/config/.goosehints` en cada arranque), y ahí manda usar
-    `/opt/gs-sdk/web.mjs` y no las tools nativas — lo obedece aunque se le pida lo contrario, y
-    `web.mjs` está roto en esta caja (falta `.gs-turn.json`). Para que "busca X" vaya al MCP hay
-    que cambiar esa regla en los dos archivos, con orden de preferencia (MCP de EasyBits si está en
-    la sesión → `web.mjs` → nativa). Aplicado el 13 sep en los dos archivos; el texto está en la
-    [spec 4](docs/spec4-permisos-extensiones.md). Vale para conversaciones nuevas.
-  - **Ojo: ninguno de los dos archivos es la fuente.** `/usr/local/bin/ghosty-lite-start` (viene
-    en la imagen del template, no de este repo) hace en cada arranque de la unidad
-    `cp /opt/goose/goosehints.md → /data/ghosty/config/.goosehints`, le añade la sección `hilos`
-    desde un heredoc del propio script y copia el resultado a `/data/work/CLAUDE.md`. Lo que se
-    edite en `/data` dura hasta el siguiente arranque: `restart_machine`, `systemctl restart`, o
-    un crash de `ghosty serve` (`Restart=on-failure`). Suspender/despertar NO cuenta: es un
-    snapshot de memoria, el script no corre (comprobado el 19 sep: un solo boot desde el 12 sep,
-    `NRestarts=0`, 31 h de uptime en 6 días). Los cambios del 13 sep siguen vivos por eso, no
-    porque sobrevivan. Para que duren hay que tocar también `/opt/goose/goosehints.md` (raíz del
-    disco de imagen: aguanta reboots, no una caja nueva ni un rebake).
-  - **19 sep:** los dos archivos de `/data` traducidos al inglés (copias `.es.bak` al lado) y con
-    el bloque `## Output format by channel` (`HINTS_BLOCK` en `artifact-instructions.ts`). La app
-    ya no manda instrucciones en cada `session/prompt`: quien provisiona la caja las instala
-    con `scripts/install-hints.mjs`, incluida la copia horneada que restaura el arranque.
-    Los turnos de WhatsApp llevan sólo la línea `[channel: whatsapp-group]`.
-    No hay comprobación automática ni fallback de instrucciones en línea.
+    `EASYBITS_MCP_URL=https://www.easybits.cloud/api/mcp?tools=web`) delivers the 11 `web` tools.
+  - **But the agent does not use them on its own:** with `claude-acp` the brain only reads `/data/work/CLAUDE.md`
+    (copy of `/data/ghosty/config/.goosehints` at startup), and there it is told to use
+    `/opt/gs-sdk/web.mjs` and not the native tools — it obeys even if told otherwise, and
+    `web.mjs` is broken on this box (missing `.gs-turn.json`). To make "search X" go to the MCP you
+    have to change that rule in both files, with preference order (EasyBits MCP if in session →
+    `web.mjs` → native). Applied Sep 13 in both files; text is in
+    [spec 4](docs/spec4-permisos-extensiones.md). Applies for new conversations.
+  - **Note: neither of these files is the source.** `/usr/local/bin/ghosty-lite-start` (comes
+    in the template image, not this repo) does at every systemd unit start
+    `cp /opt/goose/goosehints.md → /data/ghosty/config/.goosehints`, appends the `hilos` section
+    from a heredoc in the script itself and copies the result to `/data/work/CLAUDE.md`. What you
+    edit in `/data` lasts until the next boot: `restart_machine`, `systemctl restart`, or a
+    crash of `ghosty serve` (`Restart=on-failure`). Suspend/wake does NOT count: it’s a memory
+    snapshot, the script does not run (checked Sep 19: only one boot since Sep 12,
+    `NRestarts=0`, 31 hr uptime in 6 days). The Sep 13 changes are still there for that reason, not
+    because they persist. To make them last you have to also edit `/opt/goose/goosehints.md` (template disk root: survives reboots, not a new box or rebake).
+  - **Sep 19:** both `/data` files translated to English (`.es.bak` copies next to them) and with
+    the block `## Output format by channel` (`HINTS_BLOCK` in `artifact-instructions.ts`). The app
+    no longer sends instructions on every `session/prompt`: whoever provisions the box installs them with
+    `scripts/install-hints.mjs`, including the baked-in copy restored on startup.
+    WhatsApp turns send just the line `[channel: whatsapp-group]`.
+    There is no automatic check nor fallback for in-line instructions.
 
-## Producción
+## Production
 
-Dos cajas de EasyBits, y conviene no confundirlas:
+Two EasyBits boxes, and easy to confuse:
 
-| | App | Agente |
+| | App | Agent |
 |---|---|---|
 | id | `sb_97a7e9bf-e516-453e-8acf-ddd54e6d1fdc` (template `node`) | `sb_dc72993b-5fd9-4f25-b9f0-b6078632f7cd` (ghosty-lite) |
 | URL | https://acp-agent.ismaelfrancisco.tech (Caddy → :3000) | `wss://acp-6aa757c3…/acp` |
-| disco persistente | `/app` (ext4, `/dev/vdb`); **no hay `/data`** | `/data` |
-| qué guarda | repo + `build/` + `.data/extensions.db` | `sessions.db` |
+| persistent disk | `/app` (ext4, `/dev/vdb`); **no `/data`** | `/data` |
+| what stores | repo + `build/` + `.data/extensions.db` | `sessions.db` |
 | logs | `/var/log/easybits-app.log`, `journalctl -u easybits-app` | `/data/ghosty/state/logs/cli/…` |
 
-La app corre como `easybits-app.service` (`Restart=always`), arrancada por
-`/app/.easybits-start.sh`, que carga `/app/.easybits.env` (los secrets de `easybits.json`) y hace
-`exec node server.js`. **Una sola instancia**: el motor ACP es estado del proceso (`connection`,
-`active`, `history`); con dos réplicas el SSE cae en una y el POST en otra.
+The app runs as `easybits-app.service` (`Restart=always`), started by
+`/app/.easybits-start.sh`, which loads `/app/.easybits.env` (the secrets from `easybits.json`) and does
+`exec node server.js`. **Just one instance**: the ACP engine is single-process state (`connection`,
+`active`, `history`); with two replicas SSE fails on one and POST on the other.
 
-Desplegar = subir el commit y reconstruir en la caja; un restart solo no trae código nuevo:
+Deploy = push commit and rebuild in the box; a restart alone does not bring new code:
 
 ```sh
 git push origin main
-# en la caja de la app (POST /api/v2/sandboxes/<app>/exec):
+# on the app box (POST /api/v2/sandboxes/<app>/exec):
 cd /app && git fetch -q origin main && git checkout -q -B main origin/main && (npm ci || npm install) && npm run build
-# reiniciar el servicio: tool `restart_machine` del MCP de EasyBits (?tools=sandbox,hosting,fleet)
-# Sin el `npm ci` un commit que añade paquetes arranca con ERR_MODULE_NOT_FOUND y todo da 500 (15 sep).
+# restart service: tool `restart_machine` from EasyBits MCP (?tools=sandbox,hosting,fleet)
+# Without `npm ci` a commit adding packages starts with ERR_MODULE_NOT_FOUND and everything gives 500 (Sep 15).
 ```
 
-Cambiar una variable de entorno = dos pasos, sin build ni git: (1) `set_machine_secrets` (tool
-del MCP de EasyBits, o el dashboard) con **sólo el valor** — el 15 sep `WHATSAPP_ADMIN_KEY` se guardó
-como `' WHATSAPP_ADMIN_KEY=…'` por pegar la línea entera y la llave nunca coincidía; (2) reiniciar
-(`restart_machine`): el `.easybits.env` se lee una vez al arrancar y el proceso no lo relee. Una
-variable nueva tiene que estar además en `secretNames` de `easybits.json`. Se comprueba con
-`systemctl show easybits-app -p ActiveEnterTimestamp` (más nuevo que el cambio) y `grep` en el archivo.
+Changing an environment variable = two steps, no build or git: (1) `set_machine_secrets` (EasyBits
+MCP tool, or the dashboard) with **only the value** — on Sep 15 `WHATSAPP_ADMIN_KEY` was stored as
+`' WHATSAPP_ADMIN_KEY=…'` for pasting the whole line and the key never matched; (2) restart
+(`restart_machine`): `.easybits.env` is read once at startup and the process does not reread. A
+new variable must also be in `secretNames` in `easybits.json`. Check with
+`systemctl show easybits-app -p ActiveEnterTimestamp` (should be newer than the change) and `grep` in the file.
 
-Para mirar dentro, `exec` con un comando: `ls /app/.data`, `tail /var/log/easybits-app.log`, o la
-base de extensiones con `node -e` y `node:sqlite` en modo `readOnly` (nunca `cp` con WAL abierto).
+To look inside, `exec` with a command: `ls /app/.data`, `tail /var/log/easybits-app.log`, or the
+extensions db with `node -e` and `node:sqlite` in `readOnly` mode (never `cp` with WAL open).
 
-- **Detrás de Caddy, Express creía hablar http** (`req.protocol`) y `request.url` salía con el
-  esquema equivocado: `assertSameOrigin` rechazaba con 403 el POST del propio navegador en
-  `/api/extensions`. Arreglado el 14 sep (`99470dc`): `app.set("trust proxy", true)` en
-  `server.js` y la comprobación se fía de `Sec-Fetch-Site` (lo pone el navegador) y sólo compara
-  `Origin` por host, no por esquema. En dev no se veía porque no hay proxy.
+- **Behind Caddy, Express thought it was speaking http** (`req.protocol`) and `request.url` showed
+  the wrong scheme: `assertSameOrigin` rejected with 403 the POST from the browser itself to
+  `/api/extensions`. Fixed Sep 14 (`99470dc`): `app.set("trust proxy", true)` in
+  `server.js` and the check now trusts `Sec-Fetch-Site` (set by the browser) and compares
+  `Origin` only by host, not by scheme. In dev it wasn’t visible because there’s no proxy.
 
-## Pendientes recomendados (15 sep 2026, tras cerrar WhatsApp)
+## Recommended pending items (Sep 15, 2026, after closing WhatsApp)
 
-Ordenados por lo que más duele si falta. Los tres primeros van antes de dejar el canal
-funcionando en prod sin mirarlo.
+Ordered by what would hurt most if missing. The top three go before leaving the channel
+working in prod unseen.
 
-1. **Auth de verdad.** Hoy la puerta es `WHATSAPP_ADMIN_KEY` + cookie HMAC
-   (`app/.server/admin-gate.ts`) y sólo cubre `/whatsapp` y sus dos APIs: el chat, las
-   extensiones y las sesiones siguen abiertos a quien tenga el link. Lo natural: una sesión de
-   usuario (passkey/OAuth o login simple) y la misma `requireAdmin` en todas las rutas de
-   escritura. El `admin-gate` está hecho para que sustituirlo sea cambiar una función.
-2. **Reconexión del navegador al chat.** Cuando la caja duerme el server manda `closed` y
-   `useAcpStream` no reabre el `EventSource`: el chat queda muerto hasta recargar. Backoff y
-   `snapshot` al volver. Con WhatsApp entrando al mismo hilo esto se nota más (el hilo cambia
-   sin que el navegador se entere).
-3. **Un turno por vez, hasta para grupos.** `askFromChannel` encola; con dos grupos activos y un
-   agente lento la cola crece y el segundo grupo espera minutos sin aviso. Medir, y si molesta,
-   un mensaje de "en cola" al grupo o un hilo por grupo (rompe "una sola sesión viva").
-4. **Alcance del canal.** Sólo grupos; falta el DM del dueño (útil para operar sin grupo),
-   audios/notas de voz (transcribir antes de mandar), documentos, citar mensajes, editados y
-   borrados. Cada uno es un tipo de mensaje distinto de ida y de vuelta.
-5. **Mención opcional.** En grupos con gente, contestar a todo es ruido: un interruptor por
-   grupo "sólo si me mencionan o responden al agente".
-6. **Seguridad del canal.** Tope de tamaño de foto entrante (hoy se descarga lo que llegue),
-   tope de frecuencia por grupo, y borrar de la base las credenciales al desvincular desde el
-   teléfono (ya se hace) y al fallar 5 reconexiones (hoy quedan). Revisar que el log en
-   `WHATSAPP_LOG=debug` nunca quede activo en prod: imprime llaves.
-7. **Operación** ([`docs/operacion.md`](docs/operacion.md) sigue como plan): aviso cuando el
-   canal pasa a `failed` o `disconnected` sin pedirlo (un mensaje al DM del dueño basta),
-   `/healthz` con estado del canal y de la conexión ACP, y `backup-sessions.mjs` programado.
-8. **Permiso desde el grupo** (spec 4): bloqueado por ghosty (`No task waiting for
-   confirmation`). Mientras, el hilo va en `ACP_MODE=auto`: el agente ejecuta sin preguntar,
-   también lo que llegue por WhatsApp. Es una decisión consciente; conviene tenerla presente
-   al prender un grupo con desconocidos.
-9. **Pruebas.** El canal no tiene ninguna: al menos `paraWhatsApp`, el buffer de ráfagas, el
-   `authState` sobre sqlite (round-trip con `BufferJSON`) y el `admin-gate` con `node --test`,
-   como `titles.test.mjs`.
-10. **Higiene.** Subir Node a ≥ 22.22 en la caja de la app para dejar de ver el aviso de React
-    Router; `--env-file-if-exists` en `npm start` si algún día se usa el Dockerfile; títulos de
-    hilo ("New Chat") pendientes del agente; y un `README` corto de "cómo vincular WhatsApp".
+1. **Real auth.** Currently the gate is `WHATSAPP_ADMIN_KEY` + HMAC cookie
+   (`app/.server/admin-gate.ts`) and only covers `/whatsapp` and its two APIs: chat,
+   extensions and sessions are still open to anyone with the link. The natural way: a user session
+   (passkey/OAuth or simple login) and same `requireAdmin` on all write routes. `admin-gate`
+   is built so replacing it is just changing a function.
+2. **Browser reconnection to chat.** When the box sleeps the server sends `closed` and
+   `useAcpStream` does not reopen the `EventSource`: the chat is dead until reload. Backoff and
+   `snapshot` on return. With WhatsApp entering the same thread this is felt more (the thread changes
+   without the browser knowing).
+3. **One turn at a time, even for groups.** `askFromChannel` enqueues; with two groups active and a
+   slow agent the queue grows and the second group waits minutes with no notice. Measure, and if it's
+   a problem, a "queued" message to the group or one thread per group (which breaks "only one live session").
+4. **Channel scope.** Only groups; needs DM to owner (useful to operate without group),
+   audios/voice notes (transcribe before sending), docs, quoted messages, edited and
+   deleted. Each is a different message type in and out.
+5. **Optional mention.** In groups with people, replying to everything is noise: a switch per
+   group "only if mentioned or replying to agent".
+6. **Channel security.** Limit incoming photo size (today it takes whatever comes),
+   frequency cap per group, and remove credentials from the db when unpairing from phone (already done)
+   and after 5 failed reconnects (currently stays). Review that `WHATSAPP_LOG=debug` is never active
+   in prod: prints secrets.
+7. **Operation** ([`docs/operacion.md`](docs/operacion.md) is still the plan): alert when the
+   channel transitions to `failed` or `disconnected` unexpectedly (a DM to owner is enough),
+   `/healthz` with channel and ACP connection state, and `backup-sessions.mjs` scheduled.
+8. **Permission from group** (spec 4): blocked by ghosty (`No task waiting for
+   confirmation`). Meanwhile, thread runs in `ACP_MODE=auto`: agent executes without asking,
+   also anything that comes by WhatsApp. This is a deliberate choice; keep in mind when enabling a group with strangers.
+9. **Tests.** The channel has none: at least `paraWhatsApp`, burst buffer,
+   `authState` on sqlite (round-trip with `BufferJSON`) and `admin-gate` with `node --test`,
+   like `titles.test.mjs`.
+10. **Hygiene.** Update Node to ≥ 22.22 on the app box to stop seeing the React
+    Router warning; `--env-file-if-exists` in `npm start` if anyone ever uses the Dockerfile;
+    thread titles ("New Chat") waiting for agent; and a short `README` of "how to link WhatsApp".
 
-## Lo siguiente
+## Next steps
 
-Las sesiones 3 a 6 están planteadas en `docs/`, cada una con lo que ya se sabe del protocolo y lo
-que falta decidir. El orden natural es el del temario: primero revivir (sesión 3), porque todo lo
-demás se apoya en que el estado sobreviva.
+Sessions 3 to 6 are sketched in `docs/`, each with what's already known about the protocol and
+what still needs deciding. The natural order follows the syllabus: first revive (session 3), because all the rest
+depends on persisting state.
 
-Dos cosas sueltas antes de empezar:
+Two loose notes before starting:
 
-- `.agents/skills/react-router/` viene del scaffold. **No borrar**: en la sesión 1 sirve de
-  ejemplo en vivo de que las skills salen del `cwd` que viaja en `session/new` — goose la lee
-  del proyecto y la anuncia al editor en `available_commands_update`.
-- El `Dockerfile` **no se usa en prod** (ver "Producción"). Si algún día se usa: `npm start` hace
-  `node --env-file=.env`, que revienta sin archivo; cambiar a `--env-file-if-exists=.env`.
+- `.agents/skills/react-router/` comes from scaffold. **Do not remove**: in session 1 it serves as
+  a live example that skills come from the `cwd` that is sent in `session/new` — goose reads it
+  from the project and announces it to the editor with `available_commands_update`.
+- The `Dockerfile` **is not used in prod** (see "Production"). If it is ever used: `npm start` does
+  `node --env-file=.env`, which blows up if file not present; change to `--env-file-if-exists=.env`.

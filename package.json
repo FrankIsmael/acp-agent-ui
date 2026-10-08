@@ -15,6 +15,7 @@
     "test:chat:browser": "node tests/chat.browser.mjs",
     "test:artifacts": "node --experimental-strip-types --test tests/artifacts.test.mjs",
     "test:titles": "node --experimental-strip-types --test tests/titles.test.mjs",
+    "test:maps": "node --experimental-strip-types --test tests/maps.test.mjs",
     "test:artifacts:browser": "node tests/artifacts.browser.mjs",
     "test:demo": "node --experimental-strip-types --test tests/demo.test.mjs tests/demo-ip.test.mjs && node tests/demo.integration.mjs"
   },

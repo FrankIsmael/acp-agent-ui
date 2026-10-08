@@ -22,8 +22,8 @@ export default function GMaps() {
         <div className="max-h-full bg-amber-300 font-extrabold">GMaps</div>
         <div style={{ height: '400px', width: '100%' }}>
           <gmp-map
-            center="38.7946,-106.5348"
-            zoom="4"
+            center={{ lat: 38.7946, lng: -106.5348 }}
+            zoom={4}
             map-id="DEMO_MAP_ID"
             style={{ height: '100%' }}
           ></gmp-map>

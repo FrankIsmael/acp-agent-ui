@@ -302,5 +302,6 @@
   "errors.pairingCode": "Could not request the code: {detail}",
   "errors.connectionLost": "The connection was lost ({code}) and did not recover after {attempts} attempts.",
   "errors.reconnecting": "Connection lost ({code}); retry {attempt} in {seconds} s.",
-  "errors.demoLimit": "You have reached this demo's limit. Want to learn more or build something like this? Contact the person who shared this app with you.{contact}"
+  "errors.demoLimit": "You have reached this demo's limit. Want to learn more or build something like this? Contact the person who shared this app with you.{contact}",
+  "Map of the places mentioned": "Map of the places mentioned"
 }
