@@ -1,8 +1,8 @@
 import { useI18n } from "~/i18n";
 import { createTranslator, localeFromCookies } from "~/lib/i18n";
 /**
- * La conversación. El loader entrega los mensajes ya ocurridos (por si
- * recargas), y de ahí en adelante el hilo lo alimenta el SSE.
+ * The conversation. The loader delivers already occurred messages (in case
+ * you reload), and from there on the thread is fed by SSE.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
@@ -31,6 +31,9 @@ import { ChatInput } from "~/components/ChatInput";
 import { Markdown } from "~/components/Markdown";
 import { MessageUsageStats } from "~/components/MessageUsageStats";
 import { MapCard } from "~/components/MapCard";
+import { WeatherCard } from "~/components/WeatherCard";
+import { RouteCard } from "~/components/RouteCard";
+import type { MapPlace } from "~/lib/maps";
 import { ConnectingState } from "~/components/ConnectingState";
 import { PermissionCard } from "~/components/PermissionCard";
 import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
@@ -39,16 +42,27 @@ import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
 import { useArtifacts } from "~/components/artifacts/ArtifactContext";
 import { useChatBase } from "~/lib/embed";
-import { artifactKey, parseArtifacts, type Artifact, type ArtifactPart } from "~/lib/artifacts";
+import {
+  artifactKey,
+  parseArtifacts,
+  type Artifact,
+  type ArtifactPart,
+} from "~/lib/artifacts";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const t = createTranslator(localeFromCookies(request.headers.get("cookie")));
   const tail = new URL(request.url).searchParams.get("tail");
   const replayTail = tail === null ? undefined : Number(tail);
-  if (replayTail !== undefined && (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)) throw new Response(t("Invalid history tail"), { status: 400 });
+  if (
+    replayTail !== undefined &&
+    (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)
+  )
+    throw new Response(t("Invalid history tail"), { status: 400 });
   const conversation = await loadConversation(params.id, { replayTail });
   if (!conversation) {
-    throw new Response(t("That conversation no longer exists"), { status: 404 });
+    throw new Response(t("That conversation no longer exists"), {
+      status: 404,
+    });
   }
   return {
     id: params.id,
@@ -69,9 +83,21 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   };
 }
 
-// Cómo se nombra cada canal en la etiqueta de la burbuja.
-
-function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: Turn; parts: ArtifactPart[]; conversationId: string; turnIndex: number; streaming: boolean }) {
+function Bubble({
+  turn,
+  parts,
+  conversationId,
+  turnIndex,
+  streaming,
+  knownPlaces,
+}: {
+  turn: Turn;
+  parts: ArtifactPart[];
+  conversationId: string;
+  turnIndex: number;
+  streaming: boolean;
+  knownPlaces: MapPlace[];
+}) {
   const { t } = useI18n();
   const CHANNEL_LABEL: Record<string, string> = { whatsapp: t("via WhatsApp") };
   if (turn.role === "user") {
@@ -123,7 +149,9 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
       )}
       {turn.thought && (
         <details className="mb-3 text-xs text-text-secondary">
-          <summary className="cursor-pointer select-none">{t("Thinking…")}</summary>
+          <summary className="cursor-pointer select-none">
+            {t("Thinking…")}
+          </summary>
           <p className="mt-2 whitespace-pre-wrap border-l-2 border-border-secondary pl-3">
             {turn.thought}
           </p>
@@ -136,21 +164,36 @@ function Bubble({ turn, parts, conversationId, turnIndex, streaming }: { turn: T
           ))}
         </ul>
       )}
-      {parts.map((part, index) => part.kind === "text" ? (
-        <Markdown key={index}>{part.text}</Markdown>
-      ) : (
-        <ArtifactCard key={index} artifact={part.artifact} artifactKey={artifactKey(conversationId, turnIndex, part.index)} streaming={streaming && !part.artifact.complete} />
-      ))}
-      {turn.map && <MapCard data={turn.map} />}
+      {turn.map?.weather && turn.map.weather.length > 0 && (
+        <WeatherCard weather={turn.map.weather} />
+      )}
+      {turn.map && turn.map.routes.length > 0 && (
+        <RouteCard routes={turn.map.routes} />
+      )}
+      {parts.map((part, index) =>
+        part.kind === "text" ? (
+          <Markdown key={index}>{part.text}</Markdown>
+        ) : (
+          <ArtifactCard
+            key={index}
+            artifact={part.artifact}
+            artifactKey={artifactKey(conversationId, turnIndex, part.index)}
+            streaming={streaming && !part.artifact.complete}
+          />
+        ),
+      )}
+      {turn.map &&
+        (turn.map.places.length > 0 || turn.map.routes.length > 0) && (
+          <MapCard data={turn.map} known={knownPlaces} />
+        )}
       {turn.usage && <MessageUsageStats {...turn.usage} />}
     </div>
   );
 }
 
-// Una herramienta del agente, con su estado según ACP:
+// An agent tool, with its status according to ACP:
 // pending → in_progress → completed | failed.
-// Cada `kind` de ACP tiene su icono: se reconoce de un vistazo qué hizo el
-// agente sin leer el título, que es lo que uno hace al barrer la lista.
+// Each ACP `kind` has its own icon: you can instantly see what the agent did without reading the title, which is what you do when scanning the list.
 const KIND_ICON: Record<string, LucideIcon> = {
   read: FileText,
   edit: FilePen,
@@ -163,7 +206,6 @@ const KIND_ICON: Record<string, LucideIcon> = {
   other: Wrench,
 };
 
-/** El indicador de la derecha: spinner mientras corre, palomita al terminar. */
 function StatusDot({ status }: { status: string }) {
   if (status === "in_progress") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-text-primary" />;
@@ -201,8 +243,8 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
   const failed = status === "failed";
   const kind = tool.kind ?? "other";
   const Icon = KIND_ICON[kind] ?? Wrench;
-  // Del path importa el final (el archivo), no el prefijo: se trunca por la
-  // izquierda para que `…/routes/chat.tsx` siga siendo legible en móvil.
+  // Only the end of the path matters (the file), not the prefix: it is truncated from the left
+  // so that `…/routes/chat.tsx` remains readable on mobile.
   const path = tool.path;
 
   return (
@@ -212,9 +254,17 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
       className={`group flex min-w-0 items-center gap-2.5 px-3 py-2 transition-colors ${
-        failed ? "bg-background-danger/40" : running ? "bg-background-secondary/60" : ""
+        failed
+          ? "bg-background-danger/40"
+          : running
+            ? "bg-background-secondary/60"
+            : ""
       }`}
-      title={path ? `${KIND_LABEL[kind] ?? kind}: ${tool.title ?? tool.id}\n${path}` : undefined}
+      title={
+        path
+          ? `${KIND_LABEL[kind] ?? kind}: ${tool.title ?? tool.id}\n${path}`
+          : undefined
+      }
     >
       <span
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
@@ -236,7 +286,10 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
           {tool.title ?? tool.id}
         </span>
         {path && (
-          <span dir="rtl" className="truncate text-left font-mono text-[11px] text-text-tertiary">
+          <span
+            dir="rtl"
+            className="truncate text-left font-mono text-[11px] text-text-tertiary"
+          >
             &#x2066;{path}&#x2069;
           </span>
         )}
@@ -250,8 +303,8 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
   );
 }
 
-// Cada conversación necesita su propio estado: sin la key, React reusa la
-// instancia al navegar entre /c/:id y el hilo anterior se queda pegado.
+// Each conversation needs its own state: without the key, React reuses the
+// instance when navigating between /c/:id, causing the previous thread to stick.
 export default function Chat() {
   const { id } = useLoaderData<typeof loader>();
   return <ChatView key={id} />;
@@ -263,34 +316,86 @@ function ChatView() {
   const location = useLocation();
   const navigate = useNavigate();
   const base = useChatBase();
-  const firstMessage = (location.state as { firstMessage?: string } | null)?.firstMessage;
+  const firstMessage = (location.state as { firstMessage?: string } | null)
+    ?.firstMessage;
   const {
-    turns, permissions, busy, connected, phase, error, send, stop,
-    configOptions, imageSupport, visionModels, configBusy, setConfig,
+    turns,
+    permissions,
+    busy,
+    connected,
+    phase,
+    error,
+    send,
+    stop,
+    configOptions,
+    imageSupport,
+    visionModels,
+    configBusy,
+    setConfig,
   } = useAcpStream(id, messages as Turn[]);
   const { artifacts, ready, ingest, open } = useArtifacts();
-  const parsedTurns = useMemo(() => turns.map((turn, index) => turn.role === "assistant" ? parseArtifacts(turn.text, busy && index === turns.length - 1) : []), [turns, busy]);
-  const generated = useMemo(() => parsedTurns.flatMap((parts, turnIndex) => parts.flatMap((part): Artifact[] => part.kind === "artifact" ? [{
-    ...part.artifact, key: artifactKey(id, turnIndex, part.index), conversationId: id, turnIndex, updatedAt: Date.now(),
-  }] : [])), [parsedTurns, id]);
+  const parsedTurns = useMemo(
+    () =>
+      turns.map((turn, index) =>
+        turn.role === "assistant"
+          ? parseArtifacts(turn.text, busy && index === turns.length - 1)
+          : [],
+      ),
+    [turns, busy],
+  );
+  // A follow-up ("walk me to El Jarocho") names a place found in an earlier turn: the map
+  // resolves route endpoints against every place in the thread, not only its own pins.
+  const knownPlaces = useMemo(
+    () => turns.flatMap((turn) => turn.map?.places ?? []),
+    [turns],
+  );
+  const generated = useMemo(
+    () =>
+      parsedTurns.flatMap((parts, turnIndex) =>
+        parts.flatMap((part): Artifact[] =>
+          part.kind === "artifact"
+            ? [
+                {
+                  ...part.artifact,
+                  key: artifactKey(id, turnIndex, part.index),
+                  conversationId: id,
+                  turnIndex,
+                  updatedAt: Date.now(),
+                },
+              ]
+            : [],
+        ),
+      ),
+    [parsedTurns, id],
+  );
   const seen = useRef(new Set<string>());
   useEffect(() => {
     if (!ready) return;
     ingest(generated);
-    const additions = generated.filter(artifact => !seen.current.has(artifact.key));
-    generated.forEach(artifact => seen.current.add(artifact.key));
+    const additions = generated.filter(
+      (artifact) => !seen.current.has(artifact.key),
+    );
+    generated.forEach((artifact) => seen.current.add(artifact.key));
     // Once closed, further tokens must not reopen the panel. A new revision can.
     if (additions.length) open(additions[additions.length - 1].key);
   }, [generated, ready, ingest, open]);
-  const conversationArtifacts = artifacts.filter(artifact => artifact.conversationId === id);
-  const streamingArtifact = busy ? [...generated].reverse().find(artifact => artifact.turnIndex === turns.length - 1 && !artifact.complete) : undefined;
+  const conversationArtifacts = artifacts.filter(
+    (artifact) => artifact.conversationId === id,
+  );
+  const streamingArtifact = busy
+    ? [...generated]
+        .reverse()
+        .find(
+          (artifact) =>
+            artifact.turnIndex === turns.length - 1 && !artifact.complete,
+        )
+    : undefined;
   const sentFirst = useRef(false);
   const scrollArea = useRef<HTMLDivElement>(null);
   const scrollContent = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
 
-  // El primer mensaje viene del Hub; se manda una sola vez y en cuanto el
-  // agente terminó de conectarse.
+  // The first message comes from the Hub; it is sent only once and as soon as the agent has finished connecting.
   useEffect(() => {
     if (!firstMessage || sentFirst.current || !connected) return;
     sentFirst.current = true;
@@ -316,25 +421,69 @@ function ChatView() {
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           {conversationArtifacts.length > 0 && (
             <div className="flex justify-end px-4 pt-2">
-              <button onClick={() => open(conversationArtifacts[conversationArtifacts.length - 1].key)} className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"><PanelRightOpen className="h-4 w-4" />{t("Artifacts ·")} {conversationArtifacts.length}</button>
+              <button
+                onClick={() =>
+                  open(
+                    conversationArtifacts[conversationArtifacts.length - 1].key,
+                  )
+                }
+                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"
+              >
+                <PanelRightOpen className="h-4 w-4" />
+                {t("Artifacts ·")} {conversationArtifacts.length}
+              </button>
             </div>
           )}
-          <div ref={scrollArea} aria-label={t("Messages")} className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          <div
+            ref={scrollArea}
+            aria-label={t("Messages")}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             onScroll={(event) => {
               const area = event.currentTarget;
-              follow.current = area.scrollHeight - area.clientHeight - area.scrollTop < 48;
+              follow.current =
+                area.scrollHeight - area.clientHeight - area.scrollTop < 48;
             }}
           >
-            <div ref={scrollContent} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
-              {replayLimited && <p className="text-center text-xs text-text-secondary">{t("Showing the latest turns.")} <Link to={`${base}/c/${encodeURIComponent(id)}`} aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} className="underline">{t("Load full history")}</Link></p>}
+            <div
+              ref={scrollContent}
+              className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6"
+            >
+              {replayLimited && (
+                <p className="text-center text-xs text-text-secondary">
+                  {t("Showing the latest turns.")}{" "}
+                  <Link
+                    to={`${base}/c/${encodeURIComponent(id)}`}
+                    aria-disabled={busy}
+                    onClick={(event) => {
+                      if (busy) event.preventDefault();
+                    }}
+                    className="underline"
+                  >
+                    {t("Load full history")}
+                  </Link>
+                </p>
+              )}
               {!connected && turns.length === 0 && (
                 <ConnectingState phase={phase} error={error} />
               )}
               {turns.map((turn, i) => (
-                <Bubble key={i} turn={turn} parts={parsedTurns[i]} conversationId={id} turnIndex={i} streaming={busy && i === turns.length - 1} />
+                <Bubble
+                  key={i}
+                  turn={turn}
+                  parts={parsedTurns[i]}
+                  conversationId={id}
+                  turnIndex={i}
+                  streaming={busy && i === turns.length - 1}
+                  knownPlaces={knownPlaces}
+                />
               ))}
-              {permissions.map(permission => (
-                <PermissionCard key={permission.id} permission={permission} conversationId={id} connected={connected} />
+              {permissions.map((permission) => (
+                <PermissionCard
+                  key={permission.id}
+                  permission={permission}
+                  conversationId={id}
+                  connected={connected}
+                />
               ))}
 
               {busy && turns[turns.length - 1]?.role === "user" && (
@@ -357,7 +506,10 @@ function ChatView() {
           <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
             <ChatInputCard>
               <ChatInput
-                onSubmit={(text, images) => { follow.current = true; return send(text, images); }}
+                onSubmit={(text, images) => {
+                  follow.current = true;
+                  return send(text, images);
+                }}
                 onStop={stop}
                 busy={busy}
                 workingDir={cwd}
@@ -367,12 +519,19 @@ function ChatView() {
                 configBusy={configBusy}
                 onConfigChange={setConfig}
                 disabled={!connected}
-                placeholder={connected ? t("Continue the conversation…") : t("Connecting to the agent…")}
+                placeholder={
+                  connected
+                    ? t("Continue the conversation…")
+                    : t("Connecting to the agent…")
+                }
               />
             </ChatInputCard>
           </div>
         </div>
-        <ArtifactPanel artifacts={conversationArtifacts} streamingKey={streamingArtifact?.key} />
+        <ArtifactPanel
+          artifacts={conversationArtifacts}
+          streamingKey={streamingArtifact?.key}
+        />
       </div>
     </MainPanelLayout>
   );

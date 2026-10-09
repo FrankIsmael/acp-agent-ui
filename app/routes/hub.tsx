@@ -2,25 +2,47 @@
  * Hub — la pantalla de inicio: reloj grande, saludo, y el input centrado.
  * Enviar crea la conversación en el servidor y navega a /c/:id.
  */
-import { useI18n } from "~/i18n";
-import { demoEnabled } from "~/.server/demo";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
-import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
-import { ChatInputCard } from "~/components/ChatInputCard";
-import { ChatInput } from "~/components/ChatInput";
-import type { Route } from "./+types/hub";
-import type { ConfigOption } from "~/hooks/useAcpStream";
-import { readModelPreference } from "~/.server/model-preference";
-import { config, getLastConfigOptions } from "~/.server/acp";
-import { useChatBase } from "~/lib/embed";
+import { useI18n } from '~/i18n';
+import { demoEnabled } from '~/.server/demo';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { MainPanelLayout } from '~/components/Layout/MainPanelLayout';
+import { ChatInputCard } from '~/components/ChatInputCard';
+import { ChatInput } from '~/components/ChatInput';
+import type { Route } from './+types/hub';
+import type { ConfigOption } from '~/hooks/useAcpStream';
+import { readModelPreference } from '~/.server/model-preference';
+import { config, getLastConfigOptions } from '~/.server/acp';
+import { useChatBase } from '~/lib/embed';
 
 export async function loader({ request }: Route.LoaderArgs) {
   const preference = await readModelPreference(request);
   const options = demoEnabled() ? [] : getLastConfigOptions();
-  const model = options.find(option => option.category === "model" || option.id === "model");
-  return { cwd: config.cwd, model: model ? { ...model, currentValue: preference ?? model.currentValue } as ConfigOption : null, preference };
+  const model = options.find(
+    (option) => option.category === 'model' || option.id === 'model',
+  );
+  return {
+    cwd: config.cwd,
+    model: model
+      ? ({
+          ...model,
+          currentValue: preference ?? model.currentValue,
+        } as ConfigOption)
+      : null,
+    preference,
+  };
 }
+
+// Starter questions, similar to the Google Maps demo but focused on Mexico City. The first one
+// uses all of Grounding Lite in one turn (route, forecast, and places to stay); the rest show that
+// the agent can do more than maps: images, artifacts, and the `xlsx-gen` and `slides` skills.
+const STARTERS = [
+  'I want to go from Mexico City to Teotihuacán tomorrow. What is the best route and what is the weather forecast? How to sleep there?',
+  'Generate an illustration of the Palacio de Bellas Artes at sunset',
+  'Build a one-page itinerary for a weekend in Mexico City',
+  'Make a spreadsheet with the budget for a 3-day trip to Mexico City',
+  'Make a 5-slide deck about the best Mexico City neighborhoods to visit',
+];
 
 function useClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -35,13 +57,21 @@ function useClock() {
   const hour = now.getHours();
   const displayHour = ((hour + 11) % 12) + 1;
   return {
-    time: `${displayHour}:${String(now.getMinutes()).padStart(2, "0")}`,
-    meridiem: hour >= 12 ? "PM" : "AM",
+    time: `${displayHour}:${String(now.getMinutes()).padStart(2, '0')}`,
+    meridiem: hour >= 12 ? 'PM' : 'AM',
     hour,
   };
 }
 
-export default function Hub({ loaderData }: { loaderData: { cwd: string; model: ConfigOption | null; preference: string | null } }) {
+export default function Hub({
+  loaderData,
+}: {
+  loaderData: {
+    cwd: string;
+    model: ConfigOption | null;
+    preference: string | null;
+  };
+}) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const base = useChatBase();
@@ -53,23 +83,34 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
   const [error, setError] = useState<string | null>(null);
 
   const greeting = !clock
-    ? ""
+    ? ''
     : clock.hour < 12
-      ? t("Good morning")
+      ? t('Good morning')
       : clock.hour < 18
-        ? t("Good afternoon")
-        : t("Good evening");
+        ? t('Good afternoon')
+        : t('Good evening');
 
   const chooseModel = async (_id: string, value: string) => {
     if (!model) return;
-    setConfigBusy(model.id); setError(null);
+    setConfigBusy(model.id);
+    setError(null);
     try {
-      const response = await fetch("/api/model-preference", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }) });
+      const response = await fetch('/api/model-preference', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? t("Could not save the model."));
+      if (!response.ok)
+        throw new Error(body.error ?? t('Could not save the model.'));
       setModel({ ...model, currentValue: body.value });
-    } catch (error) { setError(error instanceof Error ? error.message : t("Could not save the model.")); }
-    finally { setConfigBusy(null); }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : t('Could not save the model.'),
+      );
+    } finally {
+      setConfigBusy(null);
+    }
   };
 
   const handleSubmit = async (text: string) => {
@@ -77,11 +118,14 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch("/api/conversations", { method: "POST" });
+      const res = await fetch('/api/conversations', { method: 'POST' });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? t("could not open the conversation"));
-      window.dispatchEvent(new Event("conversations-changed"));
-      navigate(`${base}/c/${encodeURIComponent(body.conversationId)}`, { state: { firstMessage: text } });
+      if (!res.ok)
+        throw new Error(body.error ?? t('could not open the conversation'));
+      window.dispatchEvent(new Event('conversations-changed'));
+      navigate(`${base}/c/${encodeURIComponent(body.conversationId)}`, {
+        state: { firstMessage: text },
+      });
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);
@@ -94,10 +138,10 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
         <div className="w-full max-w-2xl">
           <div className="mb-1 flex items-baseline gap-2">
             <span className="text-5xl font-light tabular-nums tracking-tight text-text-primary sm:text-6xl">
-              {clock?.time ?? "—"}
+              {clock?.time ?? '—'}
             </span>
             <span className="text-2xl font-light text-text-secondary">
-              {clock?.meridiem ?? ""}
+              {clock?.meridiem ?? ''}
             </span>
           </div>
           <p className="mb-6 text-xl text-text-secondary">{greeting}</p>
@@ -111,15 +155,39 @@ export default function Hub({ loaderData }: { loaderData: { cwd: string; model: 
               configBusy={configBusy}
               onConfigChange={chooseModel}
               workingDir={loaderData.cwd}
-              placeholder={t("Ask your agent something…")}
+              placeholder={t('Ask your agent something…')}
             />
           </ChatInputCard>
 
-          {!model && loaderData.preference && <p className="mt-2 text-xs text-text-secondary">{t("Model:")} {loaderData.preference}</p>}
+          <ul
+            className="mt-4 flex flex-wrap gap-2"
+            aria-label={t('Suggested questions')}
+          >
+            {STARTERS.map((starter) => (
+              <li key={starter}>
+                <button
+                  type="button"
+                  onClick={() => handleSubmit(t(starter))}
+                  disabled={creating || !!configBusy}
+                  className="rounded-full border border-border-secondary bg-background-primary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-primary hover:text-text-primary disabled:opacity-50"
+                >
+                  {t(starter)}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {!model && loaderData.preference && (
+            <p className="mt-2 text-xs text-text-secondary">
+              {t('Model:')} {loaderData.preference}
+            </p>
+          )}
           {error && <p className="mt-3 text-sm text-text-danger">{t(error)}</p>}
           {creating && (
             <p className="mt-3 text-sm text-text-secondary">
-              {t("Opening the conversation… this can take up to a minute if the box was asleep or extensions need to start.")}
+              {t(
+                'Opening the conversation… this can take up to a minute if the box was asleep or extensions need to start.',
+              )}
             </p>
           )}
         </div>

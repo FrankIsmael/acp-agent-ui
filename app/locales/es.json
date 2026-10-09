@@ -303,5 +303,21 @@
   "errors.connectionLost": "Se perdió la conexión ({code}) y no volvió tras {attempts} intentos.",
   "errors.reconnecting": "Conexión perdida ({code}); reintento {attempt} en {seconds} s.",
   "errors.demoLimit": "Llegaste al límite de esta demo. ¿Quieres conocer más o construir algo así? Contacta a quien te compartió esta app.{contact}",
-  "Map of the places mentioned": "Mapa de los lugares mencionados"
+  "Map of the places mentioned": "Mapa de los lugares mencionados",
+  "Weather": "Clima",
+  "Weather for {place}": "Clima en {place}",
+  "Feels like {degrees}": "Sensación {degrees}",
+  "Humidity: {value}%": "Humedad: {value}%",
+  "Rain: {value}%": "Lluvia: {value}%",
+  "UV index: {value}": "Índice UV: {value}",
+  "Wind: {value}": "Viento: {value}",
+  "Duration": "Duración",
+  "Distance": "Distancia",
+  "Route: {title}": "Ruta: {title}",
+  "Suggested questions": "Preguntas sugeridas",
+  "I want to go from Mexico City to Teotihuacán tomorrow. What is the best route and what is the weather forecast? How to sleep there?": "Quiero ir de la Ciudad de México a Teotihuacán mañana. ¿Cuál es la mejor ruta y cómo estará el clima? ¿Hay dónde quedarse a dormir ahí?",
+  "Generate an illustration of the Palacio de Bellas Artes at sunset": "Genera una ilustración del Palacio de Bellas Artes al atardecer",
+  "Build a one-page itinerary for a weekend in Mexico City": "Arma un itinerario de una página para un fin de semana en la Ciudad de México",
+  "Make a spreadsheet with the budget for a 3-day trip to Mexico City": "Haz una hoja de cálculo con el presupuesto para un viaje de 3 días a la Ciudad de México",
+  "Make a 5-slide deck about the best Mexico City neighborhoods to visit": "Haz una presentación de 5 láminas sobre los mejores barrios para visitar en la Ciudad de México"
 }
