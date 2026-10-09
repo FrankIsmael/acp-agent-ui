@@ -9,6 +9,8 @@
  * block written only to `CLAUDE.md` is gone after the next restart. Afterwards: **new thread** — the open thread keeps
  * the old MCP connection.
  *
+ * Run it after `install-hints.mjs` on a new box: docs/agent-box.md.
+ *
  * Also cleans up the pre-rename install (`imagen.service`, `/data/workspace/imagen.ts`, the
  * `imagen` extension row, and the `generar_imagen` / `imagen` names in the hints).
  *

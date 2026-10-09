@@ -114,6 +114,9 @@ docker compose run --rm --no-deps \
 | `install-maps-mcp.mjs` | `google-maps` | Registers Google's hosted Maps Grounding Lite MCP (`https://mapstools.googleapis.com/mcp`). It checks the key with a real call first and writes nothing if the key fails. | `GM_MCP_KEY` (server key; a referrer-restricted browser key is rejected), or it falls back to `GM_DEMO_KEY` |
 | `install-image-mcp.mjs` | `image` | Copies `mcp/image.ts` to the agent box as the `image.service` systemd unit and adds its instructions to the box hints. It registers `http://127.0.0.1:4123/mcp`. | `AGENT_BOX_ID`, `EASYBITS_API_KEY`; optional `ACP_CWD`, `IMAGE_PORT` |
 
+`install-image-mcp` also installs on the agent box, which loses it when the box is recreated: see
+[agent-box.md](agent-box.md) for the full redo order.
+
 After any of them, open a **new thread**: threads that are already open keep
 their old MCP connections. The app does not need a restart. Both scripts are
 safe to run again (for example after changing a key or updating `mcp/image.ts`),

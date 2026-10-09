@@ -1,0 +1,98 @@
+{
+  "big-files": {
+    "es": "8ccffd7ce24e55d282aa4f7309cb72b5",
+    "en": "Handle large files (>5 MB) and archives (ZIP, TAR, 7z) BEFORE processing them. Triggers when the turn prefix marks an attachment as GRANDE (large) or COMPRIMIDO (compressed), or for any archive regardless of size. Reading a binary blob inline blows up the context with \"Prompt is too long\" — this skill replaces blind Read/extraction with inspect-then-ask."
+  },
+  "code-change": {
+    "es": "358fa10e226e96a77be905c4d04048cc",
+    "en": "Change code in a GitHub repo without cloning it — create a branch, write files through the API and open a pull request. Use it for \"arregla este typo y ábreme el PR\", \"agrega este campo\", \"sube este archivo al repo\", \"abre un PR con eso\". MANDATORY before github_create_branch, github_write_file or github_create_pr, because `github_write_file` sends the WHOLE file (not a patch) and requires the current `sha` if the file already exists, and because everything shows up on GitHub under the NAME of the person writing to you. Do NOT use it for changes you cannot verify by reading — multi-file refactors, global renames, migrations —: you have no tests or compiler; there, deliver the patch in the chat."
+  },
+  "dev-github": {
+    "es": "61dde1936d77736ff3ebdb3f07465c87",
+    "en": "Development work on the GitHub repos of the person writing to you and their Sentry errors, THROUGH THE API — without cloning anything. Use it for \"revisa este PR\", \"¿qué cambió en el PR 412?\", \"¿por qué está roja la build?\", \"¿dónde está definido X?\", \"¿qué se está rompiendo en producción?\", \"tráeme este error de Sentry\", \"¿qué issues hay abiertos?\", \"abre un issue con esto\", or when they paste a github.com or sentry.io URL. Read it BEFORE answering that you have no access to the code: you DO, through the connector's tools, even without the repo cloned. To MODIFY the repo (branch, commit, open a PR) it sends you to the `code-change` skill."
+  },
+  "dev-test": {
+    "es": "6ccbea21a6456fe3267eb442dbeecb14",
+    "en": "RUN the code of a GitHub repo of the person writing to you — run the tests, build, tsc, lint, reproduce a bug, or SPIN UP A PREVIEW/STAGING OF A PULL REQUEST and deliver its link. Use it for \"corre los tests\", \"¿compila?\", \"¿pasa la suite?\", \"reproduce este bug\", \"verifica que tu cambio no rompe nada\", \"levanta la app\", \"levanta el PR N\", \"quiero ver este PR corriendo\", \"hazme un staging\", \"dame una preview\". Read it BEFORE answering that you cannot run code: you CAN — you request a separate WORK BOX with `/opt/gs-sdk/sandbox.mjs`, pull the repo there with `github_checkout` and run whatever is needed. It works the same for **PHP** repos (Laravel, Symfony, WordPress): request the box with `template: \"php\"`, which ships PHP 8.3, Composer and local **MySQL/MariaDB** — see §3.bis. To READ individual files it is still `dev-github` (API); to write changes, `code-change`."
+  },
+  "dev-tour": {
+    "es": "869149c44f981157eda8a544878e05a7",
+    "en": "The guided tour for a development team that just arrived. Use it when they ask \"¿qué puedes hacer?\", \"¿cómo te uso?\", \"¿en qué me ayudas?\", \"enséñame\", \"¿qué herramientas tienes?\", \"¿puedes ver mi código?\", when someone introduces themselves as a dev or mentions their stack, or when the team is just starting and nobody has connected anything yet. Also when they explicitly ask for a tutorial, a getting-started guide or examples of what to ask you. Do NOT use it to answer a concrete work request — that is what `dev-github` and `code-change` are for; this one teaches how to use them."
+  },
+  "doc-remix": {
+    "es": "79c4c76438cd9d653f0ed2543d2144fb",
+    "en": "Make a new/executive/cleaner version of an institutional document (PDFs such as an \"orden del día\", agendas, event sheets, programs) by MINING its real assets (logos, speaker photos, text, fonts) and REBUILDING it in HTML — never re-distributing the page as an image. Use it for \"haz una nueva versión\", \"versión ejecutiva\", \"rehazlo más limpio\", \"adáptalo\" of a PDF."
+  },
+  "docs-router": {
+    "es": "960196e0cdd53547c626198eac419a51",
+    "en": "MASTER document router. Use it ALWAYS when the user asks to generate/deliver any document, report, oficio, letter, contract, expert opinion (dictamen), quote, invoice, spreadsheet, presentation or \"una nueva versión\" of a PDF. Decides which skill/tool to use and HOW to deliver the file in the fleet. Read it BEFORE generating anything. Does NOT apply in the chat channel (Teams/web): there documents are delivered as ```eb-doc / ```eb-sheet blocks inside the reply, never as a file. It does apply on WhatsApp and when they explicitly ask for a file or a designed PDF."
+  },
+  "escrito-juridico": {
+    "es": "148887617bee2a847f8096a633c6d25e",
+    "en": "Draft long Mexican legal filings (appeals, complaints, answers, amparos, contracts and EXPERT REPORTS / appraisals — dictámenes periciales / avalúos) from several documents of a case file (complaint, answer, expert report, confession, judgment, deed, contract template + data sheet), delivered in the chat as an ```eb-doc block (and only as .docx if they explicitly ask for the file). Use it when they ask for \"recurso de apelación\", \"redacta el escrito\", \"haz la demanda/contestación en Word\", \"arma el contrato con estos datos\", \"dictamen pericial\", \"avalúo de acciones/inmueble\", or any long procedural piece that must correlate grievances/facts with source documents and verified case law (jurisprudencia)."
+  },
+  "form-intake": {
+    "es": "338f6a1862468bd3f3d9578f46634405",
+    "en": "How to build an intake form that actually works, plus templates by line of business. Use it ALWAYS when they ask for a form, questionnaire, sign-up form, admission sheet, medical history, application, enrollment, survey or to \"recabar datos\" from someone who has no account. It ships the field list already thought out for a law firm, clinic/practice, real estate agency, school, agency/services and recruiting — adapt it, do not copy it as is. Read it BEFORE dictating fields: the three rules at the top avoid the mistakes that make people abandon an intake halfway."
+  },
+  "hilos": {
+    "es": "4ed2dbd49b1d350b7d302ef98f5de0e6",
+    "en": "Read back what was already said in THIS conversation when it scrolled out of your context (after a long thread or a summary) — \"what did I tell you at the start\", \"the price we agreed earlier\", \"search what we discussed for X\". Shows the thread, reads its last messages, or greps a term in it. Only this conversation: other people's threads cannot be read. Output is deliberately trimmed. NOTE — `hilos` is a binary on the PATH and is run with Bash; the `Skill` tool only opens this manual and ignores the arguments."
+  },
+  "iconos": {
+    "es": "40c5570e5a8f7c146cd9214a27611d3b",
+    "en": "Designer-drawn icons (Tabler 5,100+ and Phosphor 1,500+, MIT) for logos, isotypes, infographics, cards and any drawing of a well-known object (hand/like, growth arrow, pin, house, heart, shield…). Use it ALWAYS when you are about to draw in SVG something that exists as an icon: never hand-trace a hand, an arrow or an object with coordinates. NOTE: `iconos` is a binary on the PATH — it is run with Bash; the `Skill` tool only opens this manual."
+  },
+  "office-reader": {
+    "es": "9c631fa945721639b05f61bf67165494",
+    "en": "Read Excel (.xls, .xlsx), CSV and Word (.docx) files — extract text, tables, and data. Use whenever you receive an Office document attachment. To ANSWER QUESTIONS from a spreadsheet, use `office-reader schema` + `office-reader query \"SQL\"` (DuckDB index, only the matching rows) instead of dumping the whole file. NOTE: `office-reader` is a binary on the PATH — it is run with Bash; the `Skill` tool only opens the manual and ignores the arguments."
+  },
+  "oficio": {
+    "es": "d4f98fe8ae2bafbc1552fc020a009dfb",
+    "en": "Draft an oficio, circular, memo, letter, notice (convocatoria), contract or agreement (convenio) in prose and deliver it as an EDITABLE .docx (not PDF, not HTML). Use it for \"haz un oficio\", \"redacta una carta/circular/memo\", \"un contrato/convenio simple\", \"necesito un oficio para...\". NOT for cloning an existing PDF (that is doc-remix); this is drafting new text. Neutral by default (no letterhead of any institution). Does NOT apply in the chat channel (Teams/web): there documents are delivered as ```eb-doc / ```eb-sheet blocks inside the reply, never as a file. It does apply on WhatsApp and when they explicitly ask for a file or a designed PDF."
+  },
+  "pdf-doc": {
+    "es": "18e4d7ffae433cbd99600b84d625a552",
+    "en": "Generates a DESIGNED PDF (quote, report, prescription, procedure, data sheet, comparison, formal letter, invoice, catalog, invitation) with one of the 8 house skins, clean pagination, checked by the fleet's Chromium; publishes it and delivers it as an eb-file block. It needs no MCP tool. Use it when they ask for a PDF FILE or a branded document, price tables or letterhead. Do NOT use it for prose in the Teams/web chat; there a document goes as an ```eb-doc``` block."
+  },
+  "pdf-reader": {
+    "es": "f49d025ec88039b05579434b554e0a78",
+    "en": "Read and extract text from PDF files — documents, reports, contracts, spreadsheets. Use whenever you need to read PDF content, not just when explicitly asked. Handles local files, URLs, WhatsApp attachments, AND SCANNED PDFs with no text layer (OCR with tesseract + a second reading by looking at the page images). NOTE: `pdf-reader` is a binary on the PATH — it is run with Bash; the `Skill` tool only opens the manual and ignores the arguments."
+  },
+  "pitch-por-giro": {
+    "es": "fac694ef88ad2b77c3302df02564c225",
+    "en": "Write the email or message that explains to a prospect what Ghosty Teams does FOR THEIR BUSINESS, not in the abstract. Use it when they ask for \"un correo para este prospecto\", \"qué le sirve a este cliente\", \"arma el pitch para un despacho/clínica/inmobiliaria/escuela/agencia\", or when someone has to answer \"¿y esto para qué me sirve?\". It ships the REAL inventory of what exists today (and what does NOT), the email template in English and in Spanish, and the hook for six lines of business. Read it BEFORE writing: half the job is not promising what does not exist."
+  },
+  "pptx-gen": {
+    "es": "040cca3592f641529ed78a0aec6e286f",
+    "en": "DEPRECATED. For any presentation (slides, PowerPoint, .pptx) use the slides skill, which renders, reviews and delivers PDF + editable PPTX. Do not use pptx-gen."
+  },
+  "sintesis-docs": {
+    "es": "5c709d7ebb3f106c816333b1a6fd03ce",
+    "en": "Synthesize or draft a deliverable from several source documents (or a few very large ones) that together do NOT fit in the context window — multi-source reports, due diligence, contract analysis/comparison, case-file summaries, research. Also covers CORRECTING an entire document (spelling, wording, replacements). Use it when you must use the content of other people's documents to produce yours, and reading them in full would blow up the context (\"Prompt is too long\"). NOT for reading a single short document."
+  },
+  "sitio-web": {
+    "es": "ca75b246fd9779fcd0fc23bce16076a0",
+    "en": "PUBLISHES a real web page, on the internet, with a stable URL that can be shared. Use it when they ask \"hazme una landing\", \"una página para mi negocio\", \"publícalo\", \"súbelo a internet\", \"mándame el link\", \"una web de una sola página\", \"mi portafolio\", \"un menú/catálogo en línea\", or when they want to UPDATE something you already published (change a price, the phone number, a section). Publishes multi-file sites — HTML, CSS, JS and images — with the site_publish tool and returns the live URL. NOT for a PDF or a document (that is the docs-router skill), nor for a mockup that stays in the chat."
+  },
+  "slides": {
+    "es": "283cebb578724af0124b97cf60fe0cb1",
+    "en": "Presentations (slides, deck, PowerPoint, .pptx, láminas, diapositivas, pitch) with the house design. You write HTML with 26 slide types, pick one of 8 closed skins and the fleet's Chromium renders it, reviews it and delivers it as PDF + editable PPTX with embedded fonts. Use it ALWAYS when they ask for a presentation, even if they say PowerPoint. Replaces pptx-gen."
+  },
+  "video-captions": {
+    "es": "71136d3845ed197932a39220d4b70482",
+    "en": "ADDS SUBTITLES to a video (burned into the mp4, synced), in the original language or TRANSLATED. For \"ponle subtítulos\", \"subtítulos en español\", \"cócele el texto al video\", \"que se lea lo que dicen\". Works with an attachment or with a video you already delivered. It is ASYNCHRONOUS - it is ordered and delivered in a later turn. Do NOT say you cannot translate or that you have no timings or ffmpeg - timings come from stt.mjs and the burning is done by the video service."
+  },
+  "video-download": {
+    "es": "9160615150ba728f1fb1e477e4f84eab",
+    "en": "DOWNLOADS a video as mp4, as is - from LinkedIn, Facebook, Instagram, YouTube, Mux, Vimeo, Wistia, Loom, a direct .mp4/.webm/.mov file or the video on ANY landing page (first web.findMedia to get its URL from the HTML). For \"bájame este video\", an lnkd.in or linkedin.com/posts/… link, a Facebook reel, a YouTube video as mp4 (not mp3) or \"baja el video de esta página\". It is ASYNCHRONOUS - it is ordered and delivered in a later turn. Do NOT use it for audio (youtube-audio), editing (video-edit) or transcribing (stt.mjs)."
+  },
+  "video-edit": {
+    "es": "16220d6b6c0fc7a78796ccba26a16012",
+    "en": "EDITS a video from the footage the user gave you, cut to the beat of their music. For \"junta estos clips y córtalos con la canción\", \"hazme un reel con estas tomas\", \"edita esto como el video de referencia\". Cuts come from the track's beat detection; you can also dictate exact timings. It is ASYNCHRONOUS: it takes minutes and is delivered in a later turn. Do NOT use it for animation, motion graphics, animated titles or video generated from scratch: that does not exist here. Do NOT use it to transcribe a video (that is stt.mjs)."
+  },
+  "youtube-audio": {
+    "es": "1123c30341593882d20a20ac00dcbf99",
+    "en": "DOWNLOADS audio from YouTube as mp3. For \"bájame esta canción en mp3\", \"quiero los 20 mejores éxitos de Los Bukis\", \"el audio de este video\", \"esta playlist en mp3\". Accepts a video link, a playlist link or a text SEARCH (no link needed). With several tracks it delivers a .zip. It is ASYNCHRONOUS - it takes a while and is delivered in a later turn. Do NOT use it for editing video (that is video-edit) or transcribing (that is stt.mjs)."
+  }
+}
