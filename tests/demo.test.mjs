@@ -3,6 +3,7 @@ import { test, after } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 const directory = mkdtempSync(join(tmpdir(), 'demo-policy-'));
 process.env.DEMO = 'true';
 process.env.DEMO_DB = join(directory, 'demo.db');
@@ -126,6 +127,60 @@ test('user cap counts started demos, not cookie-only visits', async () => {
     policy.DemoLimitError,
   );
   delete process.env.DEMO_USER_LIMIT;
+});
+const invite = (...args) => {
+  const out = execFileSync(
+    process.execPath,
+    ['scripts/demo-invite.mjs', 'create', ...args, '--url', 'https://demo.example/c/nuevo'],
+    { env: { ...process.env }, encoding: 'utf8' },
+  );
+  return new URL(out.trim().split('\n').at(-1));
+};
+const redeem = (url) => {
+  const result = policy.redeemInvite(new Request(url));
+  if (!result) return { result };
+  const cookie = result.cookie.split(';')[0];
+  const id = policy.demoUser(
+    new Request('https://demo.example/api/demo', { headers: { cookie } }),
+  );
+  return { result, id };
+};
+test('invite link becomes the guest cookie and drops the token from the URL', () => {
+  const url = invite('Friend', '--days', '1');
+  const { result, id } = redeem(url);
+  assert.equal(result.location, '/c/nuevo');
+  assert.match(result.cookie, /^demo_guest=[a-f0-9]{64}; .*HttpOnly.*Max-Age=8640\d.*Secure/);
+  assert.equal(policy.isFullAccess(id), true);
+  assert.equal(policy.demoStatus(id).fullAccess, true);
+  assert.equal(policy.redeemInvite(new Request('https://demo.example/?invite=' + 'f'.repeat(64))), null);
+  assert.equal(policy.redeemInvite(new Request('https://demo.example/?invite=nope')), null);
+});
+test('full access skips limits, opens many conversations and stays private', async () => {
+  const { id } = redeem(invite('Unlimited'));
+  for (let i = 0; i < 5; i++) policy.beginDemoTurn(id, 90);
+  assert.equal(policy.chargeDemoOutput(id, 1000), false);
+  assert.equal(policy.demoStatus(id).exhausted, false);
+  // Their usage does not eat the public budget.
+  const fresh = guest();
+  policy.beginDemoTurn(fresh.id, 50);
+  assert.equal(await policy.demoConversation(id, async () => 'full-1'), 'full-1');
+  assert.equal(await policy.demoConversation(id, async () => 'full-2'), 'full-2');
+  policy.assertDemoOwner(id, 'full-1');
+  policy.assertDemoOwner(id, 'full-2');
+  assert.throws(() => policy.assertDemoOwner(fresh.id, 'full-2'), (error) => error.status === 404);
+});
+test('expired or revoked invites fall back to demo limits', () => {
+  const url = invite('Later', '--days', '1');
+  const { id } = redeem(url);
+  execFileSync(process.execPath, ['scripts/demo-invite.mjs', 'revoke', 'Later'], { env: { ...process.env } });
+  assert.equal(policy.isFullAccess(id), false);
+  assert.equal(policy.redeemInvite(new Request(url)), null);
+  policy.beginDemoTurn(id, 10);
+  policy.beginDemoTurn(id, 10);
+  assert.throws(() => policy.beginDemoTurn(id, 10), policy.DemoLimitError);
+  const expired = redeem(invite('Old'));
+  policy.demoDb().prepare('UPDATE demo_guests SET expires_at = 1 WHERE id = ?').run(expired.id);
+  assert.equal(policy.isFullAccess(expired.id), false);
 });
 test('kill switch disables identity and ownership hooks', () => {
   process.env.DEMO = 'false';

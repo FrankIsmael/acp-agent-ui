@@ -1,7 +1,7 @@
 import { consumeDemoIp } from "./demo-ip";
 import type { MiddlewareFunction } from "react-router";
 import { assertSameOrigin } from "./request-validation";
-import { assertDemoOwner, demoDb, demoEnabled, DemoLimitError, identifyDemo } from "./demo";
+import { assertDemoOwner, demoDb, demoEnabled, DemoLimitError, identifyDemo, isFullAccess, redeemInvite } from "./demo";
 
 /** One removable boundary for every page, resource route, and SSE connection. */
 export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, params }, next) => {
@@ -12,14 +12,17 @@ export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, pa
     // Default-deny future endpoints until they explicitly join the demo surface.
     const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/embed(?:\/c\/[^/]+)?|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|cancel|close|permissions))?)$/;
     if (!allowed.test(path)) return Response.json({ error: "This section is unavailable in the demo." }, { status: 403 });
+    const invite = redeemInvite(request);
+    if (invite) return new Response(null, { status: 302, headers: { Location: invite.location, "Set-Cookie": invite.cookie, "Cache-Control": "private, no-store" } });
     const identity = identifyDemo(request, () => consumeDemoIp(demoDb(), request, "guests"));
     if (params.id) assertDemoOwner(identity.id!, params.id);
     // Reloads perform reads, reconnect SSE, and create/resume the guest's single
-    // conversation. Charge IP request limits only for explicit API actions.
-    if (path.startsWith("/api/") && !["GET", "HEAD"].includes(request.method) && path !== "/api/conversations") {
+    // conversation. Charge IP request limits only for explicit API actions; invited guests skip them.
+    const limited = !isFullAccess(identity.id!);
+    if (limited && path.startsWith("/api/") && !["GET", "HEAD"].includes(request.method) && path !== "/api/conversations") {
       consumeDemoIp(demoDb(), request, "api");
     }
-    if (request.method === "POST" && /^\/api\/conversations\/[^/]+\/messages$/.test(path)) {
+    if (limited && request.method === "POST" && /^\/api\/conversations\/[^/]+\/messages$/.test(path)) {
       consumeDemoIp(demoDb(), request, "chat");
     }
     const response = await next();

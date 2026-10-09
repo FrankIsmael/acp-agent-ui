@@ -8,6 +8,7 @@
     "start": "node --env-file=.env server.js",
     "typecheck": "react-router typegen && tsc",
     "redeploy": "node --env-file=.env scripts/redeploy-app.mjs",
+    "invite": "node --env-file=.env scripts/demo-invite.mjs",
     "test:i18n": "node --experimental-strip-types --test tests/i18n.test.mjs",
     "test:memory:backup": "node --test tests/memory-backup.test.mjs",
     "test:memory": "node tests/memory.test.mjs",

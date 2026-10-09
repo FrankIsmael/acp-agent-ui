@@ -94,6 +94,25 @@ For a separate proxy, list its actual IPs or narrowly scoped CIDRs, separated by
 
 To change the limits, edit the values and restart. `DEMO=false` disables all demo IP limits along with the existing demo policy. The replaceable limiter lives in `app/.server/demo-ip.ts`.
 
+## Full-access invites
+
+To let people you know test the app without limits, give each one an invite link. An invite is a guest with no usage limits. Each person still gets a private space: their own conversations (as many as they want) and their own WhatsApp channel. Route restrictions, hidden server settings and "one reply at a time" still apply.
+
+```sh
+npm run invite -- create "Ana" --days 60 --url https://your.domain   # prints the link once
+npm run invite -- list
+npm run invite -- revoke "Ana"
+```
+
+On the Oracle VM (no Node on the host; `scripts/` is not in the image), run it in a one-off container with the folder mounted, as with the MCP install scripts in [oracle-deployment.md](oracle-deployment.md). It shares the app's `.env` and `.data`, so it works while the app is running:
+
+```sh
+docker compose run --rm --no-deps -v ./scripts:/app/scripts:ro \
+  app node scripts/demo-invite.mjs create "Ana" --days 60
+```
+
+`--url` defaults to `https://$APP_DOMAIN`. The link (`/?invite=<token>`) sets the `demo_guest` cookie and redirects to a URL without the token. Only the token's hash is stored. Invited guests' usage is tracked but does not count toward `DEMO_GLOBAL_TOKEN_LIMIT`, `DEMO_USER_LIMIT` or the per-IP chat/API limits. After an invite expires or is revoked, that guest falls back to normal demo limits.
+
 ## Disable or replace later
 
 Set `DEMO=false` and restart. Demo middleware and agent quota checks become no-ops; the original WhatsApp admin gate and shared owner channel return. Guest data remains on disk, and guest channels are not started. This toggle restores the existing app's access behavior; it does not add a site-wide admin gate.

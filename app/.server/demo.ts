@@ -44,11 +44,50 @@ export function demoDb() {
   database.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS demo_guests (id TEXT PRIMARY KEY, proof TEXT UNIQUE NOT NULL, conversation TEXT UNIQUE, tokens INTEGER NOT NULL DEFAULT 0, turns INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS demo_linked_numbers (number TEXT PRIMARY KEY, owner TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS demo_conversations (conversation TEXT PRIMARY KEY, owner TEXT NOT NULL);
   `);
+  // Full-access invites (scripts/demo-invite.mjs) are guests with these columns set.
+  const columns = (database.prepare('PRAGMA table_info(demo_guests)').all() as { name: string }[]).map((c) => c.name);
+  for (const [name, type] of [['full_access', 'INTEGER NOT NULL DEFAULT 0'], ['label', 'TEXT'], ['expires_at', 'INTEGER']])
+    if (!columns.includes(name)) database.exec(`ALTER TABLE demo_guests ADD COLUMN ${name} ${type}`);
   return database;
 }
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
+const secureRequest = (request: Request) =>
+  new URL(request.url).protocol === 'https:' ||
+  request.headers.get('x-forwarded-proto') === 'https';
+/** An invited guest skips usage limits until its invite expires or is revoked. */
+export function isFullAccess(id: string) {
+  return !!demoDb()
+    .prepare(
+      'SELECT 1 FROM demo_guests WHERE id = ? AND full_access = 1 AND (expires_at IS NULL OR expires_at > ?)',
+    )
+    .get(id, Date.now());
+}
+/** `?invite=<token>` becomes the guest cookie; the redirect drops the token from the URL. */
+export function redeemInvite(request: Request) {
+  if (request.method !== 'GET') return null;
+  const url = new URL(request.url);
+  const token = url.searchParams.get('invite');
+  if (token === null) return null;
+  url.searchParams.delete('invite');
+  const row = /^[a-f0-9]{64}$/.test(token)
+    ? (demoDb()
+        .prepare(
+          'SELECT expires_at FROM demo_guests WHERE proof = ? AND full_access = 1 AND (expires_at IS NULL OR expires_at > ?)',
+        )
+        .get(hash(token), Date.now()) as { expires_at: number | null } | undefined)
+    : undefined;
+  if (!row) return null;
+  const maxAge = row.expires_at
+    ? Math.ceil((row.expires_at - Date.now()) / 1000)
+    : 365 * 24 * 3600;
+  return {
+    location: url.pathname + url.search,
+    cookie: `demo_guest=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureRequest(request) ? '; Secure' : ''}`,
+  };
+}
 const requests = new WeakMap<Request, string>();
 export function demoUser(request: Request): string | undefined {
   if (!demoEnabled()) return undefined;
@@ -86,12 +125,9 @@ export function identifyDemo(
     .prepare('INSERT INTO demo_guests(id, proof) VALUES (?, ?)')
     .run(id, hash(token));
   requests.set(request, id);
-  const secure =
-    new URL(request.url).protocol === 'https:' ||
-    request.headers.get('x-forwarded-proto') === 'https';
   return {
     id,
-    cookie: `demo_guest=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure ? '; Secure' : ''}`,
+    cookie: `demo_guest=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureRequest(request) ? '; Secure' : ''}`,
   };
 }
 export function demoGuest(id: string) {
@@ -105,8 +141,10 @@ export function conversationOwner(conversation: string) {
   if (!demoEnabled()) return undefined;
   return (
     demoDb()
-      .prepare('SELECT id FROM demo_guests WHERE conversation = ?')
-      .get(conversation) as { id: string } | undefined
+      .prepare(
+        'SELECT id FROM demo_guests WHERE conversation = ? UNION ALL SELECT owner FROM demo_conversations WHERE conversation = ?',
+      )
+      .get(conversation, conversation) as { id: string } | undefined
   )?.id;
 }
 export function assertDemoOwner(id: string, conversation: string) {
@@ -118,7 +156,7 @@ const startedGuests = () =>
   (
     demoDb()
       .prepare(
-        'SELECT count(*) AS n FROM demo_guests WHERE conversation IS NOT NULL',
+        'SELECT count(*) AS n FROM demo_guests WHERE conversation IS NOT NULL AND full_access = 0',
       )
       .get() as { n: number }
   ).n;
@@ -126,28 +164,38 @@ export function bindDemoConversation(id: string, conversation: string) {
   const result = demoDb()
     .prepare(
       `UPDATE demo_guests SET conversation = ? WHERE id = ? AND conversation IS NULL
-    AND (SELECT count(*) FROM demo_guests WHERE conversation IS NOT NULL) < ?`,
+    AND (SELECT count(*) FROM demo_guests WHERE conversation IS NOT NULL AND full_access = 0) < ?`,
     )
     .run(conversation, id, demoLimits().users);
   if (!result.changes) throw new DemoLimitError();
 }
+// Invited guests' usage is tracked but never counts toward the public demo's budget.
+const publicTokens = () =>
+  (
+    demoDb()
+      .prepare(
+        'SELECT coalesce(sum(tokens), 0) AS n FROM demo_guests WHERE full_access = 0',
+      )
+      .get() as { n: number }
+  ).n;
 export function demoStatus(id: string) {
   const guest = demoGuest(id),
-    limits = demoLimits();
-  const total = demoDb()
-    .prepare('SELECT coalesce(sum(tokens), 0) AS n FROM demo_guests')
-    .get() as { n: number };
+    limits = demoLimits(),
+    fullAccess = isFullAccess(id);
+  const total = { n: publicTokens() };
   return {
     enabled: true as const,
+    fullAccess,
     tokens: guest.tokens,
     turns: guest.turns,
     tokenLimit: limits.tokens,
     turnLimit: limits.turns,
     exhausted:
-      guest.tokens >= limits.tokens ||
+      !fullAccess &&
+      (guest.tokens >= limits.tokens ||
       guest.turns >= limits.turns ||
       total.n >= limits.globalTokens ||
-      (!guest.conversation && startedGuests() >= limits.users),
+      (!guest.conversation && startedGuests() >= limits.users)),
     conversationId: guest.conversation,
     contactUrl: demoContact(),
     message: demoMessage(),
@@ -157,11 +205,17 @@ export function demoStatus(id: string) {
 export function beginDemoTurn(id: string, inputTokens: number) {
   const db = demoDb(),
     limits = demoLimits();
+  if (isFullAccess(id)) {
+    db.prepare(
+      'UPDATE demo_guests SET tokens = tokens + ?, turns = turns + 1 WHERE id = ?',
+    ).run(inputTokens, id);
+    return;
+  }
   const result = db
     .prepare(
       `UPDATE demo_guests SET tokens = tokens + ?, turns = turns + 1
     WHERE id = ? AND turns < ? AND tokens + ? <= ?
-    AND (SELECT coalesce(sum(tokens),0) FROM demo_guests) + ? <= ?`,
+    AND (SELECT coalesce(sum(tokens),0) FROM demo_guests WHERE full_access = 0) + ? <= ?`,
     )
     .run(
       inputTokens,
@@ -180,14 +234,11 @@ export function chargeDemoOutput(id: string, tokens: number) {
   demoDb()
     .prepare('UPDATE demo_guests SET tokens = tokens + ? WHERE id = ?')
     .run(tokens, id);
+  if (isFullAccess(id)) return false;
   const status = demoStatus(id);
   return (
     status.tokens >= status.tokenLimit ||
-    (
-      demoDb().prepare('SELECT sum(tokens) AS n FROM demo_guests').get() as {
-        n: number;
-      }
-    ).n >= demoLimits().globalTokens
+    publicTokens() >= demoLimits().globalTokens
   );
 }
 /** A WhatsApp number cannot be relinked under fresh cookies to reset its allowance. */
@@ -204,6 +255,14 @@ export function claimDemoNumber(id: string, number: string) {
 }
 const creating = new Map<string, Promise<string>>();
 export function demoConversation(id: string, create: () => Promise<string>) {
+  // Invited guests open as many conversations as they like.
+  if (isFullAccess(id))
+    return create().then((conversation) => {
+      demoDb()
+        .prepare('INSERT INTO demo_conversations(conversation, owner) VALUES (?, ?)')
+        .run(conversation, id);
+      return conversation;
+    });
   const existing = demoGuest(id).conversation;
   if (existing) return Promise.resolve(existing);
   const pending = creating.get(id);
