@@ -40,8 +40,8 @@ const STARTERS = [
   'I want to go from Mexico City to Teotihuacán tomorrow. What is the best route and what is the weather forecast? How to sleep there?',
   'Generate an illustration of the Palacio de Bellas Artes at sunset',
   'Build a one-page itinerary for a weekend in Mexico City',
-  'Make a spreadsheet with the budget for a 3-day trip to Mexico City',
-  'Make a 5-slide deck about the best Mexico City neighborhoods to visit',
+  // 'Make a spreadsheet with the budget for a 3-day trip to Mexico City',
+  // 'Make a 5-slide deck about the best Mexico City neighborhoods to visit',
 ];
 
 function useClock() {
@@ -169,7 +169,7 @@ export default function Hub({
                   type="button"
                   onClick={() => handleSubmit(t(starter))}
                   disabled={creating || !!configBusy}
-                  className="rounded-full border border-border-secondary bg-background-primary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-primary hover:text-text-primary disabled:opacity-50"
+                  className="rounded-full cursor-pointer border border-border-ghost bg-background-secondary hover:bg-background-tertiary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-secondary hover:text-text-primary disabled:opacity-50"
                 >
                   {t(starter)}
                 </button>

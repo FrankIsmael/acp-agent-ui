@@ -94,6 +94,38 @@ Edit code only through git. A local change in this checkout makes
 `git merge --ff-only` fail and blocks every automatic deploy; `git status` must
 be clean.
 
+## Registering MCP extensions
+
+Each `scripts/install-*-mcp.mjs` script adds or updates a row in
+`.data/extensions.db`. Some also set up the MCP server itself. The VM has no
+Node, and `.dockerignore` leaves `scripts/` and `mcp/` out of the image, so run
+these scripts in a one-off container built from the app image, with those two
+folders mounted. The container gets the app's `.env`, its `.data` bind mount,
+and the `node` user:
+
+```sh
+docker compose run --rm --no-deps \
+  -v ./scripts:/app/scripts:ro -v ./mcp:/app/mcp:ro \
+  app node scripts/install-<name>-mcp.mjs
+```
+
+| Script | Extension | What it does | Needs in `.env` |
+|---|---|---|---|
+| `install-maps-mcp.mjs` | `google-maps` | Registers Google's hosted Maps Grounding Lite MCP (`https://mapstools.googleapis.com/mcp`). It checks the key with a real call first and writes nothing if the key fails. | `GM_MCP_KEY` (server key; a referrer-restricted browser key is rejected), or it falls back to `GM_DEMO_KEY` |
+| `install-image-mcp.mjs` | `image` | Copies `mcp/image.ts` to the agent box as the `image.service` systemd unit and adds its instructions to the box hints. It registers `http://127.0.0.1:4123/mcp`. | `AGENT_BOX_ID`, `EASYBITS_API_KEY`; optional `ACP_CWD`, `IMAGE_PORT` |
+
+After any of them, open a **new thread**: threads that are already open keep
+their old MCP connections. The app does not need a restart. Both scripts are
+safe to run again (for example after changing a key or updating `mcp/image.ts`),
+because they update the existing row.
+
+Mount the folders; don't `docker compose cp` a single file. `install-image-mcp`
+imports `./lib/` and reads `mcp/image.ts`, so copying just the script fails.
+(`install-hints.mjs` also imports from `app/` and has to run from a full
+checkout.) Never run these scripts as root (`docker compose exec -u root`,
+plain `docker run`): SQLite would leave root-owned `-wal`/`-shm` files in
+`.data`, and the app would fail with `unable to open database file`.
+
 ## Automatic deploys (OCI Run Command)
 
 `.github/workflows/deploy.yml` deploys every push to `main` that passes
