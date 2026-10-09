@@ -99,7 +99,8 @@ export function consumeDemoIp(
   };
   if (request.headers.get('accept')?.includes('text/html')) {
     throw new Response(
-      `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Demo Limit</title><main><h1>Demo Limit</h1><p>${message}</p><p>You can try again in ${Math.ceil(retry / 60)} minutes.</p><a href="mailto:ismaelfcom93@gmail.com">Contact Ismael</a></main></html>`,
+      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Demo Limit</title><main><h1>Demo Limit</h1><p>${message}</p><p>You can try again in ${Math.ceil(retry / 60)} minutes.</p><a href="mailto:ismaelfcom93@gmail.com">Contact Ismael</a></main></html>`,
+
       {
         status: 429,
         headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' },
