@@ -63,3 +63,27 @@ test("encoded polylines decode to coordinates", async () => {
   ]);
   assert.deepEqual(decodePolyline(""), []);
 });
+
+test("lookup_weather daily forecast (flat, no daytimeForecast) becomes a weather entry", () => {
+  const url = "https://www.google.com/search?q=Weather+for+Teotihuac%C3%A1n";
+  const day = {
+    maxTemperature: { degrees: 19.5, unit: "CELSIUS" },
+    minTemperature: { degrees: 13.4, unit: "CELSIUS" },
+    weatherCondition: { iconBaseUri: "https://maps.gstatic.com/weather/v1/cloudy", description: { text: "Cloudy" } },
+    precipitation: { probability: { percent: 15 } },
+    relativeHumidity: 75,
+    returnedLocation: { address: "San Juan Teotihuacán, State of Mexico, Mexico" },
+    attribution: { title: "Weather for San Juan Teotihuacán, State of Mexico, Mexico - Google", url },
+  };
+  const data = mapDataFromToolContent([text(day)]);
+  assert.equal(data?.weather?.length, 1);
+  const [w] = data.weather;
+  assert.equal(w.place, "San Juan Teotihuacán, State of Mexico, Mexico");
+  assert.equal(w.temperature, 19.5);
+  assert.equal(w.low, 13.4);
+  assert.equal(w.condition, "Cloudy");
+  assert.equal(w.rain, 15);
+  // The daily entry does not replace the current conditions of the same place.
+  const now = mapDataFromToolContent([text({ ...day, maxTemperature: undefined, minTemperature: undefined, temperature: { degrees: 15 } })]);
+  assert.equal(mergeMapData(now, data).weather.length, 2);
+});

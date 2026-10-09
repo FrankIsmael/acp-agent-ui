@@ -132,21 +132,23 @@ function weatherWhen(raw: any): string | undefined {
 
 /**
  * An entry matching the shape of the Weather API: either `currentConditions`, an hour (`temperature`),
- * or a day (`daytimeForecast` + `maxTemperature`). The exact shape of the wrapper changes between
- * current and forecast requests, so the entry is searched for instead of using a fixed path.
+ * or a day (`maxTemperature`). The exact shape of the wrapper changes between current and forecast
+ * requests, so the entry is searched for instead of using a fixed path. A day from the Weather API
+ * nests its conditions in `daytimeForecast`; Grounding Lite's `lookup_weather` returns them flat.
  */
 function weatherEntry(
   raw: any,
   inherited: { place?: string; url?: string },
 ): MapWeather | null {
-  const daily = raw?.daytimeForecast && raw?.maxTemperature;
-  const condition = (daily ? raw.daytimeForecast : raw)?.weatherCondition;
+  const daily = !!raw?.maxTemperature;
+  const day = (daily && raw.daytimeForecast) || raw;
+  const condition = day?.weatherCondition;
   const temp = daily ? raw.maxTemperature : raw?.temperature;
   const degrees = num(temp?.degrees);
   const description = text(condition?.description?.text);
   if (degrees === undefined || !description) return null;
-  const precipitation = (daily ? raw.daytimeForecast : raw)?.precipitation;
-  const wind = (daily ? raw.daytimeForecast : raw)?.wind;
+  const precipitation = day?.precipitation;
+  const wind = day?.wind;
   const speed = num(wind?.speed?.value);
   return {
     place: inherited.place,
@@ -160,8 +162,8 @@ function weatherEntry(
       (daily ? raw.feelsLikeMaxTemperature : raw?.feelsLikeTemperature)
         ?.degrees,
     ),
-    humidity: num((daily ? raw.daytimeForecast : raw)?.relativeHumidity),
-    uvIndex: num((daily ? raw.daytimeForecast : raw)?.uvIndex),
+    humidity: num(day?.relativeHumidity),
+    uvIndex: num(day?.uvIndex),
     rain: num(precipitation?.probability?.percent),
     wind:
       speed === undefined
@@ -176,9 +178,14 @@ function weatherEntry(
 }
 
 function weatherContext(raw: any, inherited: { place?: string; url?: string }) {
-  const title = text(raw?.attribution?.title)?.replace(SUFFIX, '').trim();
+  // Grounding Lite: "Weather for <place> - Google".
+  const title = text(raw?.attribution?.title)
+    ?.replace(/ - Google( Maps)?$/, '')
+    .replace(/^Weather for /, '')
+    .trim();
   return {
     place:
+      text(raw?.returnedLocation?.address) ??
       text(raw?.formattedAddress) ??
       text(raw?.location?.formattedAddress) ??
       text(raw?.address) ??
@@ -309,7 +316,9 @@ export function mapDataFromToolContent(content: unknown): MapData | null {
     : null;
 }
 
-const weatherKey = (w: MapWeather) => `${w.place ?? ''}|${w.when ?? 'now'}`;
+// Grounding Lite's daily forecast carries no date: keep it apart from the current conditions.
+const weatherKey = (w: MapWeather) =>
+  `${w.place ?? ''}|${w.when ?? (w.low !== undefined ? 'day' : 'now')}`;
 
 export function mergeMapData(
   base: MapData | undefined,
