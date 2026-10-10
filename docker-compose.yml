@@ -1,8 +1,9 @@
 services:
   app:
-    build: .
-    # Fixed name so deploy.sh can tag the running image for rollback.
-    image: acp-agent-ui-app:latest
+    # Built by .github/workflows/deploy.yml. deploy/oracle/deploy.sh pins the
+    # running digest in docker-compose.override.yml (loaded by Compose on its
+    # own), so a manual `up` keeps that image rather than whatever :main is now.
+    image: ghcr.io/frankismael/acp-agent-ui:main
     env_file: .env
     restart: unless-stopped
     # Runs as `node` (uid 1000, set in the Dockerfile); it needs no capabilities.
@@ -26,6 +27,8 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
     volumes:
       - ./deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro
+      # deploy-hook.py's socket, for POST /_deploy (acp-deploy-hook.service).
+      - /run/acp-deploy:/run/acp-deploy
       - caddy_data:/data
       - caddy_config:/config
 

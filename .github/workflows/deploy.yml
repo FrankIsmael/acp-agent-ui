@@ -1,7 +1,8 @@
 name: Deploy to Oracle VM
 
-# Asks the VM's Oracle Cloud Agent to run deploy/oracle/deploy.sh through
-# OCI Run Command, so SSH never has to be reachable from GitHub.
+# Builds the arm64 image here and publishes it as ghcr.io/frankismael/acp-agent-ui:main,
+# then calls POST /_deploy on the VM, which pulls it (deploy/oracle/deploy-hook.py)
+# and answers with the result. The VM never builds.
 # Setup: docs/oracle-deployment.md ("Automatic deploys").
 
 on:
@@ -11,94 +12,92 @@ on:
 
 permissions: {}
 
+# A newer push supersedes a run still in progress, so :main never moves back
+# to an older commit.
 concurrency:
   group: deploy-oracle
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/frankismael/acp-agent-ui
 
 jobs:
-  # A commit that does not typecheck or build never reaches the VM.
-  check:
+  typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
 
-  deploy:
-    needs: check
-    # Forks and the upstream repo have no VM to deploy to.
-    if: github.repository == 'FrankIsmael/acp-agent-ui'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: 'True'
+  # Runs alongside typecheck. The image build includes `npm run build`, so a
+  # commit that does not build fails here.
+  image:
+    # Forks and the upstream repo have no VM to deploy to. Only main ships:
+    # a manual run started on another branch must not move :main.
+    if: github.repository == 'FrankIsmael/acp-agent-ui' && github.ref == 'refs/heads/main'
+    # The VM is VM.Standard.A1.Flex (arm64): build natively, no QEMU.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: Install OCI CLI
-        run: pipx install oci-cli==3.94.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          # One plain manifest, so the digest the VM pins is the image itself.
+          provenance: false
+          tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          # deploy.sh reads the revision to move the VM's checkout to the same commit.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Write OCI credentials
+  # :main only moves once both checks passed. Retagging copies no layers.
+  # Then the VM deploys it and this job shows how that went.
+  release:
+    needs: [typecheck, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker buildx imagetools create -t "$IMAGE:main" "$IMAGE:sha-$GITHUB_SHA"
+      - name: Deploy on the VM
         env:
-          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
-          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
-          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
-          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
-          OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
+          # Repository variable: https://<APP_DOMAIN>/_deploy
+          DEPLOY_URL: ${{ vars.DEPLOY_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
-          mkdir -p ~/.oci
-          printf '%s\n' "$OCI_CLI_KEY_CONTENT" > ~/.oci/key.pem
-          cat > ~/.oci/config <<EOF
-          [DEFAULT]
-          user=$OCI_CLI_USER
-          tenancy=$OCI_CLI_TENANCY
-          fingerprint=$OCI_CLI_FINGERPRINT
-          region=$OCI_CLI_REGION
-          key_file=$HOME/.oci/key.pem
-          EOF
-          chmod 600 ~/.oci/config ~/.oci/key.pem
-
-      - name: Run deploy script on the VM
-        env:
-          INSTANCE_ID: ${{ secrets.OCI_INSTANCE_ID }}
-          COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-        run: |
-          content=$(jq -n '{
-            source: {sourceType: "TEXT", text: "sudo -n -u opc /home/opc/acp-agent-ui/deploy/oracle/deploy.sh"},
-            output: {outputType: "TEXT"}
-          }')
-          command_id=$(oci instance-agent command create \
-            --compartment-id "$COMPARTMENT_ID" \
-            --target "{\"instanceId\": \"$INSTANCE_ID\"}" \
-            --content "$content" \
-            --display-name "deploy ${GITHUB_SHA::7}" \
-            --timeout-in-seconds 1200 \
-            --query 'data.id' --raw-output)
-          echo "command: $command_id"
-
-          # The execution only exists once the agent picks the command up
-          # (it polls about every 4 minutes), so early lookups may fail.
-          for _ in $(seq 1 120); do
-            sleep 10
-            if ! execution=$(oci instance-agent command-execution get \
-              --command-id "$command_id" --instance-id "$INSTANCE_ID" 2>/tmp/oci-err); then
-              echo "no execution yet: $(grep -o '"code": "[^"]*"' /tmp/oci-err || head -c 200 /tmp/oci-err)"
-              continue
-            fi
-            state=$(jq -r '.data["lifecycle-state"]' <<<"$execution")
-            echo "state: $state"
-            case "$state" in
-              ACCEPTED|IN_PROGRESS) continue ;;
-            esac
-            jq -r '.data.content.text // empty' <<<"$execution"
-            [ "$state" = SUCCEEDED ] && [ "$(jq -r '.data.content["exit-code"]' <<<"$execution")" = 0 ]
-            exit
-          done
-          echo "timed out waiting for the VM"
-          exit 1
+          # X-Revision makes the VM fail rather than report another commit as deployed.
+          status=$(curl -sS -o deploy.log -w '%{http_code}' --max-time 1300 -X POST \
+            -H "Authorization: Bearer $DEPLOY_TOKEN" -H "X-Revision: $GITHUB_SHA" \
+            "$DEPLOY_URL") || true
+          cat deploy.log 2>/dev/null || true
+          if [ "$status" != 200 ]; then
+            echo "::error::deploy failed (HTTP ${status:-no response}); see the output above, or journalctl -u acp-deploy-hook on the VM"
+            exit 1
+          fi
