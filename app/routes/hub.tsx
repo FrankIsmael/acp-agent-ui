@@ -13,7 +13,7 @@ import type { Route } from './+types/hub';
 import type { ConfigOption } from '~/hooks/useAcpStream';
 import { readModelPreference } from '~/.server/model-preference';
 import { config, getLastConfigOptions } from '~/.server/acp';
-import { useChatBase } from '~/lib/embed';
+import { EMBED_PREFIX, useChatBase } from '~/lib/embed';
 
 export async function loader({ request }: Route.LoaderArgs) {
   const preference = await readModelPreference(request);
@@ -75,6 +75,7 @@ export default function Hub({
   const { t } = useI18n();
   const navigate = useNavigate();
   const base = useChatBase();
+  const embedded = base === EMBED_PREFIX;
   const clock = useClock();
   const [model, setModel] = useState(loaderData.model);
   const [configBusy, setConfigBusy] = useState<string | null>(null);
@@ -118,7 +119,11 @@ export default function Hub({
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch('/api/conversations', { method: 'POST' });
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(embedded ? { via: 'embed' } : {}),
+      });
       const body = await res.json();
       if (!res.ok)
         throw new Error(body.error ?? t('could not open the conversation'));
@@ -159,23 +164,26 @@ export default function Hub({
             />
           </ChatInputCard>
 
-          <ul
-            className="mt-4 flex flex-wrap gap-2"
-            aria-label={t('Suggested questions')}
-          >
-            {STARTERS.map((starter) => (
-              <li key={starter}>
-                <button
-                  type="button"
-                  onClick={() => handleSubmit(t(starter))}
-                  disabled={creating || !!configBusy}
-                  className="rounded-full cursor-pointer border border-border-ghost bg-background-secondary hover:bg-background-tertiary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-secondary hover:text-text-primary disabled:opacity-50"
-                >
-                  {t(starter)}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {/* The starters are a demo of the full app; the embedded widget hides them. */}
+          {!embedded && (
+            <ul
+              className="mt-4 flex flex-wrap gap-2"
+              aria-label={t('Suggested questions')}
+            >
+              {STARTERS.map((starter) => (
+                <li key={starter}>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmit(t(starter))}
+                    disabled={creating || !!configBusy}
+                    className="rounded-full cursor-pointer border border-border-ghost bg-background-secondary hover:bg-background-tertiary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-secondary hover:text-text-primary disabled:opacity-50"
+                  >
+                    {t(starter)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {!model && loaderData.preference && (
             <p className="mt-2 text-xs text-text-secondary">

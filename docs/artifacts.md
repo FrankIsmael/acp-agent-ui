@@ -1,92 +1,52 @@
 # Artifacts
 
-Pide una creación en cualquier chat, por ejemplo:
+Request an artifact in any chat, for example:
 
-- «Crea una landing page para mi portafolio con HTML, CSS y JavaScript».
-- «Diseña una ilustración SVG de una ciudad».
-- «Escribe una propuesta de proyecto en Markdown».
-- «Escribe un script de Python que convierta CSV a JSON».
+- "Create a landing page for my portfolio with HTML, CSS, and JavaScript."
+- "Design an SVG illustration of a city."
+- "Write a project proposal in Markdown."
+- "Write a Python script to convert CSV to JSON."
 
-El panel se abre en cuanto empieza a llegar el artifact. En escritorio comparte
-el espacio con el chat; en pantallas pequeñas aparece como un cajón con manejo
-de foco y cierre con Escape. Puedes cerrarlo durante la generación y reabrirlo
-desde su tarjeta o el botón Artifacts. El selector permite cambiar entre archivos
-y revisiones. Ampliar abre una vista grande.
+The panel opens as soon as the artifact starts arriving. On desktop, it shares space with the chat; on smaller screens, it appears as a drawer with focus management and can be closed with Escape. You can close it during generation and reopen it from its card or the Artifacts button. The selector lets you switch between files and revisions. Expand opens a large view.
 
-Vista previa muestra páginas/apps HTML, gráficos SVG y documentos Markdown o
-texto. Código/Editar permite modificar el contenido después de la generación;
-los cambios aparecen en la vista previa. Restaurar original recupera la versión
-del agente. Los demás lenguajes se pueden editar, copiar y descargar, pero no se
-ejecutan. El editor es un textarea nativo con fuente monoespaciada, sin servicios
-externos ni descarga de Monaco.
+Preview displays HTML pages/apps, SVG graphics, and Markdown or text documents. Code/Edit allows you to modify the content after generation; changes are reflected in the preview. Restore original retrieves the agent's version. Other languages can be edited, copied, and downloaded, but are not executed. The editor is a native textarea with monospaced font, with no external services or Monaco download.
 
-Compartir abre el menú de archivos del sistema cuando el navegador lo soporta;
-en otros navegadores descarga el archivo para enviarlo. Descargar exporta el
-contenido actual con su extensión. Esta versión no publica URLs públicas.
+Share opens the system file menu when supported by the browser; in other browsers, it downloads the file for you to send. Download exports the current content with its extension. This version does not publish public URLs.
 
-## Guardado local
+## Local Storage
 
-La biblioteca `/artifacts`, accesible desde la navegación, guarda los archivos
-y sus ediciones en `localStorage`, bajo `acp-artifacts-v1`. El formato es
-`{ "version": 1, "artifacts": [...] }`. No requiere una base de datos. Los datos
-pertenecen al navegador y origen actuales; no se sincronizan entre dispositivos
-o pestañas. Borrar los datos del sitio elimina la biblioteca.
+The `/artifacts` library, accessible from navigation, saves files and their edits in `localStorage` under `acp-artifacts-v1`. The format is `{ "version": 1, "artifacts": [...] }`. No database is required. The data belongs to the current browser and origin; it is not synchronized between devices or tabs. Deleting the site's data removes the library.
 
-Cada archivo se identifica por conversación, turno y posición. Un nuevo turno
-crea una revisión independiente, incluso si el agente reutiliza el identifier.
-Las ediciones locales no se pisan con nuevos fragmentos de la respuesta.
-Las ediciones manuales se guardan en la biblioteca; no se envían automáticamente
-al agente como contexto de un nuevo prompt.
-La biblioteca sigue funcionando después de reiniciar el servidor, aunque su
-historial de conversaciones en memoria ya no exista. Los errores de cuota o
-acceso a localStorage se muestran en el panel, y puedes descargar una copia.
+Each file is identified by conversation, turn, and position. A new turn creates an independent revision, even if the agent reuses the identifier. Local edits are not overwritten by new fragments of the response. Manual edits are saved in the library; they are not automatically sent to the agent as context for a new prompt.
+The library continues to work after restarting the server, even if the in-memory conversation history no longer exists. Quota or access errors for localStorage are shown in the panel, and you can download a copy.
 
-## Protocolo del agente
+## Agent Protocol
 
-`app/.server/artifact-instructions.ts` añade instrucciones a cada prompt ACP sin
-alterar el mensaje visible del usuario. El agente debe incluir el archivo en su
-respuesta, no solamente escribirlo con una herramienta:
+The instructions live in the agent system prompt (`scripts/system-prompt.md`, section "Output format by channel"); the server does not send them every turn. The agent must include the file in its response, not just write it with a tool:
 
 ```xml
-<artifact identifier="portfolio" type="text/html" title="Mi portafolio" language="html">
+<artifact identifier="portfolio" type="text/html" title="My portfolio" language="html">
 <!doctype html>
 <html><head><style>body { font-family: sans-serif; }</style></head>
-<body><h1>Hola</h1><button onclick="this.textContent='¡Listo!'">Probar</button></body></html>
+<body><h1>Hello</h1><button onclick="this.textContent='Done!'">Test</button></body></html>
 </artifact>
 ```
 
-Tipos: `text/html`, `image/svg+xml`, `text/markdown`, `text/plain` y
-`application/vnd.ant.code` con `language`. También se aceptan los alias HTML y
-document de Anthropic. Las etiquetas deben ir sin cercas Markdown y sus atributos
-entre comillas. El contenido permanece crudo: no se decodifican entidades XML.
-El delimitador literal `</artifact>` se reserva al protocolo; si hace falta dentro
-de un archivo, debe escaparse o construirse como una cadena concatenada.
+Types: `text/html`, `image/svg+xml`, `text/markdown`, `text/plain`, and
+`application/vnd.ant.code` with `language`. HTML and document aliases from Anthropic are also accepted. Tags should not have Markdown fences and their attributes should be in quotes. The content remains raw: XML entities are not decoded.
+The literal `</artifact>` delimiter is reserved for the protocol; if needed inside a file, it should be escaped or constructed as a concatenated string.
 
-El parser acepta aperturas/cierres divididos entre fragmentos, varias creaciones
-en un turno y respuestas incompletas. No convierte bloques Markdown ordinarios
-en artifacts. El cumplimiento del formato depende del modelo del agente.
+The parser accepts openings/closings split across fragments, multiple creations in one turn, and incomplete responses. It does not convert regular Markdown blocks into artifacts. Format compliance depends on the agent model.
 
-## Vista previa aislada
+## Isolated Preview
 
-Las páginas usan un iframe `srcDoc` con `sandbox="allow-scripts"`, sin
-`allow-same-origin`. SVG usa un sandbox sin permisos de scripts. Se sigue el
-[modelo de aislamiento de iframe](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox).
-La política CSP se inserta antes del contenido: permite scripts y estilos inline
-para ejecutar la creación y bloquea recursos externos, fetch, formularios,
-subframes, workers, objetos y cambios de URL base. El iframe no recibe acceso
-al DOM, cookies o almacenamiento del chat, ni permisos de cámara o micrófono.
-Como en cualquier iframe, esto no es un límite de CPU/memoria para scripts.
+Pages use an iframe with `srcDoc` and `sandbox="allow-scripts"`, without `allow-same-origin`. SVG uses a sandbox without script permissions. The [iframe isolation model](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox) is followed.
+A CSP policy is inserted before the content: it allows inline scripts and styles to run the artifact and blocks external resources, fetch, forms, subframes, workers, objects, and base URL changes. The iframe does not receive access to the DOM, cookies, or chat storage, nor camera or microphone permissions. As with any iframe, this does not limit CPU/memory for scripts.
 
-Las apps deben ser HTML autónomo con CSS/JavaScript incluidos e imágenes SVG
-inline o data URLs. No hay bundler, paquetes npm, servidor backend, CDN ni APIs
-externas. En particular, aunque se pida Tailwind, no puede usarse
-`cdn.tailwindcss.com`: hay que escribir los estilos necesarios directamente en
-un bloque `<style>`. Un proyecto React/TypeScript se conserva como fuente editable; para
-una app ejecutable, las instrucciones solicitan su equivalente en HTML autónomo.
-La vista previa se actualiza como máximo cuatro veces por segundo y al recargarse
-reinicia su estado interno. El botón Reiniciar permite hacerlo manualmente.
+Apps must be standalone HTML with included CSS/JavaScript and SVG images inline or as data URLs. No bundler, npm packages, backend server, CDN, or external APIs. In particular, even if Tailwind is requested, `cdn.tailwindcss.com` cannot be used: the required styles should be written directly in a `<style>` block. A React/TypeScript project is preserved as editable source; for an executable app, instructions request its standalone HTML equivalent.
+The preview updates at most four times per second and resets its internal state when reloaded. The Restart button allows you to do this manually.
 
-## Verificación
+## Verification
 
 ```sh
 npm run test:artifacts
@@ -94,19 +54,8 @@ npm run typecheck
 npm run build
 ```
 
-Los tests cubren cada frontera de fragmento del protocolo, contenido mixto,
-revisiones, ediciones, almacenamiento inválido, extensiones y CSP.
+Tests cover each fragment boundary of the protocol, mixed content, revisions, edits, invalid storage, extensions, and CSP.
 
-También hay una prueba de navegador contra un agente ACP simulado local. Después
-de `npm run build`, configura `ARTIFACT_TEST_BROWSER` con la ruta del ejecutable
-de Chrome, Chromium o Brave y ejecuta `npm run test:artifacts:browser`. Usa los
-puertos locales 5197–5199, un perfil temporal y no llama al agente remoto. Verifica
-streaming, aislamiento real del iframe, edición, recarga, biblioteca, Markdown,
-SVG, código, descargas, errores de cuota y el cajón móvil. Los APIs de clipboard
-y compartir del sistema se simulan para no modificar el clipboard ni abrir menús
-nativos. Deja capturas de escritorio y móvil en el directorio temporal del sistema.
+There is also a browser test against a simulated local ACP agent. After `npm run build`, set `ARTIFACT_TEST_BROWSER` to the path of the Chrome, Chromium, or Brave executable and run `npm run test:artifacts:browser`. It uses local ports 5197–5199, a temporary profile, and does not call the remote agent. It verifies streaming, true iframe isolation, editing, reload, library, Markdown, SVG, code, downloads, quota errors, and the mobile drawer. Clipboard and system share APIs are simulated to not modify the clipboard or open native menus. Desktop and mobile screenshots are saved in the system's temporary directory.
 
-Para probar
-manualmente, genera una app con un botón, edítala, recarga la página, ábrela desde
-la biblioteca y repite con una pantalla móvil. Comprueba también copiar,
-descargar, compartir y cerrar el panel antes de que termine la respuesta.
+To test manually, generate an app with a button, edit it, reload the page, open it from the library, and repeat on a mobile screen. Also check copy, download, share, and closing the panel before the response finishes.

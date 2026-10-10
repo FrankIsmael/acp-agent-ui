@@ -21,10 +21,11 @@ import { WebSocket } from 'ws';
 import type { ConnectPhase } from '~/hooks/useAcpStream';
 import { parseSkills, replayMetadata } from './goose-adapter';
 import {
-  ARTIFACT_INSTRUCTIONS,
-  CHANNEL_INSTRUCTIONS,
   CHANNEL_MARKER,
-} from './artifact-instructions';
+  EMBED_MARKER,
+  LEGACY_INSTRUCTIONS,
+} from './channel-markers';
+import { isEmbedConversation } from './embed-conversations';
 import { PermissionQueue, type PendingPermission } from './permissions';
 import { extensionStore, summarizeExtensions } from './extensions';
 import { mapDataFromToolContent, mergeMapData, type MapData } from '~/lib/maps';
@@ -639,15 +640,19 @@ class GooseSession extends EventEmitter {
       // Old threads may contain inline instructions; new ones only the channel marker.
       // None of those prefixes should be displayed as if written by the user.
       const content = { ...u.content };
-      for (const prefix of [
-        ARTIFACT_INSTRUCTIONS,
-        CHANNEL_INSTRUCTIONS,
-        CHANNEL_MARKER,
-      ]) {
-        if (content.type === 'text' && content.text.startsWith(prefix)) {
-          content.text = content.text.slice(prefix.length).trimStart();
-          if (!content.text) return;
+      if (content.type === 'text') {
+        for (const [start, end] of LEGACY_INSTRUCTIONS) {
+          const stop = content.text.startsWith(start)
+            ? content.text.indexOf(end)
+            : -1;
+          if (stop > -1)
+            content.text = content.text.slice(stop + end.length).trimStart();
         }
+        for (const marker of [CHANNEL_MARKER, EMBED_MARKER]) {
+          if (content.text.startsWith(marker))
+            content.text = content.text.slice(marker.length).trimStart();
+        }
+        if (!content.text) return;
       }
       this.assistant = undefined;
       let message = this.messages.at(-1);
@@ -847,11 +852,14 @@ class GooseSession extends EventEmitter {
         const result: any = await connection!.agent.request('session/prompt', {
           sessionId: this.sessionId,
           // Formatting and language rules live in CLAUDE.md / .goosehints in the box.
-          // Only the channel varies per turn: web and WhatsApp share the thread.
+          // Only the channel varies per turn: web and WhatsApp share the thread. A thread
+          // opened from the portfolio widget always carries its marker.
           prompt: [
             ...(channel
               ? [{ type: 'text' as const, text: CHANNEL_MARKER }]
-              : []),
+              : isEmbedConversation(this.sessionId)
+                ? [{ type: 'text' as const, text: EMBED_MARKER }]
+                : []),
             { type: 'text', text },
             ...images.map((img) => ({
               type: 'image' as const,

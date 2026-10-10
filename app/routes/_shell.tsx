@@ -1,6 +1,6 @@
 /**
- * Layout de toda la app. El loader corre en el servidor, así que la lista de
- * conversaciones llega ya renderizada en el HTML.
+ * Layout for the entire app. The loader runs on the server, so the conversation
+ * list arrives already rendered in the HTML.
  */
 import { demoUser, conversationOwner } from '~/.server/demo';
 import { DemoNotice } from '~/components/DemoNotice';

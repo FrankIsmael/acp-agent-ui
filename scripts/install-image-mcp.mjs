@@ -1,22 +1,18 @@
 /**
  * Installs the image MCP (`mcp/image.ts`) on the agent box as a systemd unit
- * (`image.service`, `Restart=always`, starts with the box), appends the tool instructions to the
- * box hints so the agent uses it, and registers the http extension in this client's database
- * (`http://127.0.0.1:4123/mcp`).
+ * (`image.service`, `Restart=always`, starts with the box) and registers the http extension in
+ * this client's database (`http://127.0.0.1:4123/mcp`). The instructions that tell the agent to
+ * use `generate_image` are in its system prompt (scripts/system-prompt.md, "Generating images").
+ * Afterwards: **new thread** — the open thread keeps the old MCP connection.
  *
- * The hints go into the same three files as `install-hints.mjs`, baked copy included:
- * `ghosty-lite-start` copies `/opt/goose/goosehints.md` over the other two on every boot, so a
- * block written only to `CLAUDE.md` is gone after the next restart. Afterwards: **new thread** — the open thread keeps
- * the old MCP connection.
+ * Runbook for a new box: docs/agent-box.md.
  *
- * Run it after `install-hints.mjs` on a new box: docs/agent-box.md.
- *
- * Also cleans up the pre-rename install (`imagen.service`, `/data/workspace/imagen.ts`, the
- * `imagen` extension row, and the `generar_imagen` / `imagen` names in the hints).
+ * Also cleans up the pre-rename install (`imagen.service`, `/data/workspace/imagen.ts` and the
+ * `imagen` extension row).
  *
  *   node --env-file=.env scripts/install-image-mcp.mjs
  *
- * Variables: EASYBITS_API_KEY, AGENT_BOX_ID, ACP_CWD (/data/work), ACP_EXTENSIONS_DB (optional),
+ * Variables: EASYBITS_API_KEY, AGENT_BOX_ID, ACP_EXTENSIONS_DB (optional),
  * IMAGE_PORT (4123).
  */
 import { readFileSync } from 'node:fs';
@@ -28,12 +24,6 @@ import { easybitsClient, required } from './lib/easybits.mjs';
 const BOX = required(process.env.AGENT_BOX_ID, 'AGENT_BOX_ID');
 const PORT = Number(process.env.IMAGE_PORT ?? 4123);
 const REMOTE = '/data/workspace/image.ts';
-const BAKED = '/opt/goose/goosehints.md';
-const HINTS = [
-  BAKED,
-  `${process.env.ACP_CWD ?? '/data/work'}/CLAUDE.md`,
-  '/data/ghosty/config/.goosehints',
-];
 const eb = easybitsClient();
 
 const source = readFileSync(
@@ -53,15 +43,6 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 `;
-const claudeMd = `
-# Tools available to this agent
-
-- For any image, photo, illustration, or drawing that is requested, use the
-  \`generate_image\` tool (MCP server \`image\`) with a detailed prompt. Do not search for SDKs or
-  write code to generate images: the tool already returns it ready, and the client will show it
-  to the user. After using it, respond with a brief line; do not describe the image.
-`;
-
 // Without \`ps\`/\`pgrep\` in /exec, and \`pkill -f\` kills the shell itself: systemd manages the process.
 const script = `
 set -e
@@ -80,20 +61,6 @@ fi
 rm -f /data/workspace/imagen.ts
 cat > /etc/systemd/system/image.service <<UNIT
 ${unit.replace('__NODE__', '$NODE')}UNIT
-# Back up the baked hints once, as install-hints.mjs does.
-cp -n ${BAKED} ${BAKED}.bak 2>/dev/null || true
-for f in ${HINTS.join(' ')}; do
-  mkdir -p "$(dirname "$f")"
-  # Boxes installed before the rename still reference the old tool name.
-  [ -f "$f" ] && sed -i -e 's/generar_imagen/generate_image/g' -e 's/\\(MCP server .\\)imagen\\(.\\)/\\1image\\2/g' "$f"
-  if grep -qs generate_image "$f"; then echo "hints already there: $f"; else
-    cat >> "$f" <<'CLAUDE_MD'
-${claudeMd}CLAUDE_MD
-    echo "hints written: $f"
-  fi
-done
-# Newer templates rebuild every copy (incl. /data/work/.goosehints) from the baked file.
-[ -x /usr/local/bin/ghosty-prompt-hooks ] && /usr/local/bin/ghosty-prompt-hooks
 systemctl daemon-reload
 systemctl enable --now image.service
 systemctl restart image.service

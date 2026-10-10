@@ -112,7 +112,7 @@ docker compose run --rm --no-deps \
 | Script | Extension | What it does | Needs in `.env` |
 |---|---|---|---|
 | `install-maps-mcp.mjs` | `google-maps` | Registers Google's hosted Maps Grounding Lite MCP (`https://mapstools.googleapis.com/mcp`). It checks the key with a real call first and writes nothing if the key fails. | `GM_MCP_KEY` (server key; a referrer-restricted browser key is rejected), or it falls back to `GM_DEMO_KEY` |
-| `install-image-mcp.mjs` | `image` | Copies `mcp/image.ts` to the agent box as the `image.service` systemd unit and adds its instructions to the box hints. It registers `http://127.0.0.1:4123/mcp`. | `AGENT_BOX_ID`, `EASYBITS_API_KEY`; optional `ACP_CWD`, `IMAGE_PORT` |
+| `install-image-mcp.mjs` | `image` | Copies `mcp/image.ts` to the agent box as the `image.service` systemd unit (its instructions are in `scripts/system-prompt.md`). It registers `http://127.0.0.1:4123/mcp`. | `AGENT_BOX_ID`, `EASYBITS_API_KEY`; optional `IMAGE_PORT` |
 
 `install-image-mcp` also installs on the agent box, which loses it when the box is recreated: see
 [agent-box.md](agent-box.md) for the full redo order.
@@ -124,8 +124,8 @@ because they update the existing row.
 
 Mount the folders; don't `docker compose cp` a single file. `install-image-mcp`
 imports `./lib/` and reads `mcp/image.ts`, so copying just the script fails.
-(`install-hints.mjs` also imports from `app/` and has to run from a full
-checkout.) Never run these scripts as root (`docker compose exec -u root`,
+(`agent-prompt.mjs` reads `scripts/system-prompt.md` and `public/`, so it has to
+run from a full checkout too.) Never run these scripts as root (`docker compose exec -u root`,
 plain `docker run`): SQLite would leave root-owned `-wal`/`-shm` files in
 `.data`, and the app would fail with `unable to open database file`.
 

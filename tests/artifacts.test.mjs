@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { artifactContent, artifactFile, artifactKey, artifactPreviewDocument, mergeArtifacts, parseArtifacts, previewKind, readArtifactStorage } from "../app/lib/artifacts.ts";
-import { ARTIFACT_INSTRUCTIONS, HINTS_MARKER } from "../app/.server/artifact-instructions.ts";
+import { readFileSync } from "node:fs";
+import { CHANNEL_MARKER, EMBED_MARKER } from "../app/.server/channel-markers.ts";
 
 const source = '<artifact identifier="counter" type="text/html" title="Counter &amp; tools" language="html"><button onclick="this.textContent++">0</button></artifact>';
 const parsed = parseArtifacts(source)[0].artifact;
@@ -80,8 +81,13 @@ test("preview restrictions precede untrusted markup and prohibit external resour
   assert.ok(!html.includes("unsafe-eval"));
 });
 
+const systemPrompt = readFileSync(new URL("../scripts/system-prompt.md", import.meta.url), "utf8");
+
 test("artifact instructions keep Tailwind CDN out of the sandboxed preview", () => {
-  assert.match(ARTIFACT_INSTRUCTIONS, /Do not include the Tailwind CDN/);
-  assert.match(ARTIFACT_INSTRUCTIONS, /cdn\.tailwindcss\.com/);
-  assert.equal(HINTS_MARKER, "<!-- acp-agent-ui:output-format v2 -->");
+  assert.match(systemPrompt, /Do not include the Tailwind CDN/);
+  assert.match(systemPrompt, /cdn\.tailwindcss\.com/);
+});
+
+test("the agent's system prompt names every channel marker the server sends", () => {
+  for (const marker of [CHANNEL_MARKER, EMBED_MARKER]) assert.ok(systemPrompt.includes(`\`${marker}\``), marker);
 });

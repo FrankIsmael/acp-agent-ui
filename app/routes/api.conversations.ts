@@ -4,6 +4,7 @@ import { data } from "react-router";
 import type { Route } from "./+types/api.conversations";
 import { readModelPreference } from "~/.server/model-preference";
 import { AgentError, createConversation, listConversations } from "~/.server/acp";
+import { markEmbedConversation } from "~/.server/embed-conversations";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const owner = demoUser(request);
@@ -19,7 +20,10 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const owner = demoUser(request);
     const model = owner ? null : await readModelPreference(request);
+    // The portfolio widget (/embed) asks for `{ via: "embed" }`: its turns get the scoped prompt.
+    const body = (await request.json().catch(() => null)) as { via?: unknown } | null;
     const id = owner ? await demoConversation(owner, () => createConversation(model)) : await createConversation(model);
+    if (body?.via === "embed") markEmbedConversation(id);
     return data({ conversationId: id });
   } catch (e) {
     if (e instanceof Response) return data({ error: await e.text() }, { status: e.status });

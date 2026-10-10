@@ -8,20 +8,30 @@ Rebooting is fine; recreating the box or rebaking the template is not.
 
 | Piece | Where | Survives a new box? | Installed by |
 |---|---|---|---|
-| House hints in English + `HINTS_BLOCK` | `/opt/goose/goosehints.md`, `/usr/local/bin/ghosty-prompt-hooks` | **No** | `scripts/install-hints.mjs` |
-| Skill descriptions in English | `description:` in each `/opt/goose/skills/<name>/SKILL.md` | **No** | `scripts/install-hints.mjs` |
+| **System prompt** (persona, tools, output format by channel, widget rules, reply language) | the EasyBits agent (`systemPrompt`, mode `replace`) → `/data/agent/PROMPT.md` | Set again on create | `scripts/agent-prompt.mjs` ← `scripts/system-prompt.md` |
+| Agent icon (Robbie) | `/data/work/robbie.png` ← `public/favicon.png` | **No** | `scripts/agent-prompt.mjs` (`/files` API) |
+| Hooks without their own paragraph | `/usr/local/bin/ghosty-prompt-hooks` | **No** | `scripts/agent-prompt.mjs` (exec) |
+| Skill descriptions in English | `description:` in each `/opt/goose/skills/<name>/SKILL.md` | **No** | `scripts/translate-skills.mjs` ← `scripts/skill-translations.json` |
 | Image MCP (`generate_image`) | `image.service` → `/data/workspace/image.ts`, port 4123 | **No** | `scripts/install-image-mcp.mjs` |
 | Project skills (`trip-planner`, …) | `/data/repo` (clone of `SKILLS_REPO_URL`), linked into `/data/work/.agents/skills`; re-run by the box's boot script (`eb_boot`) | **No** | `scripts/bootstrap-memory.mjs --apply` |
 | `image` / `google-maps` extension rows | the app's `.data/extensions.db` | Yes (app side) | `install-image-mcp.mjs`, `install-maps-mcp.mjs` |
 
-The agent reads three generated copies (`/data/work/CLAUDE.md`, `/data/work/.goosehints`,
-`/data/ghosty/config/.goosehints`). `ghosty-prompt-hooks` rebuilds them from the two `/opt` and
-`/usr/local/bin` sources on every boot, so never edit the copies by hand. The English house
-prompt is kept in `scripts/house-hints.md` and the skill descriptions in
-`scripts/skill-descriptions.json`; `install-hints.mjs` puts both on the box. Skills are
-symlinked from `/opt/goose/skills` into `~/.claude/skills`, so only the `/opt` copy is edited.
+**`scripts/system-prompt.md` is the only system prompt.** Everything the agent is told lives
+there: who it is, its tools, how to format by channel (web artifacts, `[channel:
+whatsapp-group]`, `[channel: portfolio-widget]`), and the reply-language rule. It goes through
+the EasyBits agents API in `replace` mode, so the template's Ghosty house prompt
+(`/opt/goose/goosehints.md`) is left out entirely. On the box, `ghosty-prompt-hooks` writes it to
+`/data/agent/PROMPT.md` and builds the three copies the brain reads (`/data/work/CLAUDE.md`,
+`/data/work/.goosehints`, `/data/ghosty/config/.goosehints`) from it. The hooks would also append
+their own `hilos` / disk paragraph in Spanish; that text is in the doc instead, so
+`agent-prompt.mjs` empties the hooks' heredoc and the copies end up exactly the doc. Never edit
+the copies by hand. `tests/artifacts.test.mjs` checks that the doc keeps
+the exact rules and markers the server sends.
 
-Those `/opt` skills are the template's. Our own skills live in this repo under
+The prompt API needs the **agent id**, not the sandbox id in `AGENT_BOX_ID` (`/agents/sb_…/prompt`
+answers 500). `agent-prompt.mjs` looks it up by sandbox; set `AGENT_ID` to skip that.
+
+The `/opt` skills are the template's. Our own skills live in this repo under
 `.agents/skills/` and reach the box differently: `bootstrap-memory.mjs` clones the repo
 (`SKILLS_REPO_URL`, branch `SKILLS_REPO_BRANCH`) to `/data/repo`, links its `.agents/skills`
 into `/data/work/.agents/skills`, and saves itself as the box's boot script so every wake
@@ -29,20 +39,36 @@ pulls the latest commit. Only pushed commits count: a skill that exists only loc
 reaches the box. The boot script is box metadata, so a new box has neither the clone nor the
 boot step, and its project skills silently disappear from the app.
 
-## After the box is recreated
+## Changing the prompt
 
-1. **Point the app at the new box.** A new box has a new id and a new URL. Update
-   `AGENT_BOX_ID` and `ACP_WS_URL` (and `ACP_SECRET` if it changed) in `.env`, and in the
-   deployed app's `.env` on the VM (see [oracle-deployment.md](oracle-deployment.md)).
+Edit `scripts/system-prompt.md`, then:
 
-2. **Hints and skills** (English house prompt, output-format / reply-language rules, English
-   skill descriptions):
+```sh
+node --env-file=.env scripts/agent-prompt.mjs --check   # compare with what is live
+node --env-file=.env scripts/agent-prompt.mjs           # PATCH it (and the icon)
+```
+
+It takes effect without a reboot, on the next session: open threads keep the prompt they started
+with.
+
+## Creating a new agent
+
+1. **Create it with the prompt** (POST, `SYSTEM_PROMPT` + `SYSTEM_PROMPT_MODE=replace`):
 
    ```sh
-   node --experimental-strip-types --env-file=.env scripts/install-hints.mjs
+   node --env-file=.env scripts/agent-prompt.mjs --create mi-agente
    ```
 
-   Run this first: `install-image-mcp` appends its own section to the same baked file.
+   Then point the app at it: update `AGENT_BOX_ID` (the printed `sandboxId`) and `ACP_WS_URL`
+   (and `ACP_SECRET` if it changed) in `.env`, and in the deployed app's `.env` on the VM (see
+   [oracle-deployment.md](oracle-deployment.md)). Rerun `agent-prompt.mjs` without `--create` if
+   the hooks patch or the icon failed while the box was starting.
+
+2. **Skill descriptions in English** (the template's skills; the API cannot reach `/opt`):
+
+   ```sh
+   node --env-file=.env scripts/translate-skills.mjs
+   ```
 
 3. **Image MCP** (systemd unit on the box, plus its row in the local app database):
 
@@ -69,9 +95,9 @@ boot step, and its project skills silently disappear from the app.
 
 6. **Open a new thread.** Open threads keep the hints and MCP connections they started with.
 
-All three scripts are idempotent. `bootstrap-memory.mjs` refreshes the clone and replaces
-only its own section of the boot script. The other two, run again on a box that already has
-everything, only print `up to date` / `hints already there`. Each skill prints `translated`, `up to date`, or
+All of these scripts are idempotent. `bootstrap-memory.mjs` refreshes the clone and replaces
+only its own section of the boot script. The others, run again on a box that already has
+everything, only print `up to date`. Each skill prints `translated`, `up to date`, or
 `description changed upstream, skipped` (see below).
 
 ## Checking a box
@@ -81,14 +107,14 @@ node --env-file=.env --input-type=module -e "
 import { easybitsClient } from './scripts/lib/easybits.mjs';
 console.log(await easybitsClient().exec(process.env.AGENT_BOX_ID, [
   'systemctl is-active image.service',
-  'grep -c output-format /data/work/CLAUDE.md',
-  'grep -c generate_image /data/work/CLAUDE.md',
+  'cat /data/agent/PROMPT.mode',
   'head -1 /data/work/CLAUDE.md',
+  'grep -c portfolio-widget /data/work/CLAUDE.md',
   'ls /data/work/.agents/skills',
 ].join('; ') + '; true'));"
 ```
 
-Expect `active`, `1`, `1`, `# House tools (Ghosty)` and the list of `.agents/skills/` in this
+Expect `active`, `replace`, `# Robbie`, `1` and the list of `.agents/skills/` in this
 repo (including `trip-planner`). `No such file or directory` on the last line means step 4
 never ran on this box.
 
@@ -96,26 +122,21 @@ never ran on this box.
 
 **Skills.** A skill whose Spanish description changed upstream is skipped (not an error); the
 rest still get translated. To update it: translate the new description into
-`scripts/skill-descriptions.json` and set its `es` to the md5 of the new `description:` block
+`scripts/skill-translations.json` and set its `es` to the md5 of the new `description:` block
 (the `description:` line plus its indented continuation lines, joined with `\n`). Keep Spanish
 trigger phrases as quoted examples, and keep tool names, binaries and block tags verbatim.
 
-**House prompt.**
-
-`install-hints.mjs` only replaces the baked prompt if it is the exact Spanish original it knows
-(md5 in the script) or already English. If EasyBits ships a new template it stops with
-"the template changed" and writes nothing. To update: diff the new `/opt/goose/goosehints.md`
-against `/opt/goose/goosehints.md.bak` from an old box, apply the changes to
-`scripts/house-hints.md` in English, and update `ES_BAKED` (md5 and byte size of the new
-Spanish file). Keep commands, tool names, paths and `[TU MODELO: …]` verbatim, and do not add
-a reply-language line (see [Reply language](#reply-language)).
+**Prompt hooks.** `agent-prompt.mjs` stops with "the template changed" if
+`ghosty-prompt-hooks` no longer has the `HINT` heredoc it empties. Diff the new script against
+`/usr/local/bin/ghosty-prompt-hooks.bak` from an old box and adjust `HOOKS_HEREDOC`. If the
+template's paragraph changed, carry the change into `scripts/system-prompt.md`.
 
 ## Reply language
 
 The agent should reply in the language of the user's latest message (or the conversation's,
 for an image or code alone), on web and WhatsApp alike; the UI locale does not choose it. The
-only rule for this is the `## Reply language` section of `HINTS_BLOCK`
-(`app/.server/artifact-instructions.ts`). The app sends no per-turn language marker.
+only rule for this is the `## Reply language` section of `scripts/system-prompt.md`. The app
+sends no per-turn language marker.
 
 Keep every other language mention out of the hints and skills. Claude Code's own system prompt
 has no language instruction, so language mirroring is emergent and any wording about
