@@ -1,0 +1,21 @@
+[Unit]
+Description=Deploy trigger for CI (POST /_deploy, forwarded by Caddy)
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=opc
+# Read by systemd as root before switching to opc, and kept out of the app's
+# .env so the app container never sees the token.
+EnvironmentFile=/etc/acp-deploy.env
+# Caddy mounts this directory to reach the socket. Preserved across restarts so
+# the directory Caddy has mounted is never swapped for a new one.
+RuntimeDirectory=acp-deploy
+RuntimeDirectoryPreserve=yes
+# Through python3: SELinux will not let systemd exec a script under /home directly.
+ExecStart=/usr/bin/python3 /home/opc/acp-agent-ui/deploy/oracle/deploy-hook.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
