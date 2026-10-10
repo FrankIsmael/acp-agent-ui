@@ -176,7 +176,7 @@ export default function Hub({
                     type="button"
                     onClick={() => handleSubmit(t(starter))}
                     disabled={creating || !!configBusy}
-                    className="rounded-full cursor-pointer border border-border-ghost bg-background-secondary hover:bg-background-tertiary px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-border-secondary hover:text-text-primary disabled:opacity-50"
+                    className="rounded-full cursor-pointer border border-border-inverse bg-background-inverse hover:bg-background-inverse/90 px-3 py-1.5 text-left text-xs text-text-inverse transition-colors hover:border-border-inverse hover:text-text-inverse disabled:opacity-50"
                   >
                     {t(starter)}
                   </button>
