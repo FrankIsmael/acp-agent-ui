@@ -39,8 +39,9 @@ jobs:
   # Runs alongside typecheck. The image build includes `npm run build`, so a
   # commit that does not build fails here.
   image:
-    # Forks and the upstream repo have no VM to deploy to.
-    if: github.repository == 'FrankIsmael/acp-agent-ui'
+    # Forks and the upstream repo have no VM to deploy to. Only main ships:
+    # a manual run started on another branch must not move :main.
+    if: github.repository == 'FrankIsmael/acp-agent-ui' && github.ref == 'refs/heads/main'
     # The VM is VM.Standard.A1.Flex (arm64): build natively, no QEMU.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
