@@ -28,7 +28,7 @@ const ICON = readFileSync(new URL('../public/favicon.png', import.meta.url));
 const MODE = 'replace';
 const API = process.env.EASYBITS_API_URL ?? 'https://www.easybits.cloud/api/v2';
 const HOOKS = '/usr/local/bin/ghosty-prompt-hooks';
-const HOOKS_HEREDOC = /(cat >> "\$OUT" <<'HINT'\n)[\s\S]*?(\nHINT\n)/;
+const HOOKS_HEREDOC = /(cat >> "\$OUT" <<'HINT'\n)[\s\S]*?(^HINT\n)/m;
 
 const eb = easybitsClient();
 const flag = name => process.argv.indexOf(name);
@@ -59,7 +59,7 @@ async function quietHooks(box) {
   if (out === 'MISSING') throw new Error(`${HOOKS} does not exist: is this a ghosty-lite box?`);
   const current = Buffer.from(out, 'base64').toString();
   if (!HOOKS_HEREDOC.test(current)) throw new Error(`${HOOKS} no longer has the HINT heredoc: the template changed. Nothing was written.`);
-  const next = current.replace(HOOKS_HEREDOC, (_, open, close) => open.trimEnd() + close);
+  const next = current.replace(HOOKS_HEREDOC, '$1$2');
   const steps = ['set -e'];
   if (next === current) steps.push(`echo "hooks: up to date"`);
   else steps.push(

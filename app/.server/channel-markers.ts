@@ -17,6 +17,13 @@ export const CHANNEL_MARKER = '[channel: whatsapp-group]';
 export const EMBED_MARKER = '[channel: portfolio-widget]';
 
 /**
+ * Wraps Ismael's profile (`portfolio-profile.ts`), sent after `EMBED_MARKER` on the first widget
+ * turn. The replay removes everything between the two tags.
+ */
+export const PROFILE_OPEN = '[portfolio-profile]';
+export const PROFILE_CLOSE = '[/portfolio-profile]';
+
+/**
  * Threads from before the system prompt had the full rules as the first block of the turn.
  * When replaying them, they are removed, from the phrase they started with to the phrase they ended with.
  */

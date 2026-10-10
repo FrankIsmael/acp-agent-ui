@@ -28,6 +28,12 @@ their own `hilos` / disk paragraph in Spanish; that text is in the doc instead, 
 the copies by hand. `tests/artifacts.test.mjs` checks that the doc keeps
 the exact rules and markers the server sends.
 
+The facts about Ismael are not in the prompt. On the first turn of a widget conversation the app
+reads his public profile from the portfolio's MCP (`get_website_info` at `PORTFOLIO_MCP_URL`,
+default `https://ismaelfrancisco.tech/mcp`, cached 10 min) and sends it between
+`[portfolio-profile]` tags (`app/.server/portfolio-profile.ts`). If the MCP fails, the next turn
+tries again. Edit the portfolio, not this repo, to change what the widget knows.
+
 The prompt API needs the **agent id**, not the sandbox id in `AGENT_BOX_ID` (`/agents/sb_…/prompt`
 answers 500). `agent-prompt.mjs` looks it up by sandbox; set `AGENT_ID` to skip that.
 

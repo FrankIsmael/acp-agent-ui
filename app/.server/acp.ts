@@ -24,8 +24,11 @@ import {
   CHANNEL_MARKER,
   EMBED_MARKER,
   LEGACY_INSTRUCTIONS,
+  PROFILE_CLOSE,
+  PROFILE_OPEN,
 } from './channel-markers';
-import { isEmbedConversation } from './embed-conversations';
+import { embedConversation, markProfiled } from './embed-conversations';
+import { portfolioProfile } from './portfolio-profile';
 import { PermissionQueue, type PendingPermission } from './permissions';
 import { extensionStore, summarizeExtensions } from './extensions';
 import { mapDataFromToolContent, mergeMapData, type MapData } from '~/lib/maps';
@@ -652,6 +655,13 @@ class GooseSession extends EventEmitter {
           if (content.text.startsWith(marker))
             content.text = content.text.slice(marker.length).trimStart();
         }
+        const profileEnd = content.text.startsWith(PROFILE_OPEN)
+          ? content.text.indexOf(PROFILE_CLOSE)
+          : -1;
+        if (profileEnd > -1)
+          content.text = content.text
+            .slice(profileEnd + PROFILE_CLOSE.length)
+            .trimStart();
         if (!content.text) return;
       }
       this.assistant = undefined;
@@ -849,17 +859,29 @@ class GooseSession extends EventEmitter {
         ? setTimeout(() => this.stopDemo(), 120_000)
         : undefined;
       try {
+        // Formatting and language rules live in CLAUDE.md / .goosehints in the box.
+        // Only the channel varies per turn: web and WhatsApp share the thread. A thread
+        // opened from the portfolio widget always carries its marker, and its first turn
+        // (or the next one, if the portfolio did not answer) Ismael's profile.
+        const embed = channel ? null : embedConversation(this.sessionId);
+        const profile =
+          embed && !embed.profiled ? await portfolioProfile() : null;
         const result: any = await connection!.agent.request('session/prompt', {
           sessionId: this.sessionId,
-          // Formatting and language rules live in CLAUDE.md / .goosehints in the box.
-          // Only the channel varies per turn: web and WhatsApp share the thread. A thread
-          // opened from the portfolio widget always carries its marker.
           prompt: [
             ...(channel
               ? [{ type: 'text' as const, text: CHANNEL_MARKER }]
-              : isEmbedConversation(this.sessionId)
+              : embed
                 ? [{ type: 'text' as const, text: EMBED_MARKER }]
                 : []),
+            ...(profile
+              ? [
+                  {
+                    type: 'text' as const,
+                    text: `${PROFILE_OPEN}\n${profile}\n${PROFILE_CLOSE}`,
+                  },
+                ]
+              : []),
             { type: 'text', text },
             ...images.map((img) => ({
               type: 'image' as const,
@@ -868,6 +890,7 @@ class GooseSession extends EventEmitter {
             })),
           ],
         });
+        if (profile) markProfiled(this.sessionId);
         this.emit('event', {
           type: 'done',
           stopReason: result.stopReason,

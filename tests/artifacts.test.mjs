@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { artifactContent, artifactFile, artifactKey, artifactPreviewDocument, mergeArtifacts, parseArtifacts, previewKind, readArtifactStorage } from "../app/lib/artifacts.ts";
 import { readFileSync } from "node:fs";
-import { CHANNEL_MARKER, EMBED_MARKER } from "../app/.server/channel-markers.ts";
+import { CHANNEL_MARKER, EMBED_MARKER, PROFILE_CLOSE, PROFILE_OPEN } from "../app/.server/channel-markers.ts";
 
 const source = '<artifact identifier="counter" type="text/html" title="Counter &amp; tools" language="html"><button onclick="this.textContent++">0</button></artifact>';
 const parsed = parseArtifacts(source)[0].artifact;
@@ -89,5 +89,5 @@ test("artifact instructions keep Tailwind CDN out of the sandboxed preview", () 
 });
 
 test("the agent's system prompt names every channel marker the server sends", () => {
-  for (const marker of [CHANNEL_MARKER, EMBED_MARKER]) assert.ok(systemPrompt.includes(`\`${marker}\``), marker);
+  for (const marker of [CHANNEL_MARKER, EMBED_MARKER, PROFILE_OPEN, PROFILE_CLOSE]) assert.ok(systemPrompt.includes(`\`${marker}\``), marker);
 });
