@@ -42,6 +42,7 @@ import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
 import { useArtifacts } from "~/components/artifacts/ArtifactContext";
 import { useChatBase } from "~/lib/embed";
+import { MOBILE_BREAKPOINT } from "~/hooks/useIsMobile";
 import {
   artifactKey,
   parseArtifacts,
@@ -377,7 +378,9 @@ function ChatView() {
     );
     generated.forEach((artifact) => seen.current.add(artifact.key));
     // Once closed, further tokens must not reopen the panel. A new revision can.
-    if (additions.length) open(additions[additions.length - 1].key);
+    // On mobile the panel covers the chat, so it only opens from the artifact card.
+    const mobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`).matches;
+    if (additions.length && !mobile) open(additions[additions.length - 1].key);
   }, [generated, ready, ingest, open]);
   const conversationArtifacts = artifacts.filter(
     (artifact) => artifact.conversationId === id,
