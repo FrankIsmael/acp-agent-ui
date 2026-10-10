@@ -989,3 +989,19 @@ pre:has(> code.bg-inline-code) {
   background-color: #393647;
   color: #edecee;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   iOS FOCUS ZOOM
+   Safari on iPhone zooms in when focusing any editable field whose
+   font-size is < 16px, and doesn't zoom back out on blur. Forcing 16px
+   on mobile avoids it without maximum-scale=1 (which would also block
+   pinch-zoom). !important is needed to beat utilities like .text-sm.
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select,
+  [contenteditable='true'] {
+    font-size: 16px !important;
+  }
+}
