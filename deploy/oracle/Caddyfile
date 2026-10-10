@@ -1,4 +1,12 @@
 {$APP_DOMAIN} {
   encode zstd gzip
-  reverse_proxy app:3000
+
+  # CI's deploy trigger. deploy-hook.py on the host checks the token.
+  handle /_deploy {
+    reverse_proxy unix//run/acp-deploy/hook.sock
+  }
+
+  handle {
+    reverse_proxy app:3000
+  }
 }

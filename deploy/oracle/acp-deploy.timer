@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily fallback for a missed acp-agent-ui deploy
+
+# Pushes deploy through the webhook (acp-deploy-hook.service). This only
+# catches one that did not arrive, e.g. while the VM was rebooting.
+[Timer]
+OnBootSec=2min
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

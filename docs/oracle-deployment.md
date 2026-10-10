@@ -37,9 +37,12 @@ cd acp-agent-ui
 cp deploy/oracle/.env.example .env
 chmod 600 .env
 # Edit .env: APP_DOMAIN, ACP_WS_URL, ACP_TOKEN, and WHATSAPP_ADMIN_KEY are required.
-docker compose up -d --build
+deploy/oracle/deploy.sh
 docker compose logs -f app caddy
 ```
+
+The VM never builds: it runs the image that CI publishes to
+`ghcr.io/frankismael/acp-agent-ui` (see "Automatic deploys" below).
 
 The `app` container restarts automatically. Caddy terminates HTTPS and renews
 certificates automatically. Do not publish port `3000`; only Caddy exposes the
@@ -75,20 +78,26 @@ but it does not yet replace the local SQLite stores.
 
 ## Updates
 
-```sh
-git pull --ff-only
-docker compose up -d --build
-```
+Pushing to `main` deploys on its own (see "Automatic deploys"). To deploy by
+hand (for example after a failed webhook call), run `deploy/oracle/deploy.sh`.
 
 An update restarts the app and briefly disconnects WhatsApp; the persisted
 credentials reconnect it automatically. In-flight ACP turns are interrupted.
 
-`deploy/oracle/deploy.sh` does the same (plus a health check and image prune)
-and is what the automatic deploy below runs. Before building it tags the
-running image `acp-agent-ui-app:previous`; if the new one fails the health
-check, it starts the previous image again and exits non-zero. The checkout then
-stays at the failed commit, so fix forward with a new push, or pin the old code
-with `git checkout <good-sha> && docker compose up -d --build`.
+`deploy.sh` pulls `:main`, and if it moved, fast-forwards this checkout to the
+image's commit, pins the image digest in `docker-compose.override.yml` (which
+Compose loads on its own, so a manual `docker compose up` keeps that image),
+starts it and checks `/healthz`. If the new image fails the health check, it
+pins the previous digest again, records the bad one in `.deploy-failed` so the
+daily fallback does not retry it, and exits non-zero. Fix forward with a new
+push. To run an older build on purpose, pin its tag yourself; until you push
+again, nothing replaces it except the daily fallback, so stop that meanwhile:
+
+```sh
+sudo systemctl stop acp-deploy.timer
+printf 'services:\n  app:\n    image: ghcr.io/frankismael/acp-agent-ui:sha-<full-sha>\n' > docker-compose.override.yml
+docker compose up -d app
+```
 
 Edit code only through git. A local change in this checkout makes
 `git merge --ff-only` fail and blocks every automatic deploy; `git status` must
@@ -129,75 +138,96 @@ run from a full checkout too.) Never run these scripts as root (`docker compose 
 plain `docker run`): SQLite would leave root-owned `-wal`/`-shm` files in
 `.data`, and the app would fail with `unable to open database file`.
 
-## Automatic deploys (OCI Run Command)
+## Automatic deploys
 
-`.github/workflows/deploy.yml` deploys every push to `main` that passes
-`npm run typecheck` and `npm run build` in its `check` job. It never opens an
-SSH connection: with an OCI API key it creates a Run Command, and the Oracle
-Cloud Agent on the VM runs `deploy.sh` as `opc`. SSH can stay restricted to your
-own IP. The agent polls for commands about every 4 minutes, so a deploy can
-take that long to start.
+`.github/workflows/deploy.yml` runs on every push to `main`. It typechecks on
+`ubuntu-latest` and, in parallel, builds the arm64 image natively on
+`ubuntu-24.04-arm` (with the layer cache in GitHub Actions) and pushes it as
+`:sha-<commit>`. Once both pass it retags that image `:main`. Pushing to GHCR
+uses only the built-in `GITHUB_TOKEN`.
 
-### 1. Enable the plugin
+Its last step, `Deploy on the VM`, calls `POST https://<APP_DOMAIN>/_deploy`
+with a bearer token. Caddy forwards that path over a unix socket to
+`deploy/oracle/deploy-hook.py` (`acp-deploy-hook.service`), which runs
+`deploy.sh` and answers with its output: the step prints it and fails unless the
+deploy succeeded. The `X-Revision` header carries the pushed commit, so the VM
+fails instead of reporting success for some other commit. The token can only
+ask for "deploy the current `:main`", not choose an image or run anything else.
 
-Instance → **Oracle Cloud Agent** (Management tab) → enable **Compute Instance
-Run Command**. After a few minutes the agent creates the `ocarun` user
-(`id ocarun` on the VM).
+`acp-deploy.timer` runs the same `deploy.sh` once a day and after boot, to
+catch a push whose webhook call never arrived. When `:main` has not moved it
+only prints `already running <sha>`.
 
-### 2. Let the agent run only the deploy script as `opc`
+### 1. Make the image public (once)
 
-```sh
-echo 'ocarun ALL=(opc) NOPASSWD: /home/opc/acp-agent-ui/deploy/oracle/deploy.sh' \
-  | sudo tee /etc/sudoers.d/90-ocarun-deploy
-sudo chmod 440 /etc/sudoers.d/90-ocarun-deploy
-sudo visudo -cf /etc/sudoers.d/90-ocarun-deploy
-# Dry run of exactly what the workflow will execute:
-sudo -u ocarun sudo -n -u opc /home/opc/acp-agent-ui/deploy/oracle/deploy.sh
-```
+The first workflow run creates the package as private. On GitHub: your profile
+→ Packages → `acp-agent-ui` → Package settings → Change visibility → Public.
+The VM then pulls without credentials.
 
-### 3. IAM (Identity & Security → Domains → Default domain)
-
-1. **Dynamic group** `acp-agent-vm` with the rule
-   `instance.id = '<instance OCID>'`.
-2. **Group** `github-deployers`, and a **user** `github-deployer` in it (no
-   console password needed).
-3. On that user: **API keys → Add API key → Generate key pair**. Download the
-   private key and keep the configuration preview it shows (user, fingerprint,
-   tenancy, region).
-4. **Policy** in the root compartment:
-
-   ```
-   Allow dynamic-group 'Default'/'acp-agent-vm' to use instance-agent-command-execution-family in tenancy where request.instance.id = target.instance.id
-   Allow group 'Default'/'github-deployers' to manage instance-agent-command-family in tenancy
-   Allow group 'Default'/'github-deployers' to read instance-agent-command-execution-family in tenancy
-   Allow group 'Default'/'github-deployers' to read instance-family in tenancy
-   ```
-
-   Without the two `read` lines the deploy still runs, but the workflow cannot
-   read its result and times out.
-
-   This lets the key run commands on any instance in the tenancy, which is
-   fine while this VM is the only one. Move the VM to its own compartment and
-   scope the second statement to it if that changes.
-
-### 4. GitHub secrets
-
-Repository → Settings → Secrets and variables → Actions, or with `gh`. In a
-clone that also has the upstream remote, `gh` targets upstream by default, so
-run `gh repo set-default FrankIsmael/acp-agent-ui` first.
+### 2. Create the deploy token
 
 ```sh
-gh secret set OCI_CLI_USER          # user OCID from the configuration preview
-gh secret set OCI_CLI_TENANCY       # tenancy OCID
-gh secret set OCI_CLI_FINGERPRINT   # API key fingerprint
-gh secret set OCI_CLI_REGION --body mx-queretaro-1
-gh secret set OCI_CLI_KEY_CONTENT < ~/Downloads/<private-key>.pem
-gh secret set OCI_INSTANCE_ID       # instance OCID
-gh secret set OCI_COMPARTMENT_ID    # tenancy OCID while the VM is in root
+openssl rand -hex 32   # on any machine; use the same value in both places below
 ```
 
-Run the workflow once from the Actions tab (**Run workflow**) to check the
-setup. Its log shows the tail of `deploy.sh` output from the VM.
+On the VM, outside the app's `.env` so the app container never sees it:
+
+```sh
+echo 'DEPLOY_TOKEN=<token>' | sudo tee /etc/acp-deploy.env >/dev/null
+sudo chmod 600 /etc/acp-deploy.env
+```
+
+In GitHub (with `gh repo set-default FrankIsmael/acp-agent-ui` first in a clone
+that also has the upstream remote):
+
+```sh
+gh secret set DEPLOY_TOKEN
+gh variable set DEPLOY_URL --body https://<APP_DOMAIN>/_deploy
+```
+
+To rotate it, change both and `sudo systemctl restart acp-deploy-hook`.
+
+### 3. Install the units on the VM
+
+```sh
+sudo cp deploy/oracle/acp-deploy.service deploy/oracle/acp-deploy.timer \
+  deploy/oracle/acp-deploy-hook.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now acp-deploy-hook.service acp-deploy.timer
+# Caddy needs the new Caddyfile and the socket mount: recreate it.
+docker compose up -d --force-recreate caddy
+```
+
+Check the whole path from outside: a wrong token must answer `401`.
+
+```sh
+curl -si -X POST https://<APP_DOMAIN>/_deploy | head -1
+```
+
+The units are copies: after changing them in git, copy them again, run
+`daemon-reload`, and restart the hook. `deploy.sh` changes apply on the next
+deploy on their own; `deploy-hook.py` changes only after
+`sudo systemctl restart acp-deploy-hook`.
+
+A deploy that changes the `caddy` service in `docker-compose.yml` recreates
+Caddy, which cuts the webhook's own connection: that run shows as failed while
+the deploy carries on. Check `journalctl -u acp-deploy-hook` and rerun the
+workflow; it answers `already running <sha>` once it is done.
+
+### Moving from the Run Command setup
+
+The workflow no longer uses OCI Run Command, so all of that can go:
+
+```sh
+sudo rm /etc/sudoers.d/90-ocarun-deploy
+docker image rm acp-agent-ui-app:latest acp-agent-ui-app:previous   # old local builds
+docker builder prune -af                                            # their build cache
+```
+
+Then delete the `OCI_*` repository secrets (`gh secret delete OCI_CLI_USER`,
+and so on), the `github-deployer` user, its group and API key, the
+`acp-agent-vm` dynamic group and its policy, and disable the **Compute Instance
+Run Command** plugin.
 
 ### Troubleshooting
 
@@ -210,18 +240,15 @@ setup. Its log shows the tail of `deploy.sh` output from the VM.
   `.data` is not owned by uid 1000 (e.g. a `-wal` file created by root
   `sqlite3`). Fix with `sudo chown -R 1000:1000 .data` and
   `docker compose restart app`.
-- **Commands stay `ACCEPTED`:** check
-  `/var/log/oracle-cloud-agent/plugins/runcommand/runcommand.log` on the VM.
-  After a `404 NotAuthorizedOrNotFound` (for example, a poll made before the
-  dynamic group policy existed) the agent stops polling for an hour
-  (`circuitbreaker:[pollCommand] is open`). Fix the policy, then
-  `sudo systemctl restart oracle-cloud-agent`. A healthy log shows
-  `poll command status: 200`.
-- **Workflow times out after `no execution yet: NotAuthorizedOrNotFound`:**
-  the deploy ran but the deployer cannot read its result; add the two `read`
-  policy lines above.
-- **`NotAuthorizedOrNotFound` in the workflow's `command create`:** the
-  deployer user's group or policy, or a wrong `OCI_COMPARTMENT_ID` secret. To
-  isolate it, run the same `oci instance-agent command create` in Cloud Shell:
-  as your admin user it checks the OCIDs; with a profile for the deployer's
-  API key (`--profile DEPLOYER --auth api_key`) it checks its permissions.
+- **`Deploy on the VM` fails:** the step prints `deploy.sh`'s output. With no
+  output: HTTP `401` is a token mismatch between the GitHub secret and
+  `/etc/acp-deploy.env`; `502` means Caddy cannot reach the hook
+  (`systemctl status acp-deploy-hook`, and recreate Caddy if it started before
+  the hook created `/run/acp-deploy`); no response at all means the VM or Caddy
+  is down, or `DEPLOY_URL` is wrong.
+- **`denied` or `unauthorized` from `docker pull`:** the package is still
+  private (step 1).
+- **`Not possible to fast-forward`:** someone edited this checkout. `git status`,
+  then discard or commit the change through git.
+- **A fixed image is not picked up:** `.deploy-failed` holds a digest only until
+  `:main` moves, so a new push clears it. To retry the same image, `rm .deploy-failed`.
