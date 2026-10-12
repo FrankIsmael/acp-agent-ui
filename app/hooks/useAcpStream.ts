@@ -6,6 +6,7 @@ import { useI18n } from "~/i18n";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PendingPermission } from '~/.server/permissions';
 import type { MapData } from '~/lib/maps';
+import { base64Size, type AttachedFile, type PromptFile } from '~/lib/attachments';
 
 /** Por dónde va la conexión con el agente antes del primer `started`. */
 export type ConnectPhase = 'waking' | 'connecting' | 'session';
@@ -49,6 +50,8 @@ export interface Turn {
   role: 'user' | 'assistant';
   text: string;
   images?: PromptImage[];
+  /** Documentos adjuntos: sólo nombre, tipo y tamaño (los bytes ya están en la caja). */
+  files?: AttachedFile[];
   /** Por qué canal entró (`whatsapp`…); sin valor, lo escribió este navegador. */
   via?: string;
   from?: string;
@@ -206,8 +209,9 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
   }, [conversationId]);
 
   const send = useCallback(
-    async (text: string, images: PromptImage[] = []) => {
-      setTurns((prev) => [...prev, { role: 'user', text, images }]);
+    async (text: string, images: PromptImage[] = [], files: PromptFile[] = []) => {
+      const attached = files.map((f) => ({ name: f.name, mimeType: f.mimeType, size: base64Size(f.data) }));
+      setTurns((prev) => [...prev, { role: 'user', text, images, ...(attached.length > 0 ? { files: attached } : {}) }]);
       setBusy(true);
       streaming.current = false;
       setError(null);
@@ -215,7 +219,7 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
         const res = await fetch(`/api/conversations/${conversationId}/messages`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text, images }),
+          body: JSON.stringify({ text, images, ...(files.length > 0 ? { files } : {}) }),
         });
         // Un turno rechazado (imagen enorme, conversación muerta) dejaba el input
         // en "pensando" para siempre: sin `done` por SSE, nadie apagaba el busy.

@@ -1,8 +1,10 @@
-/** POST /api/conversations/:id/messages — encola un turno (texto + imágenes). */
+/** POST /api/conversations/:id/messages — encola un turno (texto + imágenes + documentos). */
 import { DemoLimitError } from "~/.server/demo";
 import { data } from "react-router";
 import type { Route } from "./+types/api.conversations.$id.messages";
 import { askConversation, type PromptImage } from "~/.server/acp";
+import { embedConversation } from "~/.server/embed-conversations";
+import { invalidFiles, type PromptFile } from "~/lib/attachments";
 
 // Un base64 de 8 MB son ~6 MB de imagen: más que eso no lo acepta ningún
 // modelo y sí tumba el proceso, así que se corta aquí y no en el agente.
@@ -12,12 +14,17 @@ const MAX_BYTES = 8 * 1024 * 1024;
 export async function action({ request, params }: Route.ActionArgs) {
   if (request.method !== "POST") return data({ error: "method not allowed" }, { status: 405 });
   if (request.headers.get("sec-fetch-site") === "cross-site") return data({ error: "forbidden" }, { status: 403 });
-  const body = (await request.json().catch(() => null)) as { text?: string; images?: PromptImage[] };
+  const body = (await request.json().catch(() => null)) as { text?: string; images?: PromptImage[]; files?: PromptFile[] };
   if (!body || (body.text !== undefined && typeof body.text !== "string")) return data({ error: "invalid content" }, { status: 400 });
   const images = Array.isArray(body.images) ? body.images : [];
+  const files = body.files === undefined ? [] : body.files;
+  const fileProblem = invalidFiles(files);
+  // The public portfolio widget does not take documents: anyone could fill the box's disk.
+  if (files.length > 0 && embedConversation(params.id)) return data({ error: "files are not accepted here" }, { status: 403 });
+  if (fileProblem) return data({ error: fileProblem.error }, { status: fileProblem.tooLarge ? 413 : 400 });
   // Sin texto pero con imágenes es un turno válido ("¿qué ves aquí?" se
   // sobreentiende); sin nada de nada, no.
-  if (!body.text && images.length === 0) return data({ error: "no content" }, { status: 400 });
+  if (!body.text && images.length === 0 && files.length === 0) return data({ error: "no content" }, { status: 400 });
   if (images.length > MAX_IMAGES) {
     return data({ error: `máximo ${MAX_IMAGES} imágenes por turno` }, { status: 413 });
   }
@@ -30,7 +37,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
   }
   try {
-    const ok = askConversation(params.id, String(body.text ?? ""), images);
+    const ok = askConversation(params.id, String(body.text ?? ""), images, files);
     if (!ok) return data({ error: "La conversación no está disponible o ya está respondiendo." }, { status: 409 });
     return data({ queued: true });
   } catch (error) {

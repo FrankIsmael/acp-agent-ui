@@ -21,3 +21,5 @@ ORACLE-SSH.md
 # Written by deploy/oracle/deploy.sh on the VM.
 docker-compose.override.yml
 .deploy-failed
+
+test.js

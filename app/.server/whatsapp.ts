@@ -42,6 +42,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { askFromChannel, type PromptImage } from './acp';
 import { clientDbPath } from './extensions';
+import { splitFiles } from '../lib/files';
 
 export type WaPhase =
   | 'disconnected'
@@ -327,10 +328,16 @@ function unwrap(
 }
 
 /**
- * The agent's text as WhatsApp understands it. An escaped `<artifact>` (despite instructions) is replaced with a note: the file appears in the web chat, where the same turn painted it. From markdown, only minimal translation: bold, headings, code fences.
+ * The agent's text as WhatsApp understands it. A delivered file becomes its link. An escaped `<artifact>` (despite instructions) is replaced with a note: the file appears in the web chat, where the same turn painted it. From markdown, only minimal translation: bold, headings, code fences.
  */
 export function paraWhatsApp(text: string) {
-  return text
+  // A delivered file (`eb-file` block) becomes its name and link; WhatsApp previews the link.
+  const withLinks = splitFiles(text)
+    .map((part) =>
+      part.kind === 'text' ? part.text : `\n📎 *${part.file.name}*\n${part.file.url}\n`,
+    )
+    .join('');
+  return withLinks
     .replace(
       /<artifact\b[^>]*?\btitle\s*=\s*"([^"]*)"[^>]*>[\s\S]*?(?:<\/artifact\s*>|$)/gi,
       (_, title) => `📎 _${title || 'Archivo'}_ (see it in the web chat)`,
@@ -342,6 +349,7 @@ export function paraWhatsApp(text: string) {
     .replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
     .replace(/\*\*(.+?)\*\*/g, '*$1*')
     .replace(/^```[^\n]*\n([\s\S]*?)```$/gm, '```$1```')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 

@@ -33,33 +33,27 @@ import { PermissionQueue, type PendingPermission } from './permissions';
 import { extensionStore, summarizeExtensions } from './extensions';
 import { mapDataFromToolContent, mergeMapData, type MapData } from '~/lib/maps';
 import { isGenericTitle, titleFromPrompt, titleStore } from './titles';
+import {
+  attachmentsBlock,
+  base64Size,
+  CHUNK_BYTES,
+  takeAttachments,
+  type AttachedFile,
+  type PromptFile,
+} from '~/lib/attachments';
 
-// Without a URL, one is not created: a hardcoded fallback sends the session to someone else's box and
-// the failure looks like "the agent does not respond" instead of "you need to configure this".
+// ACP WebSocket URL; must be set or connection won't work
 const WS_URL = process.env.ACP_WS_URL ?? '';
 
-// The REMOTE agent's token. `ACP_SECRET` is accepted as an alias because it's the name people
-// already use in their .env files.
-//
-// 🔴 This is NOT the box's `GOOSE_SERVER__SECRET_KEY`, as this file once said: that's an
-// internal secret that is generated on each boot and never leaves the microVM. The token here is the
-// agent's token — its `embedToken`, or the `ACP_AGENT_TOKEN` specified during creation.
+// Agent token, from ACP_TOKEN or ACP_SECRET
 const TOKEN = process.env.ACP_TOKEN ?? process.env.ACP_SECRET ?? '';
 
-// `/data/work` is what exists in a ghosty-lite box and is the only thing that survives sleep.
+// Default working directory
 const CWD = process.env.ACP_CWD ?? '/data/work';
 
 /**
- * Which models support images.
- *
- * ACP does not indicate this: `promptCapabilities.image` is for the AGENT, not the model, and
- * goose always announces it as true. If the selected model does not support vision, goose replaces
- * the image with `[image omitted: model does not support vision]` and the model receives text instead
- * of pixels — no error, no warning, and the agent tries to find the file on disk. That's why we need
- * to know this here.
- *
- * Explicit with `ACP_VISION_MODELS` (comma-separated IDs); if not, fall back to
- * checking the name, which usually works for models with `…-vision-…` or `…-vl-…` in their names.
+ * List of model IDs that support images (from ACP_VISION_MODELS, comma-separated).
+ * If empty, defaults to matching model names with 'vision' or 'vl'.
  */
 const VISION_MODELS = (process.env.ACP_VISION_MODELS ?? '')
   .split(',')
@@ -67,9 +61,7 @@ const VISION_MODELS = (process.env.ACP_VISION_MODELS ?? '')
   .filter(Boolean);
 
 /**
- * Ids que ven imágenes aunque el nombre no lo diga. `openrouter/free` es un
- * router: enruta a lo que haya libre en OpenRouter, y eso incluye modelos con
- * visión, así que se asume que sí.
+ * Always treat these IDs as vision models, even if their names don't indicate it.
  */
 const ALWAYS_VISION = new Set(['openrouter/free']);
 
@@ -79,16 +71,7 @@ const isVisionModel = (id: string) =>
     ? VISION_MODELS.includes(id)
     : /vision|-vl\b|-vl-/i.test(id));
 
-/**
- * Models that the gateway serves but the agent does not list.
- *
- * Goose builds its selector from the models it knows from its provider, and that list is limited:
- * The EasyBits gateway serves `deepseek-v4-flash-vision-exp` but Goose only offers flash and pro.
- * Tested against the box: `session/set_config_option` with an id that isn't in the list IS accepted,
- * and the agent adds it to its own list. So, you can inject them here.
- *
- * Format: `id|Visible Name`, separated by commas. The name is optional.
- */
+// Extra model IDs (and optional display names) to inject, in `id|Visible Name` format, comma-separated.
 const EXTRA_MODELS = (process.env.ACP_EXTRA_MODELS ?? '')
   .split(',')
   .map((entry) => entry.trim())
@@ -143,24 +126,24 @@ export async function ensureAgentBox() {
   if (!AGENT_BOX) return null;
   const eb = await getEbClient();
   if (!eb) {
-    console.warn('[lifecycle] sin SDK — no gestiono ciclo de vida');
+    console.warn('[lifecycle] no SDK — not managing agent box lifecycle');
     return null;
   }
   const sb = await eb.sandboxes.get(AGENT_BOX);
   await sb.refresh();
-  console.log(`[lifecycle] caja agente status=${sb.status}`);
+  console.log(`[lifecycle] agent box status=${sb.status}`);
   if (sb.status === 'running') {
     await sb
       .extend(3600)
       .catch((e: Error) =>
-        console.warn('[lifecycle] extend falló:', e.message),
+        console.warn('[lifecycle] extend failed:', e.message),
       );
     return sb;
   }
   if (sb.status === 'suspended') await sb.resume().catch(() => {});
   try {
     await sb.waitUntilReady(90_000);
-    console.log('[lifecycle] caja despierta');
+    console.log('[lifecycle] agent box is now awake');
     return sb;
   } catch {
     // lost box → self-heal from snapshot
@@ -171,14 +154,14 @@ export async function ensureAgentBox() {
   // must be updated manually.
   if (!AGENT_SNAPSHOT) {
     throw new AgentError(
-      'El agente no despertó y no hay AGENT_SNAPSHOT_ID para recrearlo. Levántalo de nuevo y actualiza ACP_WS_URL.',
+      'Agent did not wake up and there is no AGENT_SNAPSHOT_ID to recreate it. Please start it again and update ACP_WS_URL.',
     );
   }
-  console.warn('[lifecycle] caja perdida; self-heal desde snapshot');
+  console.warn('[lifecycle] lost box; self-healing from snapshot');
   const [child] = await eb.sandboxes.forkFromSnapshot(AGENT_SNAPSHOT, {});
   await child.waitUntilReady(90_000);
   console.warn(
-    `[lifecycle] caja recreada (${child.id}) — ⚠️ su URL es otra: actualiza ACP_WS_URL o seguirás hablando con la anterior`,
+    `[lifecycle] box recreated (${child.id}) — ⚠️ its URL is different: update ACP_WS_URL or you will keep connecting to the previous one`,
   );
   return child;
 }
@@ -192,7 +175,7 @@ async function suspendAgentBox() {
     await sb.refresh();
     if (sb.status === 'running') {
       await sb.suspend();
-      console.log('[lifecycle] caja suspendida (idle)');
+      console.log('[lifecycle] box suspended (idle)');
     }
   } catch {}
 }
@@ -312,6 +295,8 @@ export interface StoredMessage {
   role: 'user' | 'assistant';
   text: string;
   images?: PromptImage[];
+  /** Documents the user attached: where they landed in the box, not their bytes. */
+  files?: AttachedFile[];
   /** Through which channel the turn came in (`whatsapp`...). If not set: the web chat. */
   via?: string;
   /** Who wrote it in that channel, as shown by the channel. */
@@ -361,7 +346,7 @@ async function connectAgent(): Promise<ClientConnection> {
   if (connection && !connection.signal.aborted) return connection;
   if (connecting) return connecting;
   connecting = (async () => {
-    if (!WS_URL) throw new AgentError('Falta ACP_WS_URL en el servidor.');
+    if (!WS_URL) throw new AgentError('Missing ACP_WS_URL on the server.');
     await ensureAgentBox();
     const target = new URL(WS_URL);
     if (TOKEN && !target.searchParams.has('token'))
@@ -406,7 +391,8 @@ async function connectAgent(): Promise<ClientConnection> {
           this.on('close', () =>
             reject(
               new AgentError(
-                rejection || 'El agente cerró la conexión antes de responder.',
+                rejection ||
+                  'The agent closed the connection before responding.',
               ),
             ),
           );
@@ -434,7 +420,7 @@ async function connectAgent(): Promise<ClientConnection> {
           socketClosed,
         ]),
         CONNECT_TIMEOUT_MS,
-        'El agente no respondió a tiempo.',
+        'The agent did not respond in time.',
       );
       agentCapabilities = init.agentCapabilities ?? {};
       agentName = init.agentInfo?.name ?? '';
@@ -452,7 +438,7 @@ async function connectAgent(): Promise<ClientConnection> {
       throw error instanceof AgentError
         ? error
         : new AgentError(
-            'No pude conectar con el agente. Revisa la conexión y la configuración del servidor.',
+            'Could not connect to the agent. Check your connection and server configuration.',
           );
     }
   })().finally(() => {
@@ -473,7 +459,7 @@ class GooseSession extends EventEmitter {
   cost = 0;
   tokens = 0;
   contextSize = 0;
-  title = 'Nueva conversación';
+  title = 'New conversation';
   cwd: string;
   configOptions: ConfigOption[] = [];
   imageSupport = false;
@@ -527,7 +513,7 @@ class GooseSession extends EventEmitter {
           model!.options = grouped
             ? [
                 ...(raw as any[]),
-                { group: 'extra', name: 'Añadidos', options: missing },
+                { group: 'extra', name: 'Added', options: missing },
               ]
             : [...missing, ...(raw as any[])];
         }
@@ -548,7 +534,7 @@ class GooseSession extends EventEmitter {
     try {
       const mcpServers = extensionStore().servers();
       console.log(
-        `[acp] mcpServers: ${mcpServers.map((s) => s.name).join(', ') || '(ninguno)'}`,
+        `[acp] mcpServers: ${mcpServers.map((s) => s.name).join(', ') || '(none)'}`,
       );
       const response: any = await withTimeout(
         load
@@ -560,7 +546,7 @@ class GooseSession extends EventEmitter {
             })
           : conn.agent.request('session/new', { cwd: this.cwd, mcpServers }),
         SESSION_TIMEOUT_MS,
-        `El agente no abrió la sesión a tiempo${mcpServers.length ? ` (revisa las extensiones activas: ${mcpServers.map((s) => s.name).join(', ')})` : ''}.`,
+        `The agent did not open the session in time${mcpServers.length ? ` (check the active extensions: ${mcpServers.map((s) => s.name).join(', ')})` : ''}.`,
       );
       if (!load) this.sessionId = response.sessionId;
       this.setConfigOptions(response.configOptions);
@@ -597,7 +583,8 @@ class GooseSession extends EventEmitter {
       });
     } catch (error) {
       console.warn(
-        `[acp] no pude poner el modo ${ACP_MODE}:`,
+        `[acp] could not set mode ${ACP_MODE}:`,
+
         (error as Error).message,
       );
     }
@@ -654,6 +641,18 @@ class GooseSession extends EventEmitter {
         for (const marker of [CHANNEL_MARKER, EMBED_MARKER]) {
           if (content.text.startsWith(marker))
             content.text = content.text.slice(marker.length).trimStart();
+        }
+        // The attachments block becomes the message's file chips.
+        const attached = takeAttachments(content.text);
+        content.text = attached.text;
+        if (attached.files.length > 0) {
+          this.assistant = undefined;
+          let last = this.messages.at(-1);
+          if (last?.role !== 'user') {
+            last = { role: 'user', text: '', at: Date.now() };
+            this.messages.push(last);
+          }
+          (last.files ??= []).push(...attached.files);
         }
         const profileEnd = content.text.startsWith(PROFILE_OPEN)
           ? content.text.indexOf(PROFILE_CLOSE)
@@ -778,7 +777,7 @@ class GooseSession extends EventEmitter {
   async setConfigOption(configId: string, value: string | boolean) {
     if (!this.ready || this.closed || this.busy)
       throw new Error(
-        'La sesión no está disponible para cambiar la configuración.',
+        'The session is not available to change the configuration.',
       );
     const response: any = await connection!.agent.request(
       'session/set_config_option',
@@ -806,7 +805,12 @@ class GooseSession extends EventEmitter {
     return (this.running ?? Promise.resolve()).catch(() => {});
   }
 
-  ask(text: string, images: PromptImage[] = [], channel?: ChannelTurn) {
+  ask(
+    text: string,
+    images: PromptImage[] = [],
+    channel?: ChannelTurn,
+    files: PromptFile[] = [],
+  ) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions)
       return false;
     this.demoOwner = conversationOwner(this.sessionId);
@@ -836,6 +840,12 @@ class GooseSession extends EventEmitter {
       images,
       at: Date.now(),
     };
+    if (files.length > 0)
+      message.files = files.map((f) => ({
+        name: f.name,
+        mimeType: f.mimeType,
+        size: base64Size(f.data),
+      }));
     if (channel) {
       message.via = channel.via;
       if (channel.from) message.from = channel.from;
@@ -866,6 +876,18 @@ class GooseSession extends EventEmitter {
         const embed = channel ? null : embedConversation(this.sessionId);
         const profile =
           embed && !embed.profiled ? await portfolioProfile() : null;
+        // Documents go to the box first: the turn only names where they are.
+        let attached: AttachedFile[] = [];
+        if (files.length > 0) {
+          try {
+            attached = await Promise.all(
+              files.map((f) => uploadAttachment(this.sessionId, f)),
+            );
+          } catch (e) {
+            throw new AttachmentError((e as Error).message);
+          }
+          message.files = attached;
+        }
         const result: any = await connection!.agent.request('session/prompt', {
           sessionId: this.sessionId,
           prompt: [
@@ -883,6 +905,9 @@ class GooseSession extends EventEmitter {
                 ]
               : []),
             { type: 'text', text },
+            ...(attached.length > 0
+              ? [{ type: 'text' as const, text: attachmentsBlock(attached) }]
+              : []),
             ...images.map((img) => ({
               type: 'image' as const,
               data: img.data,
@@ -897,10 +922,13 @@ class GooseSession extends EventEmitter {
           usage: this.assistant?.usage ?? null,
         });
         if (result.stopReason === 'cancelled')
-          error = 'El turno se detuvo antes de terminar.';
-      } catch {
+          error = 'The turn was stopped before it finished.';
+      } catch (e) {
         error =
-          'La respuesta se interrumpió. Abre el hilo de nuevo para recuperar lo que guardó el agente.';
+          e instanceof AttachmentError
+            ? `Could not upload the file to the agent: ${e.message}`
+            : 'The response was interrupted. Reopen the thread to recover what was saved by the agent.';
+
         this.emit('event', { type: 'error', message: error });
       } finally {
         clearTimeout(demoTimer);
@@ -953,7 +981,11 @@ class GooseSession extends EventEmitter {
           this.running,
           new Promise((_, reject) => {
             timer = setTimeout(
-              () => reject(new Error('El agente no confirmó la cancelación.')),
+              () =>
+                reject(
+                  new Error('The agent did not confirm the cancellation.'),
+                ),
+
               10_000,
             );
           }),
@@ -1055,7 +1087,7 @@ export async function listConversations() {
                   session.title,
                   titleStore().get(session.sessionId),
                   old?.title,
-                ].find((t) => !isGenericTitle(t)) || 'Nueva conversación';
+                ].find((t) => !isGenericTitle(t)) || 'New conversation';
               rows.push({
                 id: session.sessionId,
                 title,
@@ -1085,7 +1117,7 @@ export async function listConversations() {
         historyAt = Date.now();
       } catch {
         historyError =
-          'No pude actualizar el historial. Se muestra la última lista disponible.';
+          'Could not update the history. The last available list is shown.';
       }
     })().finally(() => {
       refreshing = undefined;
@@ -1098,7 +1130,8 @@ export function createConversation(model?: string | null) {
   return exclusive(async () => {
     if (demoEnabled() && active?.busy)
       throw new Response(
-        'El agente está atendiendo otra demo. Inténtalo en un momento.',
+        'The agent is attending another demo. Please try again in a moment.',
+
         { status: 409 },
       );
     await active?.close();
@@ -1151,13 +1184,14 @@ export function loadConversation(
     }
     if (demoEnabled() && active?.busy && active.sessionId !== id)
       throw new Response(
-        'El agente está atendiendo otra demo. Inténtalo en un momento.',
+        'The agent is currently handling another demo. Please try again in a moment.',
         { status: 409 },
       );
     await connectAgent();
     if (!agentCapabilities.loadSession)
       throw new Response(
-        'El agente no permite reabrir conversaciones guardadas.',
+        'The agent does not allow reopening saved conversations.',
+
         { status: 409 },
       );
     await active?.close();
@@ -1179,9 +1213,12 @@ export function loadConversation(
       connection = undefined;
       conn?.close();
       session.disconnected();
-      throw new Response('No pude recuperar esta conversación del agente.', {
-        status: 502,
-      });
+      throw new Response(
+        'Could not retrieve this conversation from the agent.',
+        {
+          status: 502,
+        },
+      );
     }
     markActivity();
     return session;
@@ -1205,11 +1242,76 @@ export function askConversation(
   id: string,
   text: string,
   images: PromptImage[] = [],
+  files: PromptFile[] = [],
 ) {
   const s = getConversation(id);
   if (!s) return false;
   markActivity();
-  return s.ask(text, images);
+  return s.ask(text, images, undefined, files);
+}
+
+class AttachmentError extends Error {}
+
+/**
+ * Writes a document into the conversation's `adjuntos/` folder on the box through the
+ * front's `POST /adjunto` (same host as the ACP socket, same token). Each conversation has its
+ * own home there, so the front needs the session id. It never overwrites: a second
+ * `report.pdf` lands as `report-1.pdf`, and the path it returns is the one to give the agent.
+ * The front takes at most 12 MB per upload, so a bigger file goes up in `CHUNK_BYTES` pieces:
+ * the first under the file's name, the rest as `<that name>.part2`…, which the agent joins.
+ */
+async function uploadAttachment(
+  sessionId: string,
+  file: PromptFile,
+): Promise<AttachedFile> {
+  const bytes = Buffer.from(file.data, 'base64');
+  const chunks: Buffer<ArrayBuffer>[] = [];
+  for (let at = 0; at === 0 || at < bytes.length; at += CHUNK_BYTES)
+    chunks.push(bytes.subarray(at, at + CHUNK_BYTES));
+  const path = await uploadChunk(sessionId, file.name, chunks[0]);
+  const parts: string[] = [];
+  const name = path.split('/').pop()!;
+  for (let i = 1; i < chunks.length; i++)
+    parts.push(await uploadChunk(sessionId, `${name}.part${i + 1}`, chunks[i]));
+  console.log(
+    `[acp] adjunto ${path} (${bytes.length} bytes${parts.length ? `, ${chunks.length} pieces` : ''})`,
+  );
+  return {
+    name: file.name,
+    mimeType: file.mimeType,
+    size: bytes.length,
+    path,
+    ...(parts.length ? { parts } : {}),
+  };
+}
+
+/** One `POST /adjunto`; returns the path the front chose. */
+async function uploadChunk(
+  sessionId: string,
+  name: string,
+  bytes: Buffer<ArrayBuffer>,
+) {
+  const url = new URL(WS_URL);
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+  url.pathname = '/adjunto';
+  url.search = '';
+  url.searchParams.set('sessionId', sessionId);
+  url.searchParams.set('nombre', name);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/octet-stream',
+      ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+    },
+    body: bytes,
+    signal: AbortSignal.timeout(60_000),
+  }).catch((e: Error) => {
+    throw new Error(`${name}: ${e.message}`);
+  });
+  const body: any = await response.json().catch(() => null);
+  if (!response.ok || typeof body?.ruta !== 'string')
+    throw new Error(`${name}: ${body?.error ?? `HTTP ${response.status}`}`);
+  return body.ruta as string;
 }
 /**
  * A turn requested from outside the browser (WhatsApp...). Goes to the open thread, or opens one if not available: a single live session, two clients, one conversation. Channels take turns: if the agent is answering (to the web chat or another group), the next one waits for it to finish.
@@ -1226,7 +1328,8 @@ export function askFromChannel(
   const turn = channelQueue.then(
     async (): Promise<{ text: string; images: PromptImage[] }> => {
       if (demoEnabled() && !owner)
-        throw new AgentError('Falta el dueño del canal de demo.');
+        throw new AgentError('Missing demo channel owner.');
+
       let session: GooseSession | undefined;
       if (owner) {
         const id = await demoConversation(owner, () => createConversation());
@@ -1239,14 +1342,17 @@ export function askFromChannel(
         session = active;
       }
       if (!session || session.closed)
-        throw new AgentError('No hay un hilo abierto con el agente.');
+        throw new AgentError('There is no open thread with the agent.');
       // Simple queue: waits until the turn in progress is released and, if someone else slipped in, retries.
       for (let attempt = 0; attempt < 20; attempt++) {
         await session.whenIdle();
         while (session.configuringExtensions)
           await new Promise((r) => setTimeout(r, 250));
         if (session.closed)
-          throw new AgentError('El hilo se cerró mientras esperaba el turno.');
+          throw new AgentError(
+            'The thread was closed while waiting for the turn.',
+          );
+
         const answer = new Promise<{ text: string; images: PromptImage[] }>(
           (resolve, reject) => {
             const ok = session!.ask(text, images, {
@@ -1276,7 +1382,7 @@ export function askFromChannel(
           throw error;
         }
       }
-      throw new AgentError('El agente no se desocupó a tiempo.');
+      throw new AgentError('The agent did not become available in time.');
     },
   );
   channelQueue = turn.then(
@@ -1371,7 +1477,7 @@ export async function listAgentSkills() {
     return {
       skills: [],
       supported: true,
-      error: 'No pude cargar las habilidades. Inténtalo de nuevo.',
+      error: 'Could not load skills. Please try again.',
     };
   }
 }
@@ -1385,7 +1491,7 @@ export async function listClientExtensions() {
   } catch {
     return {
       extensions: [],
-      error: 'No pude leer las extensiones guardadas en este cliente.',
+      error: 'Could not read the extensions saved on this client.',
     };
   }
 }
@@ -1436,8 +1542,8 @@ export async function listSessionExtensions() {
       extensions: [],
       error:
         (error as { code?: number }).code === -32601
-          ? 'El agente no permite gestionar extensiones de esta conversación.'
-          : 'No pude consultar las herramientas de la conversación.',
+          ? 'The agent does not allow managing extensions for this conversation.'
+          : 'Could not retrieve the tools for this conversation.',
     };
   }
 }
@@ -1451,12 +1557,13 @@ export function changeSessionExtension(
     const session = getConversation(id);
     if (!session || !session.ready)
       throw new Response(
-        'La conversación activa cambió. Actualiza la página.',
+        'The active conversation has changed. Please refresh the page.',
         { status: 409 },
       );
     if (session.busy)
       throw new Response(
-        'Espera a que termine el turno o detenlo antes de cambiar herramientas.',
+        'Please wait for the current action to finish or stop it before changing tools.',
+
         { status: 409 },
       );
     session.configuringExtensions = true;
@@ -1465,7 +1572,8 @@ export function changeSessionExtension(
       if (operation === 'add') {
         const extension = extensionStore().get(key);
         if (!extension)
-          throw new Response('La extensión ya no existe', { status: 404 });
+          throw new Response('The extension no longer exists', { status: 404 });
+
         await conn.agent.request('_goose/unstable/session/extensions/add', {
           sessionId: id,
           extension,

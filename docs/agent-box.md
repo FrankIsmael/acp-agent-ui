@@ -15,6 +15,8 @@ Rebooting is fine; recreating the box or rebaking the template is not.
 | Image MCP (`generate_image`) | `image.service` → `/data/workspace/image.ts`, port 4123 | **No** | `scripts/install-image-mcp.mjs` |
 | Project skills (`trip-planner`, …) | `/data/repo` (clone of `SKILLS_REPO_URL`), linked into `/data/work/.agents/skills`; re-run by the box's boot script (`eb_boot`) | **No** | `scripts/bootstrap-memory.mjs --apply` |
 | `image` / `google-maps` extension rows | the app's `.data/extensions.db` | Yes (app side) | `install-image-mcp.mjs`, `install-maps-mcp.mjs` |
+| `GS_RENDER_URL` (PDF / PNG / slides through our render-svc) | `/etc/ghosty-lite-runtime/.env` | **No** | by hand, see [render-svc.md](render-svc.md) |
+| Storage keys for delivered files (`TIGRIS_*`, `STORAGE_*` → our Oracle bucket) | `/etc/ghosty-lite-runtime/.env` | **No** | by hand, see [agent-storage.md](agent-storage.md) |
 
 **`scripts/system-prompt.md` is the only system prompt.** Everything the agent is told lives
 there: who it is, its tools, how to format by channel (web artifacts, `[channel:
@@ -99,7 +101,16 @@ with.
 5. **Maps:** nothing to do. Google hosts that MCP; the extension row lives on the app side.
    The `trip-planner` skill that tells the agent how to use it comes from step 4.
 
-6. **Open a new thread.** Open threads keep the hints and MCP connections they started with.
+6. **Rendering** (PDF, PNG, slides): add `GS_RENDER_URL` and restart the agent, as in
+   [render-svc.md](render-svc.md#the-agent-box-side). Without it every `/opt/gs-sdk/render.mjs`
+   call answers 503.
+
+7. **File delivery** (the links to those PDFs and decks): add the five storage lines from
+   [agent-storage.md](agent-storage.md#the-agent-box-side) and restart the agent. Without them
+   rendering works but every `publish*()` call fails in `storage.mjs`. Restart once for both
+   steps if you do them together.
+
+8. **Open a new thread.** Open threads keep the hints and MCP connections they started with.
 
 All of these scripts are idempotent. `bootstrap-memory.mjs` refreshes the clone and replaces
 only its own section of the boot script. The others, run again on a box that already has
@@ -136,6 +147,22 @@ trigger phrases as quoted examples, and keep tool names, binaries and block tags
 `ghosty-prompt-hooks` no longer has the `HINT` heredoc it empties. Diff the new script against
 `/usr/local/bin/ghosty-prompt-hooks.bak` from an old box and adjust `HOOKS_HEREDOC`. If the
 template's paragraph changed, carry the change into `scripts/system-prompt.md`.
+
+## Attachments
+
+Images go to the model as `image` blocks. Documents (PDF, Word, Excel, zip…, up to 5 per
+message, 50 MB each, 100 MB together) do not: a `resource` block with a `blob` is accepted by the box and never
+reaches the model. Instead the app uploads each file to the box's front, `POST /adjunto` on the
+same host and token as `ACP_WS_URL`, which writes it to the conversation's own
+`adjuntos/` folder (a second `report.pdf` becomes `report-1.pdf`). The turn then carries one
+`[attachments]` … `[/attachments]` text block with the paths, which the template's skills
+already read (`pdf-reader`, `office-reader`). The front refuses more than 12 MB per upload and
+never appends, so a bigger file goes up in 10 MB pieces: the first under the file's name, the
+rest as `<name>.part2`, `.part3`… The block then gives the agent the exact
+`cat … >> <name> && rm …` that joins them. Each line also carries the marks the template's
+`big-files` skill triggers on: `GRANDE` (over 5 MB) and `COMPRIMIDO` (an archive). Replaying a thread turns that block back into the
+file chips. Code: `app/lib/attachments.ts`, `uploadAttachment` in `app/.server/acp.ts`. The
+portfolio widget (`/embed`) does not take documents. Tests: `npm run test:attachments`.
 
 ## Reply language
 

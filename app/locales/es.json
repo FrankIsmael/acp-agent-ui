@@ -319,5 +319,13 @@
   "Generate an illustration of the Palacio de Bellas Artes at sunset": "Genera una ilustración del Palacio de Bellas Artes al atardecer",
   "Build a one-page itinerary for a weekend in Mexico City": "Arma un itinerario de una página para un fin de semana en la Ciudad de México",
   "Make a spreadsheet with the budget for a 3-day trip to Mexico City": "Haz una hoja de cálculo con el presupuesto para un viaje de 3 días a la Ciudad de México",
-  "Make a 5-slide deck about the best Mexico City neighborhoods to visit": "Haz una presentación de 5 láminas sobre los mejores barrios para visitar en la Ciudad de México"
+  "Make a 5-slide deck about the best Mexico City neighborhoods to visit": "Haz una presentación de 5 láminas sobre los mejores barrios para visitar en la Ciudad de México",
+  "Download {name}": "Descargar {name}",
+  "Download": "Descargar",
+  "Attach file": "Adjuntar archivo",
+  "Attach a document (PDF, Word, Excel…)": "Adjuntar un documento (PDF, Word, Excel…)",
+  "Drop the file here…": "Suelta el archivo aquí…",
+  "{name} is larger than {size}.": "{name} pesa más de {size}.",
+  "You can attach up to {count} files per message.": "Puedes adjuntar hasta {count} archivos por mensaje.",
+  "The files of one message can add up to {size}.": "Los archivos de un mensaje pueden sumar hasta {size}."
 }

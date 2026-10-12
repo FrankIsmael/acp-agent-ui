@@ -4,7 +4,7 @@ import { createTranslator, localeFromCookies } from "~/lib/i18n";
  * The conversation. The loader delivers already occurred messages (in case
  * you reload), and from there on the thread is fed by SSE.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import {
   Brain,
@@ -33,6 +33,8 @@ import { MessageUsageStats } from "~/components/MessageUsageStats";
 import { MapCard } from "~/components/MapCard";
 import { WeatherCard } from "~/components/WeatherCard";
 import { RouteCard } from "~/components/RouteCard";
+import { FileCard } from "~/components/FileCard";
+import { fileLabel, formatSize, splitFiles } from "~/lib/files";
 import type { MapPlace } from "~/lib/maps";
 import { ConnectingState } from "~/components/ConnectingState";
 import { PermissionCard } from "~/components/PermissionCard";
@@ -41,7 +43,7 @@ import { config, loadConversation, getMessages } from "~/.server/acp";
 import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
 import { useArtifacts } from "~/components/artifacts/ArtifactContext";
-import { useChatBase } from "~/lib/embed";
+import { EMBED_PREFIX, useChatBase } from "~/lib/embed";
 import { MOBILE_BREAKPOINT } from "~/hooks/useIsMobile";
 import {
   artifactKey,
@@ -74,6 +76,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       role: m.role,
       text: m.text,
       images: m.images,
+      files: m.files?.map(({ name, mimeType, size }) => ({ name, mimeType, size })),
       via: m.via,
       from: m.from,
       thought: m.thought,
@@ -99,7 +102,7 @@ function Bubble({
   streaming: boolean;
   knownPlaces: MapPlace[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const CHANNEL_LABEL: Record<string, string> = { whatsapp: t("via WhatsApp") };
   if (turn.role === "user") {
     return (
@@ -121,6 +124,24 @@ function Bubble({
                   title={img.name}
                   className="h-24 w-24 rounded-xl border border-border-secondary object-cover"
                 />
+              </li>
+            ))}
+          </ul>
+        )}
+        {turn.files && turn.files.length > 0 && (
+          <ul className="flex max-w-[80%] flex-wrap justify-end gap-2">
+            {turn.files.map((file, i) => (
+              <li
+                key={i}
+                className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border-secondary bg-background-primary px-3 py-2 text-xs"
+              >
+                <FileText className="h-4 w-4 shrink-0 text-text-secondary" />
+                <span className="min-w-0 truncate font-medium text-text-primary" title={file.name}>
+                  {file.name}
+                </span>
+                <span className="shrink-0 text-text-tertiary">
+                  {fileLabel({ name: file.name, mime: file.mimeType })} · {formatSize(file.size, locale)}
+                </span>
               </li>
             ))}
           </ul>
@@ -173,7 +194,16 @@ function Bubble({
       )}
       {parts.map((part, index) =>
         part.kind === "text" ? (
-          <Markdown key={index}>{part.text}</Markdown>
+          <Fragment key={index}>
+            {splitFiles(part.text, streaming && index === parts.length - 1).map(
+              (piece, pieceIndex) =>
+                piece.kind === "text" ? (
+                  <Markdown key={pieceIndex}>{piece.text}</Markdown>
+                ) : (
+                  <FileCard key={pieceIndex} file={piece.file} />
+                ),
+            )}
+          </Fragment>
         ) : (
           <ArtifactCard
             key={index}
@@ -509,14 +539,15 @@ function ChatView() {
           <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
             <ChatInputCard>
               <ChatInput
-                onSubmit={(text, images) => {
+                onSubmit={(text, images, files) => {
                   follow.current = true;
-                  return send(text, images);
+                  return send(text, images, files);
                 }}
                 onStop={stop}
                 busy={busy}
                 workingDir={cwd}
                 imageSupport={imageSupport}
+                fileSupport={base !== EMBED_PREFIX}
                 visionModels={visionModels}
                 configOptions={configOptions}
                 configBusy={configBusy}

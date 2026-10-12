@@ -319,5 +319,13 @@
   "Generate an illustration of the Palacio de Bellas Artes at sunset": "Generate an illustration of the Palacio de Bellas Artes at sunset",
   "Build a one-page itinerary for a weekend in Mexico City": "Build a one-page itinerary for a weekend in Mexico City",
   "Make a spreadsheet with the budget for a 3-day trip to Mexico City": "Make a spreadsheet with the budget for a 3-day trip to Mexico City",
-  "Make a 5-slide deck about the best Mexico City neighborhoods to visit": "Make a 5-slide deck about the best Mexico City neighborhoods to visit"
+  "Make a 5-slide deck about the best Mexico City neighborhoods to visit": "Make a 5-slide deck about the best Mexico City neighborhoods to visit",
+  "Download {name}": "Download {name}",
+  "Download": "Download",
+  "Attach file": "Attach file",
+  "Attach a document (PDF, Word, Excel…)": "Attach a document (PDF, Word, Excel…)",
+  "Drop the file here…": "Drop the file here…",
+  "{name} is larger than {size}.": "{name} is larger than {size}.",
+  "You can attach up to {count} files per message.": "You can attach up to {count} files per message.",
+  "The files of one message can add up to {size}.": "The files of one message can add up to {size}."
 }
