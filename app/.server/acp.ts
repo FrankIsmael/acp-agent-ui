@@ -10,6 +10,7 @@ import {
   beginDemoTurn,
   chargeDemoOutput,
   estimateTokens,
+  isFullAccess,
   demoMessage,
   demoConversation,
 } from './demo';
@@ -858,9 +859,11 @@ class GooseSession extends EventEmitter {
     remember(this);
     this.running = (async () => {
       let error: string | null = null;
-      const demoTimer = this.demoOwner
-        ? setTimeout(() => this.stopDemo(), 120_000)
-        : undefined;
+      // Invited guests have no limits, including this per-turn time cap.
+      const demoTimer =
+        this.demoOwner && !isFullAccess(this.demoOwner)
+          ? setTimeout(() => this.stopDemo(), 120_000)
+          : undefined;
       try {
         // Formatting and language rules live in CLAUDE.md / .goosehints in the box.
         // Only the channel varies per turn: web and WhatsApp share the thread. A thread
