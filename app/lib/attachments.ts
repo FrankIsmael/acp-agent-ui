@@ -1,45 +1,43 @@
 /**
  * Documents the user attaches (PDF, Word, Excel, zip…). Images go to the model as `image`
  * blocks; documents cannot: the box's front (`/opt/goose/dist/server.js`) notes that a
- * `resource` with a `blob` is accepted without error and the agent never sees it. So the server
- * uploads each file to the box (`POST /adjunto`, into the conversation's `adjuntos/` folder) and
- * the turn carries one text block with the paths. The template's skills already read from there
- * (`pdf-reader info adjuntos/X.pdf`, `Read adjuntos/X`).
+ * `resource` with a `blob` is accepted without error and the agent never sees it. So the
+ * browser uploads each file first (`POST /api/conversations/:id/uploads`, raw bytes) and the
+ * turn carries one text block with the paths in the conversation's `adjuntos/` folder. The
+ * template's skills already read from there (`pdf-reader info adjuntos/X.pdf`, `Read adjuntos/X`).
  *
- * The front takes at most 12 MB per upload and never appends, so a bigger file goes up in
- * `CHUNK_BYTES` pieces: the first under the file's own name, the rest as `<name>.part2`… The
- * block then tells the agent the one command that joins them. Each line also carries the marks
- * the `big-files` skill triggers on: GRANDE (over 5 MB) and COMPRIMIDO (an archive).
+ * The bytes go to our uploads bucket (`app/.server/uploads.ts`), not to the box: each line
+ * carries a short-lived link and the one `curl` that downloads the file to its path.
+ *
+ * Each line also carries the marks the `big-files` skill triggers on: GRANDE (over 5 MB) and
+ * COMPRIMIDO (an archive).
  *
  * Shared by the browser and the server: no Node or DOM imports.
  */
 
-/** What the browser sends: the bytes in base64, without the `data:` prefix. */
-export interface PromptFile {
+/** What the upload route answers and what the browser then sends with the message. */
+export interface UploadedFile {
+  id: string;
   name: string;
   mimeType: string;
-  data: string;
+  size: number;
 }
 
-/** What a turn keeps: where the file landed in the box, not its bytes. */
+/** What a turn keeps: where the file lands in the box, not its bytes. */
 export interface AttachedFile {
   name: string;
   mimeType: string;
   size: number;
   /** Relative to the conversation's working directory, e.g. `adjuntos/report.pdf`. */
   path?: string;
-  /** The other pieces of a file sent in chunks, in order; the agent appends them to `path`. */
-  parts?: string[];
+  /** A short-lived link to the file in the bucket; the agent downloads it to `path`. */
+  url?: string;
 }
 
 export const MAX_FILES = 5;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
-/** All the files of one message together: the browser sends them in one JSON body. */
+/** All the files of one message together. */
 export const MAX_MESSAGE_BYTES = 100 * 1024 * 1024;
-/** Base64 length of a file of `MAX_FILE_BYTES`. */
-export const MAX_FILE_BASE64 = base64Length(MAX_FILE_BYTES);
-/** The box's front refuses more than 12 MB per upload; leave room. */
-export const CHUNK_BYTES = 10 * 1024 * 1024;
 /** Where the `big-files` skill takes over. */
 export const LARGE_FILE_BYTES = 5 * 1024 * 1024;
 const ARCHIVE = /\.(zip|tar|tgz|gz|bz2|xz|7z|rar)$/i;
@@ -47,7 +45,7 @@ const ARCHIVE = /\.(zip|tar|tgz|gz|bz2|xz|7z|rar)$/i;
 export const ATTACHMENTS_OPEN = "[attachments]";
 export const ATTACHMENTS_CLOSE = "[/attachments]";
 const INTRO =
-  "The user attached these files. They are saved in your working directory; open them from there:";
+  "The user attached these files, at these paths in your working directory; open them from there:";
 const LINE = /^- (.+) \(([^,()]+), (\d+) bytes\)(?: [A-Z]+)*$/;
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -58,11 +56,10 @@ export function attachmentsBlock(files: AttachedFile[]) {
     const path = f.path ?? f.name;
     const marks = [f.size > LARGE_FILE_BYTES ? " GRANDE" : "", ARCHIVE.test(path) ? " COMPRIMIDO" : ""].join("");
     const line = `- ${path} (${f.mimeType || "application/octet-stream"}, ${f.size} bytes)${marks}`;
-    if (!f.parts?.length) return [line];
-    const parts = f.parts.map(shellQuote).join(" ");
+    if (!f.url) return [line];
     return [
       line,
-      `  It arrived in ${f.parts.length + 1} pieces. Before anything else, join them with exactly: cat ${parts} >> ${shellQuote(path)} && rm ${parts}`,
+      `  It is not on disk yet. Before anything else, download it with exactly: curl -fsS --create-dirs -o ${shellQuote(path)} ${shellQuote(f.url)}`,
     ];
   });
   return [ATTACHMENTS_OPEN, INTRO, ...lines, ATTACHMENTS_CLOSE].join("\n");
@@ -88,29 +85,20 @@ export function takeAttachments(text: string): { text: string; files: AttachedFi
   return { text: rest, files };
 }
 
-/** Problem with what the browser sent, or undefined when it is fine. */
+/** Problem with the uploads a message names, or undefined when they are fine. */
 export function invalidFiles(files: unknown): { error: string; tooLarge?: boolean } | undefined {
   if (!Array.isArray(files)) return { error: "invalid files" };
   if (files.length > MAX_FILES) return { error: `at most ${MAX_FILES} files per message`, tooLarge: true };
-  let total = 0;
-  for (const f of files as Partial<PromptFile>[]) {
-    if (!f || typeof f.name !== "string" || !f.name.trim() || f.name.length > 200) return { error: "invalid file name" };
-    if (typeof f.mimeType !== "string" || f.mimeType.length > 200) return { error: `invalid type for "${f.name}"` };
-    if (typeof f.data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(f.data)) return { error: `invalid content for "${f.name}"` };
-    if (f.data.length > MAX_FILE_BASE64) return { error: `"${f.name}" is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`, tooLarge: true };
-    total += f.data.length;
+  for (const f of files as Partial<UploadedFile>[]) {
+    if (!f || typeof f.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(f.id)) return { error: "invalid file" };
   }
-  if (total > base64Length(MAX_MESSAGE_BYTES))
-    return { error: `the files of one message add up to more than ${MAX_MESSAGE_BYTES / 1024 / 1024} MB`, tooLarge: true };
+  if (new Set(files.map((f: UploadedFile) => f.id)).size !== files.length) return { error: "repeated file" };
   return undefined;
 }
 
-function base64Length(bytes: number) {
-  return Math.ceil(bytes / 3) * 4;
-}
-
-/** Byte count of a base64 string, without decoding it. */
-export function base64Size(data: string) {
-  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-  return Math.max(0, (data.length / 4) * 3 - padding);
+/** Problem with a file name the upload route receives, or undefined when it is fine. */
+export function invalidFileName(name: unknown) {
+  if (typeof name !== "string" || !name.trim() || name.length > 200) return "invalid file name";
+  if (/[\/\0]/.test(name) || name === "." || name === "..") return "invalid file name";
+  return undefined;
 }

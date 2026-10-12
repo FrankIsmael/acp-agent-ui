@@ -1,5 +1,11 @@
 # Agent file storage (Oracle Object Storage)
 
+Two buckets, two keys:
+
+- **`acp-agent-files`**, the files the agent *delivers* (PDFs, decks…). Its key lives on the box.
+- **`acp-agent-uploads`**, the documents users *attach*. Its key lives only in the app (see
+  [User uploads](#user-uploads)).
+
 The agent's SDK uploads every file it delivers: `publishPdf`, `publishSlides`, `publishDoc`,
 `publishScreenshot`, `publishFile` and the image and voice helpers. `publish()` in
 `/opt/gs-sdk/storage.mjs` PUTs the bytes to an S3 bucket and returns a presigned GET link
@@ -127,6 +133,58 @@ blocks and the web chat draws each one as a download card (`app/components/FileC
 cover or a type icon, the name, type and size. Only `https:` links become cards; anything else
 stays as text. While the answer streams, a block that is not closed yet is held back. WhatsApp
 gets the file's name and link instead (`paraWhatsApp`). Tests: `npm run test:files`.
+
+## User uploads
+
+Documents attached in the web chat go to their own bucket, written by the app (not the box):
+`POST /api/conversations/:id/uploads` streams the raw bytes to
+`<UPLOAD_PREFIX><conversation>/<id>/<name>` and records where in `.data/uploads.db`. The turn then hands
+the agent a presigned GET link (1 hour) and the exact `curl` that downloads it into
+`adjuntos/` (`app/.server/uploads.ts`, `app/lib/attachments.ts`). The bucket is the copy that
+outlives a recreated box, and what a future RAG index reads from.
+
+**Why a separate bucket and key.** The box's key has `manage objects` on `acp-agent-files`, and
+anything the agent runs can read it. User uploads in that bucket would be listable by the agent,
+across every conversation. The app's key stays on the VM; the box only ever gets one-hour links
+to single files.
+
+**Setting it up**, as in [the OCI console steps](#setting-it-up-oci-console):
+
+1. Bucket `acp-agent-uploads`, Standard, private, in `mx-queretaro-1`.
+2. User and group `acp-agent-uploads` (no console password), policy in the root compartment:
+
+   ```
+   Allow group acp-agent-uploads to read buckets in tenancy where target.bucket.name='acp-agent-uploads'
+   Allow group acp-agent-uploads to manage objects in tenancy where target.bucket.name='acp-agent-uploads'
+   ```
+
+3. A Customer Secret Key for that user.
+4. Lifecycle rule: delete objects under `uploads/` after 30 days (until RAG needs them longer).
+   Attached but never sent files stay there too.
+5. In the app's `.env` (local and on the VM, see [oracle-deployment.md](oracle-deployment.md)),
+   then restart the app:
+
+   ```
+   UPLOAD_ACCESS_KEY_ID=<access key>
+   UPLOAD_SECRET_ACCESS_KEY=<secret key>
+   UPLOAD_ENDPOINT=https://<namespace>.compat.objectstorage.mx-queretaro-1.oraclecloud.com
+   UPLOAD_BUCKET=acp-agent-uploads
+   UPLOAD_REGION=mx-queretaro-1
+   ```
+
+   `UPLOAD_PREFIX` defaults to `uploads/`. Local development sets `UPLOAD_PREFIX=uploads-dev/`,
+   so its files sit apart from production's in the same bucket (give that folder the same
+   lifecycle rule). Until `acp-agent-uploads` exists, the local `.env` points `UPLOAD_*` at
+   `acp-agent-files` with the box's key: switch it once the new bucket and key are made.
+
+Nothing changes on the box: it downloads with `curl` and the link, no key. Without these lines
+documents cannot be attached: the upload answers 503 and the chip shows "Upload failed" (images
+still go to the model as before).
+
+**Checking it.** Attach a file in the chat: the server logs
+`[uploads] <conversation> <name> (<n> bytes) → <key in the bucket>`. "Attachments are not
+configured on the server" on the chip means the variables are missing. A failed upload shows "Upload failed" on the chip; hover it for Oracle's answer
+(`403`: key, region or policy; `404`: bucket or namespace).
 
 ## Rotating or removing
 

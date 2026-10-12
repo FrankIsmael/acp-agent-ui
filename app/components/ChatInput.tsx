@@ -7,11 +7,11 @@
  */
 import { useI18n } from "~/i18n";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, EyeOff, FileText, ImagePlus, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, CircleAlert, EyeOff, FileText, ImagePlus, Loader2, Paperclip, Square, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { ConfigSelect } from "~/components/ConfigSelect";
 import type { ConfigOption, PromptImage } from "~/hooks/useAcpStream";
-import { MAX_FILE_BYTES, MAX_FILES, MAX_MESSAGE_BYTES, type PromptFile } from "~/lib/attachments";
+import { MAX_FILE_BYTES, MAX_FILES, MAX_MESSAGE_BYTES, type UploadedFile } from "~/lib/attachments";
 import { formatSize } from "~/lib/files";
 
 const MAX_HEIGHT = 240;
@@ -22,28 +22,13 @@ interface Attachment extends PromptImage {
   url: string;
 }
 
-interface AttachedDocument extends PromptFile {
+/** A document goes up as soon as it is attached; the message then only names its upload. */
+interface AttachedDocument {
   key: string;
+  name: string;
   size: number;
-}
-
-/** Un documento, en base64 como las imágenes; el servidor lo sube a la caja del agente. */
-function readDocument(file: File): Promise<AttachedDocument> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`No pude leer ${file.name}`));
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve({
-        key: `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        data: url.slice(url.indexOf(",") + 1),
-        size: file.size,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
+  upload?: UploadedFile;
+  error?: string;
 }
 
 /** Del `data:image/png;base64,AAA…` ACP sólo quiere el `AAA…` y el mimeType. */
@@ -74,13 +59,16 @@ export function ChatInput({
   workingDir,
   imageSupport = false,
   fileSupport = false,
+  onUpload,
   configOptions = [],
   visionModels = [],
   configBusy = null,
   onConfigChange,
   disabled = false,
 }: {
-  onSubmit: (text: string, images?: PromptImage[], files?: PromptFile[]) => void;
+  onSubmit: (text: string, images?: PromptImage[], files?: UploadedFile[]) => void;
+  /** Uploads one document to the conversation (see app/.server/uploads.ts). */
+  onUpload?: (file: File) => Promise<UploadedFile>;
   onStop?: () => void;
   busy?: boolean;
   autoFocus?: boolean;
@@ -106,7 +94,10 @@ export function ChatInput({
   const ref = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
-  const canAttach = imageSupport || fileSupport;
+  const documentSupport = fileSupport && !!onUpload;
+  const canAttach = imageSupport || documentSupport;
+  const uploading = documents.some((d) => !d.upload && !d.error);
+  const ready = documents.filter((d) => d.upload);
 
   // rAF es más confiable que autoFocus cuando el render cruza una frontera async.
   useEffect(() => {
@@ -134,12 +125,12 @@ export function ChatInput({
     setNotice(null);
     const all = [...files];
     const asImage = imageSupport ? all.filter((f) => f.type.startsWith("image/")) : [];
-    const rest = fileSupport ? all.filter((f) => !asImage.includes(f)) : [];
+    const rest = documentSupport ? all.filter((f) => !asImage.includes(f)) : [];
     const tooBig = rest.filter((f) => f.size > MAX_FILE_BYTES);
     if (tooBig.length > 0) {
       setNotice(t("{name} is larger than {size}.", { name: tooBig.map((f) => f.name).join(", "), size: formatSize(MAX_FILE_BYTES) }));
     }
-    let total = documents.reduce((sum, d) => sum + d.size, 0);
+    let total = documents.reduce((sum, d) => sum + (d.error ? 0 : d.size), 0);
     const docs = rest.filter((f) => f.size <= MAX_FILE_BYTES && (total += f.size) <= MAX_MESSAGE_BYTES);
     if (docs.length > 0 && documents.length + docs.length > MAX_FILES) {
       setNotice(t("You can attach up to {count} files per message.", { count: MAX_FILES }));
@@ -147,22 +138,27 @@ export function ChatInput({
     if (docs.length < rest.length - tooBig.length) {
       setNotice(t("The files of one message can add up to {size}.", { size: formatSize(MAX_MESSAGE_BYTES) }));
     }
-    const [readImages, readDocs] = await Promise.all([
-      Promise.all(asImage.map(readImage)),
-      Promise.all(docs.map(readDocument)),
-    ]);
+    const room = Math.max(0, MAX_FILES - documents.length);
+    for (const file of docs.slice(0, room)) {
+      const key = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
+      setDocuments((prev) => [...prev, { key, name: file.name, size: file.size }]);
+      onUpload!(file).then(
+        (upload) => setDocuments((prev) => prev.map((d) => (d.key === key ? { ...d, upload } : d))),
+        (e: Error) => setDocuments((prev) => prev.map((d) => (d.key === key ? { ...d, error: e.message } : d))),
+      );
+    }
+    const readImages = await Promise.all(asImage.map(readImage));
     if (readImages.length > 0) setImages((prev) => [...prev, ...readImages].slice(0, MAX_IMAGES));
-    if (readDocs.length > 0) setDocuments((prev) => [...prev, ...readDocs].slice(0, MAX_FILES));
   };
 
   const submit = () => {
     const text = value.trim();
     // Con adjuntos, el texto es opcional: el archivo ya es el mensaje.
-    if ((!text && images.length === 0 && documents.length === 0) || busy || disabled) return;
+    if ((!text && images.length === 0 && ready.length === 0) || busy || disabled || uploading) return;
     onSubmit(
       text,
       images.map(({ mimeType, data, name }) => ({ mimeType, data, name })),
-      documents.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
+      ready.map((d) => d.upload!),
     );
     setValue("");
     setImages([]);
@@ -238,11 +234,19 @@ export function ChatInput({
               key={doc.key}
               className="flex max-w-full items-center gap-2 rounded-lg border border-border-secondary bg-background-secondary py-1.5 pr-1.5 pl-2 text-xs"
             >
-              <FileText className="h-4 w-4 shrink-0 text-text-secondary" />
-              <span className="min-w-0 truncate font-medium text-text-primary" title={doc.name}>
+              {doc.error ? (
+                <CircleAlert className="h-4 w-4 shrink-0 text-text-warning" />
+              ) : doc.upload ? (
+                <FileText className="h-4 w-4 shrink-0 text-text-secondary" />
+              ) : (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-text-tertiary" aria-label={t("Uploading…")} />
+              )}
+              <span className="min-w-0 truncate font-medium text-text-primary" title={doc.error ?? doc.name}>
                 {doc.name}
               </span>
-              <span className="shrink-0 text-text-tertiary">{formatSize(doc.size)}</span>
+              <span className={cn("shrink-0", doc.error ? "text-text-warning" : "text-text-tertiary")}>
+                {doc.error ? t("Upload failed") : formatSize(doc.size)}
+              </span>
               <button
                 type="button"
                 aria-label={t("Remove {name}", { name: doc.name })}
@@ -283,13 +287,13 @@ export function ChatInput({
         ref={ref}
         rows={1}
         value={value}
-        placeholder={dragging ? (fileSupport ? t("Drop the file here…") : t("Drop the image here…")) : (placeholder ?? t("Ask the agent something…"))}
+        placeholder={dragging ? (documentSupport ? t("Drop the file here…") : t("Drop the image here…")) : (placeholder ?? t("Ask the agent something…"))}
         onChange={(e) => setValue(e.target.value)}
         // Pegar una captura es la forma natural de mandar una imagen: sin esto
         // el Cmd+V no hace nada y hay que pasar por el diálogo de archivos.
         onPaste={(e) => {
           const files = [...e.clipboardData.files];
-          if (fileSupport ? files.length > 0 : files.some((f) => f.type.startsWith("image/"))) {
+          if (documentSupport ? files.length > 0 : files.some((f) => f.type.startsWith("image/"))) {
             e.preventDefault();
             void addFiles(files);
           }
@@ -331,7 +335,7 @@ export function ChatInput({
             </>
           )}
 
-          {fileSupport && (
+          {documentSupport && (
             <>
               <input
                 ref={filePicker}
@@ -376,11 +380,11 @@ export function ChatInput({
         <button
           type="button"
           onClick={busy ? onStop : submit}
-          disabled={!busy && value.trim().length === 0 && images.length === 0 && documents.length === 0}
+          disabled={!busy && (uploading || (value.trim().length === 0 && images.length === 0 && ready.length === 0))}
           aria-label={busy ? t("Stop") : t("Send")}
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
-            busy || value.trim() || images.length > 0 || documents.length > 0
+            busy || (!uploading && (value.trim() || images.length > 0 || ready.length > 0))
               ? "bg-background-inverse text-text-inverse"
               : "bg-background-disabled text-text-disabled"
           )}

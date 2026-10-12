@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attachmentsBlock, base64Size, invalidFiles, MAX_FILE_BYTES, MAX_FILES, MAX_MESSAGE_BYTES, takeAttachments } from "../app/lib/attachments.ts";
+import { attachmentsBlock, invalidFileName, invalidFiles, MAX_FILES, takeAttachments } from "../app/lib/attachments.ts";
 
 const files = [
   { name: "report.pdf", mimeType: "application/pdf", size: 120345, path: "adjuntos/report.pdf" },
@@ -28,33 +28,40 @@ test("replayed text keeps what the user wrote around the block", () => {
   }
 });
 
-test("a file sent in pieces tells the agent how to join them, and replays as one chip", () => {
-  const big = { name: "Book's.pdf", mimeType: "application/pdf", size: 25_000_000, path: "adjuntos/Book's.pdf", parts: ["adjuntos/Book's.pdf.part2", "adjuntos/Book's.pdf.part3"] };
-  const block = attachmentsBlock([big, { name: "x.zip", mimeType: "application/zip", size: 10, path: "adjuntos/x.zip" }]);
-  assert.match(block, /^- adjuntos\/Book's\.pdf \(application\/pdf, 25000000 bytes\) GRANDE$/m);
-  assert.match(block, /^- adjuntos\/x\.zip \(application\/zip, 10 bytes\) COMPRIMIDO$/m);
-  assert.ok(block.includes(`cat 'adjuntos/Book'\\''s.pdf.part2' 'adjuntos/Book'\\''s.pdf.part3' >> 'adjuntos/Book'\\''s.pdf' && rm 'adjuntos/Book'\\''s.pdf.part2' 'adjuntos/Book'\\''s.pdf.part3'`));
-  const { text, files: parsed } = takeAttachments(block);
-  assert.equal(text, "");
-  assert.deepEqual(parsed.map((f) => [f.path, f.size]), [["adjuntos/Book's.pdf", 25_000_000], ["adjuntos/x.zip", 10]]);
+test("an old block with a join line (box uploads in pieces) still replays as one chip", () => {
+  const block = [
+    "[attachments]",
+    "The user attached these files. They are saved in your working directory; open them from there:",
+    "- adjuntos/Book.pdf (application/pdf, 25000000 bytes) GRANDE",
+    "  It arrived in 3 pieces. Before anything else, join them with exactly: cat 'adjuntos/Book.pdf.part2' 'adjuntos/Book.pdf.part3' >> 'adjuntos/Book.pdf' && rm 'adjuntos/Book.pdf.part2' 'adjuntos/Book.pdf.part3'",
+    "[/attachments]",
+  ].join("\n");
+  assert.deepEqual(takeAttachments(block), {
+    text: "",
+    files: [{ name: "Book.pdf", mimeType: "application/pdf", size: 25_000_000, path: "adjuntos/Book.pdf" }],
+  });
 });
 
-test("the server refuses bad or oversized files", () => {
-  const ok = { name: "a.pdf", mimeType: "application/pdf", data: Buffer.from("hi").toString("base64") };
-  const big = (bytes) => ({ ...ok, data: "A".repeat(Math.ceil(bytes / 3) * 4) });
+test("a file in the bucket tells the agent how to download it, and the link is not replayed", () => {
+  const url = "https://ns.compat.objectstorage.mx-queretaro-1.oraclecloud.com/acp-agent-uploads/uploads/s1/id/It's.pdf?X-Amz-Signature=abc&X-Amz-Expires=3600";
+  const block = attachmentsBlock([{ name: "It's.pdf", mimeType: "application/pdf", size: 6_000_000, path: "adjuntos/It's.pdf", url }]);
+  assert.match(block, /^- adjuntos\/It's\.pdf \(application\/pdf, 6000000 bytes\) GRANDE$/m);
+  assert.ok(block.includes(`curl -fsS --create-dirs -o 'adjuntos/It'\\''s.pdf' '${url.replace("'", "'\\''")}'`));
+  assert.match(attachmentsBlock([{ name: "x.zip", mimeType: "application/zip", size: 10, path: "adjuntos/x.zip", url }]), /^- adjuntos\/x\.zip \(application\/zip, 10 bytes\) COMPRIMIDO$/m);
+  const { text, files: parsed } = takeAttachments(`Read it\n${block}`);
+  assert.equal(text, "Read it");
+  assert.deepEqual(parsed, [{ name: "It's.pdf", mimeType: "application/pdf", size: 6_000_000, path: "adjuntos/It's.pdf" }]);
+});
+
+test("the server refuses bad upload ids and file names", () => {
   assert.equal(invalidFiles([]), undefined);
-  assert.equal(invalidFiles([ok]), undefined);
-  assert.equal(invalidFiles([big(MAX_FILE_BYTES)]), undefined);
+  assert.equal(invalidFiles([{ id: "abc_DEF-123" }, { id: "x" }]), undefined);
   assert.match(invalidFiles("x").error, /invalid files/);
-  assert.equal(invalidFiles(Array(MAX_FILES + 1).fill(ok)).tooLarge, true);
-  assert.match(invalidFiles([{ ...ok, name: " " }]).error, /name/);
-  assert.match(invalidFiles([{ ...ok, mimeType: 3 }]).error, /type/);
-  assert.match(invalidFiles([{ ...ok, data: "not base64!" }]).error, /content/);
-  assert.deepEqual(invalidFiles([big(MAX_FILE_BYTES + 3)]), { error: '"a.pdf" is larger than 50 MB', tooLarge: true });
-  const third = Math.floor(MAX_MESSAGE_BYTES / 3) + 3;
-  assert.equal(invalidFiles([big(third), big(third), big(third)]).tooLarge, true);
-});
-
-test("base64 sizes", () => {
-  for (const n of [0, 1, 2, 3, 4, 1000]) assert.equal(base64Size(Buffer.alloc(n).toString("base64")), n);
+  assert.equal(invalidFiles(Array.from({ length: MAX_FILES + 1 }, (_, i) => ({ id: `f${i}` }))).tooLarge, true);
+  for (const bad of [null, {}, { id: 3 }, { id: "" }, { id: "../x" }, { id: "a".repeat(65) }]) {
+    assert.match(invalidFiles([bad]).error, /invalid file/, JSON.stringify(bad));
+  }
+  assert.match(invalidFiles([{ id: "a" }, { id: "a" }]).error, /repeated/);
+  for (const ok of ["report.pdf", "Budget (final), v2.xlsx", "It's.zip"]) assert.equal(invalidFileName(ok), undefined, ok);
+  for (const bad of [null, "", " ", ".", "..", "a/b.pdf", "a\0b", "x".repeat(201)]) assert.ok(invalidFileName(bad), String(bad));
 });

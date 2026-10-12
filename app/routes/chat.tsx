@@ -357,6 +357,7 @@ function ChatView() {
     phase,
     error,
     send,
+    upload,
     stop,
     configOptions,
     imageSupport,
@@ -548,6 +549,7 @@ function ChatView() {
                 workingDir={cwd}
                 imageSupport={imageSupport}
                 fileSupport={base !== EMBED_PREFIX}
+                onUpload={upload}
                 visionModels={visionModels}
                 configOptions={configOptions}
                 configBusy={configBusy}

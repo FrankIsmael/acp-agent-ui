@@ -151,18 +151,41 @@ template's paragraph changed, carry the change into `scripts/system-prompt.md`.
 ## Attachments
 
 Images go to the model as `image` blocks. Documents (PDF, Word, Excel, zip…, up to 5 per
-message, 50 MB each, 100 MB together) do not: a `resource` block with a `blob` is accepted by the box and never
-reaches the model. Instead the app uploads each file to the box's front, `POST /adjunto` on the
-same host and token as `ACP_WS_URL`, which writes it to the conversation's own
-`adjuntos/` folder (a second `report.pdf` becomes `report-1.pdf`). The turn then carries one
-`[attachments]` … `[/attachments]` text block with the paths, which the template's skills
-already read (`pdf-reader`, `office-reader`). The front refuses more than 12 MB per upload and
-never appends, so a bigger file goes up in 10 MB pieces: the first under the file's name, the
-rest as `<name>.part2`, `.part3`… The block then gives the agent the exact
-`cat … >> <name> && rm …` that joins them. Each line also carries the marks the template's
-`big-files` skill triggers on: `GRANDE` (over 5 MB) and `COMPRIMIDO` (an archive). Replaying a thread turns that block back into the
-file chips. Code: `app/lib/attachments.ts`, `uploadAttachment` in `app/.server/acp.ts`. The
-portfolio widget (`/embed`) does not take documents. Tests: `npm run test:attachments`.
+message, 50 MB each, 100 MB together) do not: a `resource` block with a `blob` is accepted by the
+box and never reaches the model. Instead the browser uploads each file as soon as it is
+attached (`POST /api/conversations/:id/uploads`, the raw bytes; the chip spins until it is
+done), and the message only names the uploads by id. The turn then carries one
+`[attachments]` … `[/attachments]` text block with each file's path in the conversation's
+`adjuntos/` folder, which the template's skills already read (`pdf-reader`, `office-reader`).
+Each line also carries the marks the template's `big-files` skill triggers on: `GRANDE` (over
+5 MB) and `COMPRIMIDO` (an archive). Replaying a thread turns that block back into the file
+chips. The portfolio widget (`/embed`) does not take documents.
+
+The app streams each file to the uploads bucket (`UPLOAD_*` in the app's `.env`, see
+[agent-storage.md](agent-storage.md#user-uploads)); without those variables documents cannot be
+attached. The file is not on the box yet: its line carries the exact
+`curl -fsS --create-dirs -o adjuntos/<name> '<link>'` (a one-hour presigned link), which the
+agent runs first. The app picks the path, `report-1.pdf` for a second `report.pdf` in the same
+conversation. A recreated box loses its copy, not the file: it is in the bucket.
+
+Before the bucket, the app wrote files to the box's front (`POST /adjunto`, the template's,
+same host and token as `ACP_WS_URL`), in 10 MB pieces because the front refuses more than 12 MB
+per upload, and the agent joined them with a `cat … >> <name> && rm …`. Threads from then still
+replay their file chips; nothing in the app calls `/adjunto` any more.
+
+Code: `app/.server/uploads.ts`, `app/lib/attachments.ts`, the upload route
+`app/routes/api.conversations.$id.uploads.ts`. Tests: `npm run test:attachments`.
+
+Checked end to end on 2026-10-12 (dev server, against the live box). The box runs are from
+before the fallback was removed:
+
+- Bucket: a 7,001,409-byte zip uploaded in 0.9 s; the agent ran the `curl` unprompted ("Descargado"),
+  its sha256 on the box matched the original, and it listed the zip. About 24 s for the turn.
+- Box: a 25,000,319-byte zip went up in 3 pieces; the agent ran the join command unprompted
+  ("Joining the split parts as instructed"), the file on the box matched the original's sha256,
+  the pieces were gone, and it listed the zip's contents. About 14 s for the turn. After the
+  move to upload-on-attach, a 14,000,337-byte zip (2 pieces, 8.3 s to upload) did the same in 9 s.
+- A message naming an unknown upload id answers 400.
 
 ## Reply language
 

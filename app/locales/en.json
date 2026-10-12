@@ -327,5 +327,8 @@
   "Drop the file here…": "Drop the file here…",
   "{name} is larger than {size}.": "{name} is larger than {size}.",
   "You can attach up to {count} files per message.": "You can attach up to {count} files per message.",
-  "The files of one message can add up to {size}.": "The files of one message can add up to {size}."
+  "The files of one message can add up to {size}.": "The files of one message can add up to {size}.",
+  "Uploading…": "Uploading…",
+  "Upload failed": "Upload failed",
+  "Could not upload {name}.": "Could not upload {name}."
 }

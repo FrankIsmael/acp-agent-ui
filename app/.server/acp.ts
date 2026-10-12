@@ -35,11 +35,8 @@ import { mapDataFromToolContent, mergeMapData, type MapData } from '~/lib/maps';
 import { isGenericTitle, titleFromPrompt, titleStore } from './titles';
 import {
   attachmentsBlock,
-  base64Size,
-  CHUNK_BYTES,
   takeAttachments,
   type AttachedFile,
-  type PromptFile,
 } from '~/lib/attachments';
 
 // ACP WebSocket URL; must be set or connection won't work
@@ -809,7 +806,7 @@ class GooseSession extends EventEmitter {
     text: string,
     images: PromptImage[] = [],
     channel?: ChannelTurn,
-    files: PromptFile[] = [],
+    files: AttachedFile[] = [],
   ) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions)
       return false;
@@ -840,12 +837,8 @@ class GooseSession extends EventEmitter {
       images,
       at: Date.now(),
     };
-    if (files.length > 0)
-      message.files = files.map((f) => ({
-        name: f.name,
-        mimeType: f.mimeType,
-        size: base64Size(f.data),
-      }));
+    // The links expire: the history keeps where the files are, not how to fetch them.
+    if (files.length > 0) message.files = files.map(({ url, ...f }) => f);
     if (channel) {
       message.via = channel.via;
       if (channel.from) message.from = channel.from;
@@ -876,18 +869,6 @@ class GooseSession extends EventEmitter {
         const embed = channel ? null : embedConversation(this.sessionId);
         const profile =
           embed && !embed.profiled ? await portfolioProfile() : null;
-        // Documents go to the box first: the turn only names where they are.
-        let attached: AttachedFile[] = [];
-        if (files.length > 0) {
-          try {
-            attached = await Promise.all(
-              files.map((f) => uploadAttachment(this.sessionId, f)),
-            );
-          } catch (e) {
-            throw new AttachmentError((e as Error).message);
-          }
-          message.files = attached;
-        }
         const result: any = await connection!.agent.request('session/prompt', {
           sessionId: this.sessionId,
           prompt: [
@@ -905,8 +886,9 @@ class GooseSession extends EventEmitter {
                 ]
               : []),
             { type: 'text', text },
-            ...(attached.length > 0
-              ? [{ type: 'text' as const, text: attachmentsBlock(attached) }]
+            // Documents were uploaded before the turn (app/.server/uploads.ts): it only names them.
+            ...(files.length > 0
+              ? [{ type: 'text' as const, text: attachmentsBlock(files) }]
               : []),
             ...images.map((img) => ({
               type: 'image' as const,
@@ -925,9 +907,7 @@ class GooseSession extends EventEmitter {
           error = 'The turn was stopped before it finished.';
       } catch (e) {
         error =
-          e instanceof AttachmentError
-            ? `Could not upload the file to the agent: ${e.message}`
-            : 'The response was interrupted. Reopen the thread to recover what was saved by the agent.';
+          'The response was interrupted. Reopen the thread to recover what was saved by the agent.';
 
         this.emit('event', { type: 'error', message: error });
       } finally {
@@ -1242,7 +1222,7 @@ export function askConversation(
   id: string,
   text: string,
   images: PromptImage[] = [],
-  files: PromptFile[] = [],
+  files: AttachedFile[] = [],
 ) {
   const s = getConversation(id);
   if (!s) return false;
@@ -1250,69 +1230,6 @@ export function askConversation(
   return s.ask(text, images, undefined, files);
 }
 
-class AttachmentError extends Error {}
-
-/**
- * Writes a document into the conversation's `adjuntos/` folder on the box through the
- * front's `POST /adjunto` (same host as the ACP socket, same token). Each conversation has its
- * own home there, so the front needs the session id. It never overwrites: a second
- * `report.pdf` lands as `report-1.pdf`, and the path it returns is the one to give the agent.
- * The front takes at most 12 MB per upload, so a bigger file goes up in `CHUNK_BYTES` pieces:
- * the first under the file's name, the rest as `<that name>.part2`…, which the agent joins.
- */
-async function uploadAttachment(
-  sessionId: string,
-  file: PromptFile,
-): Promise<AttachedFile> {
-  const bytes = Buffer.from(file.data, 'base64');
-  const chunks: Buffer<ArrayBuffer>[] = [];
-  for (let at = 0; at === 0 || at < bytes.length; at += CHUNK_BYTES)
-    chunks.push(bytes.subarray(at, at + CHUNK_BYTES));
-  const path = await uploadChunk(sessionId, file.name, chunks[0]);
-  const parts: string[] = [];
-  const name = path.split('/').pop()!;
-  for (let i = 1; i < chunks.length; i++)
-    parts.push(await uploadChunk(sessionId, `${name}.part${i + 1}`, chunks[i]));
-  console.log(
-    `[acp] adjunto ${path} (${bytes.length} bytes${parts.length ? `, ${chunks.length} pieces` : ''})`,
-  );
-  return {
-    name: file.name,
-    mimeType: file.mimeType,
-    size: bytes.length,
-    path,
-    ...(parts.length ? { parts } : {}),
-  };
-}
-
-/** One `POST /adjunto`; returns the path the front chose. */
-async function uploadChunk(
-  sessionId: string,
-  name: string,
-  bytes: Buffer<ArrayBuffer>,
-) {
-  const url = new URL(WS_URL);
-  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  url.pathname = '/adjunto';
-  url.search = '';
-  url.searchParams.set('sessionId', sessionId);
-  url.searchParams.set('nombre', name);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/octet-stream',
-      ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
-    },
-    body: bytes,
-    signal: AbortSignal.timeout(60_000),
-  }).catch((e: Error) => {
-    throw new Error(`${name}: ${e.message}`);
-  });
-  const body: any = await response.json().catch(() => null);
-  if (!response.ok || typeof body?.ruta !== 'string')
-    throw new Error(`${name}: ${body?.error ?? `HTTP ${response.status}`}`);
-  return body.ruta as string;
-}
 /**
  * A turn requested from outside the browser (WhatsApp...). Goes to the open thread, or opens one if not available: a single live session, two clients, one conversation. Channels take turns: if the agent is answering (to the web chat or another group), the next one waits for it to finish.
  * Resolves with the full agent's response text and images returned by its tools.

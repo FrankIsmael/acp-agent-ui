@@ -21,6 +21,10 @@ export default [
     'api/conversations/:id/messages',
     'routes/api.conversations.$id.messages.ts',
   ),
+  route(
+    'api/conversations/:id/uploads',
+    'routes/api.conversations.$id.uploads.ts',
+  ),
   route('api/conversations/:id/close', 'routes/api.conversations.$id.close.ts'),
   route(
     'api/conversations/:id/cancel',

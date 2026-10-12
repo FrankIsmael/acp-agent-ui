@@ -327,5 +327,8 @@
   "Drop the file here…": "Suelta el archivo aquí…",
   "{name} is larger than {size}.": "{name} pesa más de {size}.",
   "You can attach up to {count} files per message.": "Puedes adjuntar hasta {count} archivos por mensaje.",
-  "The files of one message can add up to {size}.": "Los archivos de un mensaje pueden sumar hasta {size}."
+  "The files of one message can add up to {size}.": "Los archivos de un mensaje pueden sumar hasta {size}.",
+  "Uploading…": "Subiendo…",
+  "Upload failed": "No se pudo subir",
+  "Could not upload {name}.": "No se pudo subir {name}."
 }
