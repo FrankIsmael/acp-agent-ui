@@ -38,7 +38,8 @@ import { fileLabel, formatSize, splitFiles } from "~/lib/files";
 import type { MapPlace } from "~/lib/maps";
 import { ConnectingState } from "~/components/ConnectingState";
 import { PermissionCard } from "~/components/PermissionCard";
-import { useAcpStream, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
+import { useAcpStream, type PromptImage, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
+import type { UploadedFile } from "~/lib/attachments";
 import { config, loadConversation, getMessages } from "~/.server/acp";
 import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
 import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
@@ -347,8 +348,11 @@ function ChatView() {
   const location = useLocation();
   const navigate = useNavigate();
   const base = useChatBase();
-  const firstMessage = (location.state as { firstMessage?: string } | null)
-    ?.firstMessage;
+  const firstMessage = (
+    location.state as {
+      firstMessage?: { text: string; images?: PromptImage[]; files?: UploadedFile[] };
+    } | null
+  )?.firstMessage;
   const {
     turns,
     permissions,
@@ -429,12 +433,12 @@ function ChatView() {
   const scrollContent = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
 
-  // The first message comes from the Hub; it is sent only once and as soon as the agent has finished connecting.
+  // The first message comes from the Hub (its documents already uploaded); it is sent only once and as soon as the agent has finished connecting.
   useEffect(() => {
     if (!firstMessage || sentFirst.current || !connected) return;
     sentFirst.current = true;
     navigate(location.pathname, { replace: true, state: null });
-    void send(firstMessage);
+    void send(firstMessage.text, firstMessage.images, firstMessage.files);
   }, [firstMessage, connected, send]);
 
   useEffect(() => {

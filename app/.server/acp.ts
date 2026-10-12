@@ -1338,6 +1338,19 @@ export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
 export function getLastConfigOptions() {
   return lastConfigOptions;
 }
+/** What the agent accepted last time it connected, so the Hub can offer images before a session exists. */
+export function getLastAttachmentSupport() {
+  const model = lastConfigOptions.find((o) => o.category === 'model' || o.id === 'model');
+  const raw = (model?.options ?? []) as any[];
+  const values: string[] =
+    raw.length && 'group' in (raw[0] ?? {})
+      ? raw.flatMap((g) => (g.options ?? []).map((v: any) => v.value))
+      : raw.map((v) => v.value);
+  return {
+    imageSupport: agentCapabilities.promptCapabilities?.image === true,
+    visionModels: values.filter(isVisionModel),
+  };
+}
 // The visible URL never includes agent credentials.
 const publicWsUrl = (() => {
   try {

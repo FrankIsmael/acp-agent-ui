@@ -4,15 +4,16 @@
  */
 import { useI18n } from '~/i18n';
 import { demoEnabled } from '~/.server/demo';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { MainPanelLayout } from '~/components/Layout/MainPanelLayout';
 import { ChatInputCard } from '~/components/ChatInputCard';
 import { ChatInput } from '~/components/ChatInput';
 import type { Route } from './+types/hub';
-import type { ConfigOption } from '~/hooks/useAcpStream';
+import { uploadFile, type ConfigOption, type PromptImage } from '~/hooks/useAcpStream';
+import type { UploadedFile } from '~/lib/attachments';
 import { readModelPreference } from '~/.server/model-preference';
-import { config, getLastConfigOptions } from '~/.server/acp';
+import { config, getLastAttachmentSupport, getLastConfigOptions } from '~/.server/acp';
 import { EMBED_PREFIX, useChatBase } from '~/lib/embed';
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -23,6 +24,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
   return {
     cwd: config.cwd,
+    ...getLastAttachmentSupport(),
     model: model
       ? ({
           ...model,
@@ -68,6 +70,8 @@ export default function Hub({
 }: {
   loaderData: {
     cwd: string;
+    imageSupport: boolean;
+    visionModels: string[];
     model: ConfigOption | null;
     preference: string | null;
   };
@@ -114,7 +118,16 @@ export default function Hub({
     }
   };
 
-  const handleSubmit = async (text: string) => {
+  // There is no conversation to upload to yet: documents wait here, keyed by a local id,
+  // and go up once the conversation exists, right before navigating to it.
+  const pending = useRef(new Map<string, File>());
+  const holdFile = async (file: File): Promise<UploadedFile> => {
+    const id = `local-${Math.random().toString(36).slice(2)}`;
+    pending.current.set(id, file);
+    return { id, name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size };
+  };
+
+  const handleSubmit = async (text: string, images: PromptImage[] = [], held: UploadedFile[] = []) => {
     if (creating || configBusy) return;
     setCreating(true);
     setError(null);
@@ -128,8 +141,14 @@ export default function Hub({
       if (!res.ok)
         throw new Error(body.error ?? t('could not open the conversation'));
       window.dispatchEvent(new Event('conversations-changed'));
+      const files = await Promise.all(
+        held.map((f) =>
+          uploadFile(body.conversationId, pending.current.get(f.id)!, t('Could not upload {name}.', { name: f.name })),
+        ),
+      );
+      pending.current.clear();
       navigate(`${base}/c/${encodeURIComponent(body.conversationId)}`, {
-        state: { firstMessage: text },
+        state: { firstMessage: { text, images, files } },
       });
     } catch (e) {
       setError((e as Error).message);
@@ -160,6 +179,10 @@ export default function Hub({
               configBusy={configBusy}
               onConfigChange={chooseModel}
               workingDir={loaderData.cwd}
+              imageSupport={loaderData.imageSupport}
+              visionModels={loaderData.visionModels}
+              fileSupport={!embedded}
+              onUpload={holdFile}
               placeholder={t('Ask your agent something…')}
             />
           </ChatInputCard>

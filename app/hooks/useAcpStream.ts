@@ -8,6 +8,21 @@ import type { PendingPermission } from '~/.server/permissions';
 import type { MapData } from '~/lib/maps';
 import type { AttachedFile, UploadedFile } from '~/lib/attachments';
 
+/** One document, before the message: the raw bytes to the server, which answers its id. */
+export async function uploadFile(conversationId: string, file: File, fallbackError: string): Promise<UploadedFile> {
+  const res = await fetch(
+    `/api/conversations/${conversationId}/uploads?name=${encodeURIComponent(file.name)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': file.type || 'application/octet-stream' },
+      body: file,
+    },
+  ).catch(() => null);
+  const body = await res?.json().catch(() => null);
+  if (!res?.ok || typeof body?.id !== 'string') throw new Error(body?.error ?? fallbackError);
+  return body as UploadedFile;
+}
+
 /** Por dónde va la conexión con el agente antes del primer `started`. */
 export type ConnectPhase = 'waking' | 'connecting' | 'session';
 
@@ -237,22 +252,9 @@ export function useAcpStream(conversationId: string, initial: Turn[] = []) {
     [conversationId, t],
   );
 
-  /** One document, before the message: the raw bytes to the server, which answers its id. */
   const upload = useCallback(
-    async (file: File): Promise<UploadedFile> => {
-      const res = await fetch(
-        `/api/conversations/${conversationId}/uploads?name=${encodeURIComponent(file.name)}`,
-        {
-          method: 'POST',
-          headers: { 'content-type': file.type || 'application/octet-stream' },
-          body: file,
-        },
-      ).catch(() => null);
-      const body = await res?.json().catch(() => null);
-      if (!res?.ok || typeof body?.id !== 'string')
-        throw new Error(body?.error ?? t('Could not upload {name}.', { name: file.name }));
-      return body as UploadedFile;
-    },
+    (file: File) =>
+      uploadFile(conversationId, file, t('Could not upload {name}.', { name: file.name })),
     [conversationId, t],
   );
 
