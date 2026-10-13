@@ -6,7 +6,7 @@ import {
 } from '@react-router/dev/routes';
 
 export default [
-  // Rutas de recurso: la API que consume el navegador (SSE incluido).
+  // Resource routes: the API consumed by the browser (including SSE).
   route('api/demo', 'routes/api.demo.ts'),
   route('api/model-preference', 'routes/api.model-preference.ts'),
   route('api/extensions', 'routes/api.extensions.ts'),
@@ -39,7 +39,7 @@ export default [
     'routes/api.conversations.$id.permissions.ts',
   ),
 
-  // Mismo hub y chat, sin cascarón: para incrustar en un iframe (ver lib/embed.ts).
+  // Same hub and chat, without shell: to embed in an iframe (see lib/embed.ts).
   route('embed', 'routes/_embed.tsx', [
     index('routes/hub.tsx', { id: 'embed/hub' }),
     route('c/:id', 'routes/chat.tsx', { id: 'embed/chat' }),

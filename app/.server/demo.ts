@@ -241,11 +241,11 @@ export function chargeDemoOutput(id: string, tokens: number) {
     publicTokens() >= demoLimits().globalTokens
   );
 }
-/** A WhatsApp number cannot be relinked under fresh cookies to reset its allowance. */
+/** A WhatsApp number cannot be relinked under fresh cookies to reset its allowance. Invited guests take it over. */
 export function claimDemoNumber(id: string, number: string) {
   demoDb()
     .prepare(
-      'INSERT OR IGNORE INTO demo_linked_numbers(number, owner) VALUES (?, ?)',
+      `INSERT ${isFullAccess(id) ? 'OR REPLACE' : 'OR IGNORE'} INTO demo_linked_numbers(number, owner) VALUES (?, ?)`,
     )
     .run(hash(number), id);
   const row = demoDb()
@@ -276,4 +276,18 @@ export function demoConversation(id: string, create: () => Promise<string>) {
     .finally(() => creating.delete(id));
   creating.set(id, result);
   return result;
+}
+/** Channel turns (WhatsApp) share one thread. Invited guests keep it in `conversation`, which their web chats leave unused. */
+export async function demoChannelConversation(
+  id: string,
+  create: () => Promise<string>,
+) {
+  if (!isFullAccess(id)) return demoConversation(id, create);
+  const existing = demoGuest(id).conversation;
+  if (existing) return existing;
+  const conversation = await create();
+  demoDb()
+    .prepare('UPDATE demo_guests SET conversation = ? WHERE id = ?')
+    .run(conversation, id);
+  return conversation;
 }

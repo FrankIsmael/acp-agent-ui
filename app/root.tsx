@@ -31,12 +31,7 @@ export function loader({ request }: Route.LoaderArgs) {
   };
 }
 
-/**
- * El Desktop aplica los tokens del tema con JS después de montar. Con SSR eso
- * parpadea, y peor: escribir la clase en <html> antes de hidratar desajusta el
- * HTML del servidor y React tira la página. Los tokens salen como CSS estático
- * y la clase la pone el servidor leyendo la cookie.
- */
+// Theme tokens are static CSS; server sets the theme class on <html> from cookies to prevent SSR mismatch.
 function tokensToCss(): string {
   const block = (selector: string, tokens: Record<string, string>) =>
     `${selector}{${Object.entries(tokens)
@@ -46,7 +41,7 @@ function tokensToCss(): string {
     block(':root', themes.light.tokens),
     block('.dark', themes.dark.tokens),
     block('.aura', themes.aura.tokens),
-    // Sin clase explícita manda la preferencia del sistema.
+    // Without an explicit class, the system preference is used.
     `@media (prefers-color-scheme: dark){${block(
       ':root:not(.light):not(.dark):not(.aura)',
       themes.dark.tokens,
@@ -59,8 +54,8 @@ export function links() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  // Layout también renderiza las páginas de error, donde el loader pudo no
-  // haber corrido; ahí se cae al tema del sistema.
+  // Layout also renders error pages, where the loader may not have run;
+  // in those cases it falls back to the system theme.
   const data = useRouteLoaderData<typeof loader>('root');
   const locale = data?.locale ?? DEFAULT_LOCALE;
   return (

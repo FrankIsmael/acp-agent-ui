@@ -12,7 +12,7 @@ import {
   estimateTokens,
   isFullAccess,
   demoMessage,
-  demoConversation,
+  demoChannelConversation,
 } from './demo';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
@@ -1252,7 +1252,9 @@ export function askFromChannel(
 
       let session: GooseSession | undefined;
       if (owner) {
-        const id = await demoConversation(owner, () => createConversation());
+        const id = await demoChannelConversation(owner, () =>
+          createConversation(),
+        );
         session = await loadConversation(id);
       } else {
         session = active && !active.closed && active.ready ? active : undefined;

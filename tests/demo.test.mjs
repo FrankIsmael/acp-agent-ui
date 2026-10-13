@@ -169,6 +169,16 @@ test('full access skips limits, opens many conversations and stays private', asy
   policy.assertDemoOwner(id, 'full-2');
   assert.throws(() => policy.assertDemoOwner(fresh.id, 'full-2'), (error) => error.status === 404);
 });
+test('full access reuses one WhatsApp thread and takes over a number from a public demo', async () => {
+  const { id } = redeem(invite('Channel'));
+  const fresh = guest();
+  assert.equal(policy.claimDemoNumber(fresh.id, '5215500000000'), true);
+  assert.equal(policy.claimDemoNumber(id, '5215500000000'), true);
+  assert.equal(policy.claimDemoNumber(fresh.id, '5215500000000'), false);
+  assert.equal(await policy.demoChannelConversation(id, async () => 'wa-1'), 'wa-1');
+  assert.equal(await policy.demoChannelConversation(id, async () => 'wa-2'), 'wa-1');
+  policy.assertDemoOwner(id, 'wa-1');
+});
 test('expired or revoked invites fall back to demo limits', () => {
   const url = invite('Later', '--days', '1');
   const { id } = redeem(url);
