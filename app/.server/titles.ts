@@ -7,8 +7,11 @@ import { dirname, resolve } from 'node:path';
 // lost. Here we extract a title from the first human message and store it in the UI box,
 // because there is no ACP method to set it on the agent, and `session/list` would still say `New Chat`.
 
+export const DEFAULT_TITLE = 'New conversation';
+
 const GENERIC = new Set([
   '',
+  DEFAULT_TITLE.toLowerCase(),
   'new chat',
   'new session',
   'untitled',

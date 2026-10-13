@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { TitleStore, isGenericTitle, titleFromPrompt } from "../app/.server/titles.ts";
 
 test("generic titles are detected regardless of case or language", () => {
-  for (const t of ["New Chat", "new chat ", "Nueva conversación", "", undefined, null]) assert.ok(isGenericTitle(t), String(t));
+  for (const t of ["New Chat", "new chat ", "New conversation", "Nueva conversación", "", undefined, null]) assert.ok(isGenericTitle(t), String(t));
   assert.ok(!isGenericTitle("Arregla el login"));
 });
 

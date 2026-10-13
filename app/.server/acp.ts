@@ -33,7 +33,7 @@ import { portfolioProfile } from './portfolio-profile';
 import { PermissionQueue, type PendingPermission } from './permissions';
 import { extensionStore, summarizeExtensions } from './extensions';
 import { mapDataFromToolContent, mergeMapData, type MapData } from '~/lib/maps';
-import { isGenericTitle, titleFromPrompt, titleStore } from './titles';
+import { DEFAULT_TITLE, isGenericTitle, titleFromPrompt, titleStore } from './titles';
 import {
   attachmentsBlock,
   takeAttachments,
@@ -457,7 +457,7 @@ class GooseSession extends EventEmitter {
   cost = 0;
   tokens = 0;
   contextSize = 0;
-  title = 'New conversation';
+  title = DEFAULT_TITLE;
   cwd: string;
   configOptions: ConfigOption[] = [];
   imageSupport = false;
@@ -1029,8 +1029,17 @@ function remember(s: GooseSession) {
   );
 }
 
+// A thread nobody wrote in can never get a title: it stays hidden unless it's the one open now.
+function isEmpty(c: ConversationSummary) {
+  return (
+    c.messageCount === 0 &&
+    c.title === DEFAULT_TITLE &&
+    !(active?.sessionId === c.id && !active.closed)
+  );
+}
+
 export function getHistorySnapshot() {
-  const conversations = history.map((c) => ({
+  const conversations = history.filter((c) => !isEmpty(c)).map((c) => ({
     ...c,
     busy: active?.sessionId === c.id && !active.closed ? active.busy : false,
     canOpen:
@@ -1070,7 +1079,7 @@ export async function listConversations() {
                   session.title,
                   titleStore().get(session.sessionId),
                   old?.title,
-                ].find((t) => !isGenericTitle(t)) || 'New conversation';
+                ].find((t) => !isGenericTitle(t)) || DEFAULT_TITLE;
               rows.push({
                 id: session.sessionId,
                 title,
