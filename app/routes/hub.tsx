@@ -10,10 +10,18 @@ import { MainPanelLayout } from '~/components/Layout/MainPanelLayout';
 import { ChatInputCard } from '~/components/ChatInputCard';
 import { ChatInput } from '~/components/ChatInput';
 import type { Route } from './+types/hub';
-import { uploadFile, type ConfigOption, type PromptImage } from '~/hooks/useAcpStream';
+import {
+  uploadFile,
+  type ConfigOption,
+  type PromptImage,
+} from '~/hooks/useAcpStream';
 import type { UploadedFile } from '~/lib/attachments';
 import { readModelPreference } from '~/.server/model-preference';
-import { config, getLastAttachmentSupport, getLastConfigOptions } from '~/.server/acp';
+import {
+  config,
+  getLastAttachmentSupport,
+  getLastConfigOptions,
+} from '~/.server/acp';
 import { EMBED_PREFIX, useChatBase } from '~/lib/embed';
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -42,8 +50,8 @@ const STARTERS = [
   'I want to go from Mexico City to Teotihuacán tomorrow. What is the best route and what is the weather forecast? How to sleep there?',
   'Generate an illustration of the Palacio de Bellas Artes at sunset',
   'Build a one-page itinerary for a weekend in Mexico City',
-  // 'Make a spreadsheet with the budget for a 3-day trip to Mexico City',
-  // 'Make a 5-slide deck about the best Mexico City neighborhoods to visit',
+  'Make a spreadsheet with the budget for a 3-day trip to Mexico City',
+  'Make a 5-slide deck about the best Mexico City neighborhoods to visit',
 ];
 
 function useClock() {
@@ -124,10 +132,19 @@ export default function Hub({
   const holdFile = async (file: File): Promise<UploadedFile> => {
     const id = `local-${Math.random().toString(36).slice(2)}`;
     pending.current.set(id, file);
-    return { id, name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size };
+    return {
+      id,
+      name: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+    };
   };
 
-  const handleSubmit = async (text: string, images: PromptImage[] = [], held: UploadedFile[] = []) => {
+  const handleSubmit = async (
+    text: string,
+    images: PromptImage[] = [],
+    held: UploadedFile[] = [],
+  ) => {
     if (creating || configBusy) return;
     setCreating(true);
     setError(null);
@@ -143,7 +160,11 @@ export default function Hub({
       window.dispatchEvent(new Event('conversations-changed'));
       const files = await Promise.all(
         held.map((f) =>
-          uploadFile(body.conversationId, pending.current.get(f.id)!, t('Could not upload {name}.', { name: f.name })),
+          uploadFile(
+            body.conversationId,
+            pending.current.get(f.id)!,
+            t('Could not upload {name}.', { name: f.name }),
+          ),
         ),
       );
       pending.current.clear();
