@@ -1,11 +1,11 @@
-import { useI18n } from "~/i18n";
-import { createTranslator, localeFromCookies } from "~/lib/i18n";
+import { useI18n } from '~/i18n';
+import { createTranslator, localeFromCookies } from '~/lib/i18n';
 /**
  * The conversation. The loader delivers already occurred messages (in case
  * you reload), and from there on the thread is fed by SSE.
  */
-import { Fragment, useEffect, useMemo, useRef } from "react";
-import { motion } from "motion/react";
+import { Fragment, useEffect, useMemo, useRef } from 'react';
+import { motion } from 'motion/react';
 import {
   Brain,
   Check,
@@ -22,49 +22,54 @@ import {
   Wrench,
   X,
   type LucideIcon,
-} from "lucide-react";
-import { useLocation, useLoaderData, useNavigate, Link } from "react-router";
-import type { Route } from "./+types/chat";
-import { MainPanelLayout } from "~/components/Layout/MainPanelLayout";
-import { ChatInputCard } from "~/components/ChatInputCard";
-import { ChatInput } from "~/components/ChatInput";
-import { Markdown } from "~/components/Markdown";
-import { MessageUsageStats } from "~/components/MessageUsageStats";
-import { MapCard } from "~/components/MapCard";
-import { WeatherCard } from "~/components/WeatherCard";
-import { RouteCard } from "~/components/RouteCard";
-import { FileCard } from "~/components/FileCard";
-import { fileLabel, formatSize, splitFiles } from "~/lib/files";
-import type { MapPlace } from "~/lib/maps";
-import { ConnectingState } from "~/components/ConnectingState";
-import { PermissionCard } from "~/components/PermissionCard";
-import { useAcpStream, type PromptImage, type ToolEntry, type Turn } from "~/hooks/useAcpStream";
-import type { UploadedFile } from "~/lib/attachments";
-import { config, loadConversation, getMessages } from "~/.server/acp";
-import { ArtifactCard } from "~/components/artifacts/ArtifactCard";
-import { ArtifactPanel } from "~/components/artifacts/ArtifactPanel";
-import { useArtifacts } from "~/components/artifacts/ArtifactContext";
-import { EMBED_PREFIX, useChatBase } from "~/lib/embed";
-import { MOBILE_BREAKPOINT } from "~/hooks/useIsMobile";
+} from 'lucide-react';
+import { useLocation, useLoaderData, useNavigate, Link } from 'react-router';
+import type { Route } from './+types/chat';
+import { MainPanelLayout } from '~/components/Layout/MainPanelLayout';
+import { ChatInputCard } from '~/components/ChatInputCard';
+import { ChatInput } from '~/components/ChatInput';
+import { Markdown } from '~/components/Markdown';
+import { MessageUsageStats } from '~/components/MessageUsageStats';
+import { MapCard } from '~/components/MapCard';
+import { WeatherCard } from '~/components/WeatherCard';
+import { RouteCard } from '~/components/RouteCard';
+import { FileCard } from '~/components/FileCard';
+import { fileLabel, formatSize, splitFiles } from '~/lib/files';
+import type { MapPlace } from '~/lib/maps';
+import { ConnectingState } from '~/components/ConnectingState';
+import { PermissionCard } from '~/components/PermissionCard';
+import {
+  useAcpStream,
+  type PromptImage,
+  type ToolEntry,
+  type Turn,
+} from '~/hooks/useAcpStream';
+import type { UploadedFile } from '~/lib/attachments';
+import { config, loadConversation, getMessages } from '~/.server/acp';
+import { ArtifactCard } from '~/components/artifacts/ArtifactCard';
+import { ArtifactPanel } from '~/components/artifacts/ArtifactPanel';
+import { useArtifacts } from '~/components/artifacts/ArtifactContext';
+import { EMBED_PREFIX, useChatBase } from '~/lib/embed';
+import { MOBILE_BREAKPOINT } from '~/hooks/useIsMobile';
 import {
   artifactKey,
   parseArtifacts,
   type Artifact,
   type ArtifactPart,
-} from "~/lib/artifacts";
+} from '~/lib/artifacts';
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const t = createTranslator(localeFromCookies(request.headers.get("cookie")));
-  const tail = new URL(request.url).searchParams.get("tail");
+  const t = createTranslator(localeFromCookies(request.headers.get('cookie')));
+  const tail = new URL(request.url).searchParams.get('tail');
   const replayTail = tail === null ? undefined : Number(tail);
   if (
     replayTail !== undefined &&
     (!Number.isSafeInteger(replayTail) || replayTail < 1 || replayTail > 1000)
   )
-    throw new Response(t("Invalid history tail"), { status: 400 });
+    throw new Response(t('Invalid history tail'), { status: 400 });
   const conversation = await loadConversation(params.id, { replayTail });
   if (!conversation) {
-    throw new Response(t("That conversation no longer exists"), {
+    throw new Response(t('That conversation no longer exists'), {
       status: 404,
     });
   }
@@ -77,7 +82,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       role: m.role,
       text: m.text,
       images: m.images,
-      files: m.files?.map(({ name, mimeType, size }) => ({ name, mimeType, size })),
+      files: m.files?.map(({ name, mimeType, size }) => ({
+        name,
+        mimeType,
+        size,
+      })),
       via: m.via,
       from: m.from,
       thought: m.thought,
@@ -104,8 +113,8 @@ function Bubble({
   knownPlaces: MapPlace[];
 }) {
   const { t, locale } = useI18n();
-  const CHANNEL_LABEL: Record<string, string> = { whatsapp: t("via WhatsApp") };
-  if (turn.role === "user") {
+  const CHANNEL_LABEL: Record<string, string> = { whatsapp: t('via WhatsApp') };
+  if (turn.role === 'user') {
     return (
       <div className="flex flex-col items-end gap-2">
         {turn.via && (
@@ -121,7 +130,7 @@ function Bubble({
               <li key={i}>
                 <img
                   src={`data:${img.mimeType};base64,${img.data}`}
-                  alt={img.name ?? t("Attached image")}
+                  alt={img.name ?? t('Attached image')}
                   title={img.name}
                   className="h-24 w-24 rounded-xl border border-border-secondary object-cover"
                 />
@@ -137,18 +146,22 @@ function Bubble({
                 className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border-secondary bg-background-primary px-3 py-2 text-xs"
               >
                 <FileText className="h-4 w-4 shrink-0 text-text-secondary" />
-                <span className="min-w-0 truncate font-medium text-text-primary" title={file.name}>
+                <span
+                  className="min-w-0 truncate font-medium text-text-primary"
+                  title={file.name}
+                >
                   {file.name}
                 </span>
                 <span className="shrink-0 text-text-tertiary">
-                  {fileLabel({ name: file.name, mime: file.mimeType })} · {formatSize(file.size, locale)}
+                  {fileLabel({ name: file.name, mime: file.mimeType })} ·{' '}
+                  {formatSize(file.size, locale)}
                 </span>
               </li>
             ))}
           </ul>
         )}
         {turn.text && (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
+          <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-background-inverse px-4 py-2.5 text-sm text-text-inverse">
             {turn.text}
           </div>
         )}
@@ -163,7 +176,7 @@ function Bubble({
             <li key={i}>
               <img
                 src={`data:${img.mimeType};base64,${img.data}`}
-                alt={img.name ?? t("Generated image")}
+                alt={img.name ?? t('Generated image')}
                 className="max-h-80 max-w-full rounded-xl border border-border-secondary object-contain"
               />
             </li>
@@ -173,7 +186,7 @@ function Bubble({
       {turn.thought && (
         <details className="mb-3 text-xs text-text-secondary">
           <summary className="cursor-pointer select-none">
-            {t("Thinking…")}
+            {t('Thinking…')}
           </summary>
           <p className="mt-2 whitespace-pre-wrap border-l-2 border-border-secondary pl-3">
             {turn.thought}
@@ -194,11 +207,11 @@ function Bubble({
         <RouteCard routes={turn.map.routes} />
       )}
       {parts.map((part, index) =>
-        part.kind === "text" ? (
+        part.kind === 'text' ? (
           <Fragment key={index}>
             {splitFiles(part.text, streaming && index === parts.length - 1).map(
               (piece, pieceIndex) =>
-                piece.kind === "text" ? (
+                piece.kind === 'text' ? (
                   <Markdown key={pieceIndex}>{piece.text}</Markdown>
                 ) : (
                   <FileCard key={pieceIndex} file={piece.file} />
@@ -239,13 +252,13 @@ const KIND_ICON: Record<string, LucideIcon> = {
 };
 
 function StatusDot({ status }: { status: string }) {
-  if (status === "in_progress") {
+  if (status === 'in_progress') {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-text-primary" />;
   }
-  if (status === "completed") {
+  if (status === 'completed') {
     return <Check className="h-3.5 w-3.5 text-text-success" strokeWidth={3} />;
   }
-  if (status === "failed") {
+  if (status === 'failed') {
     return <X className="h-3.5 w-3.5 text-text-danger" strokeWidth={3} />;
   }
   return <span className="h-1.5 w-1.5 rounded-full bg-border-primary" />;
@@ -254,26 +267,26 @@ function StatusDot({ status }: { status: string }) {
 function ToolRow({ tool }: { tool: ToolEntry }) {
   const { t } = useI18n();
   const KIND_LABEL: Record<string, string> = {
-    read: t("Read"),
-    edit: t("Edit"),
-    delete: t("Delete"),
-    move: t("Move"),
-    search: t("Search"),
-    execute: t("Execute"),
-    think: t("Think"),
-    fetch: t("Fetch"),
-    other: t("Tool"),
+    read: t('Read'),
+    edit: t('Edit'),
+    delete: t('Delete'),
+    move: t('Move'),
+    search: t('Search'),
+    execute: t('Execute'),
+    think: t('Think'),
+    fetch: t('Fetch'),
+    other: t('Tool'),
   };
   const STATUS_LABEL: Record<string, string> = {
-    pending: t("Queued"),
-    in_progress: t("Running"),
-    completed: t("Done"),
-    failed: t("Failed"),
+    pending: t('Queued'),
+    in_progress: t('Running'),
+    completed: t('Done'),
+    failed: t('Failed'),
   };
-  const status = tool.status ?? "pending";
-  const running = status === "in_progress";
-  const failed = status === "failed";
-  const kind = tool.kind ?? "other";
+  const status = tool.status ?? 'pending';
+  const running = status === 'in_progress';
+  const failed = status === 'failed';
+  const kind = tool.kind ?? 'other';
   const Icon = KIND_ICON[kind] ?? Wrench;
   // Only the end of the path matters (the file), not the prefix: it is truncated from the left
   // so that `…/routes/chat.tsx` remains readable on mobile.
@@ -284,13 +297,13 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
       layout
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: "easeOut" }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
       className={`group flex min-w-0 items-center gap-2.5 px-3 py-2 transition-colors ${
         failed
-          ? "bg-background-danger/40"
+          ? 'bg-background-danger/40'
           : running
-            ? "bg-background-secondary/60"
-            : ""
+            ? 'bg-background-secondary/60'
+            : ''
       }`}
       title={
         path
@@ -301,10 +314,10 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
       <span
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
           failed
-            ? "border-border-danger text-text-danger"
+            ? 'border-border-danger text-text-danger'
             : running
-              ? "border-border-primary text-text-primary"
-              : "border-border-secondary text-text-tertiary"
+              ? 'border-border-primary text-text-primary'
+              : 'border-border-secondary text-text-tertiary'
         }`}
         aria-hidden
       >
@@ -313,7 +326,7 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
 
       <div className="flex min-w-0 flex-1 flex-col leading-tight">
         <span
-          className={`truncate text-xs ${failed ? "text-text-danger" : "text-text-primary"}`}
+          className={`truncate text-xs ${failed ? 'text-text-danger' : 'text-text-primary'}`}
         >
           {tool.title ?? tool.id}
         </span>
@@ -350,7 +363,11 @@ function ChatView() {
   const base = useChatBase();
   const firstMessage = (
     location.state as {
-      firstMessage?: { text: string; images?: PromptImage[]; files?: UploadedFile[] };
+      firstMessage?: {
+        text: string;
+        images?: PromptImage[];
+        files?: UploadedFile[];
+      };
     } | null
   )?.firstMessage;
   const {
@@ -373,7 +390,7 @@ function ChatView() {
   const parsedTurns = useMemo(
     () =>
       turns.map((turn, index) =>
-        turn.role === "assistant"
+        turn.role === 'assistant'
           ? parseArtifacts(turn.text, busy && index === turns.length - 1)
           : [],
       ),
@@ -389,7 +406,7 @@ function ChatView() {
     () =>
       parsedTurns.flatMap((parts, turnIndex) =>
         parts.flatMap((part): Artifact[] =>
-          part.kind === "artifact"
+          part.kind === 'artifact'
             ? [
                 {
                   ...part.artifact,
@@ -414,7 +431,9 @@ function ChatView() {
     generated.forEach((artifact) => seen.current.add(artifact.key));
     // Once closed, further tokens must not reopen the panel. A new revision can.
     // On mobile the panel covers the chat, so it only opens from the artifact card.
-    const mobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`).matches;
+    const mobile = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT - 1}px)`,
+    ).matches;
     if (additions.length && !mobile) open(additions[additions.length - 1].key);
   }, [generated, ready, ingest, open]);
   const conversationArtifacts = artifacts.filter(
@@ -468,13 +487,13 @@ function ChatView() {
                 className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-background-secondary"
               >
                 <PanelRightOpen className="h-4 w-4" />
-                {t("Artifacts ·")} {conversationArtifacts.length}
+                {t('Artifacts ·')} {conversationArtifacts.length}
               </button>
             </div>
           )}
           <div
             ref={scrollArea}
-            aria-label={t("Messages")}
+            aria-label={t('Messages')}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             onScroll={(event) => {
               const area = event.currentTarget;
@@ -488,7 +507,7 @@ function ChatView() {
             >
               {replayLimited && (
                 <p className="text-center text-xs text-text-secondary">
-                  {t("Showing the latest turns.")}{" "}
+                  {t('Showing the latest turns.')}{' '}
                   <Link
                     to={`${base}/c/${encodeURIComponent(id)}`}
                     aria-disabled={busy}
@@ -497,7 +516,7 @@ function ChatView() {
                     }}
                     className="underline"
                   >
-                    {t("Load full history")}
+                    {t('Load full history')}
                   </Link>
                 </p>
               )}
@@ -524,7 +543,7 @@ function ChatView() {
                 />
               ))}
 
-              {busy && turns[turns.length - 1]?.role === "user" && (
+              {busy && turns[turns.length - 1]?.role === 'user' && (
                 <div className="flex gap-1">
                   {[0, 1, 2].map((i) => (
                     <span
@@ -561,8 +580,8 @@ function ChatView() {
                 disabled={!connected}
                 placeholder={
                   connected
-                    ? t("Continue the conversation…")
-                    : t("Connecting to the agent…")
+                    ? t('Continue the conversation…')
+                    : t('Connecting to the agent…')
                 }
               />
             </ChatInputCard>

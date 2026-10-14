@@ -168,7 +168,7 @@ hilos grep "palabra clave"      # where it was said, with context
 hilos read --tail 10            # the end of this conversation (user/agent, no tools)
 ```
 
-It only reads THIS conversation: other people's conversations are isolated and cannot be seen.
+Only read THIS conversation: other people's conversations are isolated and cannot be seen.
 Read `/opt/goose/skills/hilos/SKILL.md` if you need more.
 
 ## Your disk

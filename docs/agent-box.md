@@ -212,3 +212,65 @@ small: the trend is a signal, not a measurement.
 
 **Still open:** test the current rule on a live agent with greetings, a language switch
 mid-thread, and a UI locale different from the message language.
+
+
+## Backup steps for current box
+Run all commands from acp-agent-ui with boxexec defined as in CURLS.md.
+
+1. Make a private folder and save the current .env
+
+new-ghosty-agent.mjs overwrites AGENT_BOX_ID, ACP_SECRET and ACP_WS_URL, so copy .env first. .memory-backups/ is already in .gitignore.
+
+set -a; . ./.env; set +a
+B=.memory-backups/box-$AGENT_BOX_ID; mkdir -p -m 700 $B
+cp -p .env $B/app.env
+
+1. Session database (Goose's history of every conversation)
+
+The repo already has a script for this. It copies the live database safely, uploads it as a private EasyBits file, and writes a checksum manifest:
+
+node --env-file=.env scripts/backup-sessions.mjs --manifest $B/sessions.json
+
+2. The box settings you added by hand
+
+The rest of /etc/ghosty-lite-runtime/.env is regenerated when the agent is created. Only the render URL and the storage keys were added by hand. This writes them straight to a file without showing them on screen:
+
+boxexec "grep -E '^(GS_RENDER_URL|TIGRIS_|STORAGE_)' /etc/ghosty-lite-runtime/.env" > $B/runtime.env
+chmod 600 $B/runtime.env; grep -c = $B/runtime.env    # expect 6
+
+3. Files: conversation folders, CLAUDE.md, the icon, /data/agent, the image service
+
+The archive is too big to return through exec. So it's packed on the box, uploaded with the box's own storage helper (7-day private link), then downloaded:
+
+boxexec 'cd / && tar czf /data/tmp/box-backup.tgz data/work data/agent data/workspace etc/systemd/system/image.service && ls -lh /data/tmp/box-backup.tgz
+cd /data/work && eval "$(sed -nE "s/^(TIGRIS_|STORAGE_)/export &/p" /etc/ghosty-lite-runtime/.env)"
+node --input-type=module -e "import {publish} from \"/opt/gs-sdk/storage.mjs\"; import {readFileSync} from \"fs\"; console.log(await publish(readFileSync(\"/data/tmp/box-backup.tgz\"), \"box-backup.tgz\"))"'
+# copy the https://… link it prints:
+curl -fo $B/box-backup.tgz '<link>' && tar -tzf $B/box-backup.tgz | grep -c jsonl
+
+The archive contains each conversation's .gs-turn.json, which holds the storage keys, so keep it private. /data/repo is left out because it's a git clone that gets cloned again.
+
+4. Check before deleting
+
+cat $B/sessions.json | grep -E '"(uploaded|sessions|messages)"'   # uploaded: true
+ls -lh $B
+
+What you don't need to back up
+
+- Uploaded files (acp-agent-uploads) and delivered files (acp-agent-files) are in Oracle, not on the box.
+- The app's .data/ (uploads, extensions, WhatsApp) is on your machine or the VM. Rows in uploads.db still point to the old conversation ids, which is harmless.
+
+On the new box afterwards
+
+Add the 6 lines from runtime.env (see docs/agent-storage.md). Then run agent-prompt.mjs, install-image-mcp.mjs, install-maps-mcp.mjs and bootstrap-memory.mjs --apply, and restore the history with restore-sessions.mjs --manifest $B/sessions.json if you want it. scripts/new-ghosty-agent.mjs changed on disk since I edited it. If you still want to reproduce the problem first, make sure the skills-linking step is out of it; otherwise the new box gets the workaround and won't show the bug.
+
+Want me to run steps 0–4 for you?
+
+- Uploaded files (acp-agent-uploads) and delivered files (acp-agent-files) are in Oracle, not on the box.
+- The app's .data/ (uploads, extensions, WhatsApp) is on your machine or the VM. Rows in uploads.db still point to the old conversation ids, which is harmless.
+
+On the new box afterwards
+
+Add the 6 lines from runtime.env (see docs/agent-storage.md). Then run agent-prompt.mjs, install-image-mcp.mjs, install-maps-mcp.mjs and bootstrap-memory.mjs --apply, and restore the history with restore-sessions.mjs --manifest $B/sessions.json if you want it. scripts/new-ghosty-agent.mjs changed on disk since I edited it. If you still want to reproduce the problem first, make sure the skills-linking step is out of it; otherwise the new box gets the workaround and won't show the bug.
+
+Want me to run steps 0–4 for you?
