@@ -121,4 +121,19 @@ await sharp(Buffer.from(svg))
   .png()
   .toFile(new URL('../public/apple-touch-icon.png', import.meta.url).pathname);
 
-console.log('public/og.png and public/apple-touch-icon.png written');
+// Favicon: the robot alone, flat orange on transparent, centered in a square with breathing
+// room so nothing looks clipped at 16–32px in a browser tab.
+const ICON = 1300;
+const favicon = `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height="${ICON}" viewBox="0 0 ${ICON} ${ICON}">
+  <g transform="translate(${(ICON - 1162) / 2} ${(ICON - 1052) / 2})">
+    <path d="${antenna}${ears}${head}${eyes}${mouth}" fill="${ORANGE}" fill-rule="evenodd"/>
+  </g>
+</svg>`;
+await sharp(Buffer.from(favicon))
+  .resize(512, 512)
+  .png({ compressionLevel: 9 })
+  .toFile(new URL('../public/favicon-x.png', import.meta.url).pathname);
+
+console.log(
+  'public/og.png, public/apple-touch-icon.png and public/favicon-x.png written',
+);

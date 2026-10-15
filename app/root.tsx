@@ -65,7 +65,7 @@ function tokensToCss(): string {
 
 export function links() {
   return [
-    { rel: 'icon', type: 'image/png', href: '/favicon.png' },
+    { rel: 'icon', type: 'image/png', href: '/favicon-x.png' },
     { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
   ];
 }
