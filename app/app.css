@@ -991,6 +991,55 @@ pre:has(> code.bg-inline-code) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   ROBBIE THEME — component overrides
+   Robbie also carries .dark, whose chat bubbles are navy. Swap them for
+   gunmetal, with orange as the accent and cream for inline code.
+   ═══════════════════════════════════════════════════════════ */
+.robbie {
+  --color-inline-code: #ffd9a8;
+  --sidebar-primary: #ff6b1a;
+}
+
+.robbie .user-message-bubble {
+  --code-block-background: #1a1612;
+  background-color: #2a1d14;
+  color: #f3eee7;
+  border: 1px solid #4a2c18;
+}
+
+.robbie .user-message :is(h1, h2, h3, h4, h5, h6, strong) {
+  color: #fff6ec !important;
+}
+
+.robbie .user-message li {
+  color: #e8dfd4 !important;
+}
+
+.robbie .user-message li::marker {
+  color: #ff8a3d;
+}
+
+.robbie :is(.agent-message-bubble, .user-message) a {
+  color: #ff9a52 !important;
+}
+
+.robbie .user-message em {
+  color: #ffd9a8 !important;
+}
+
+.robbie .agent-message-bubble {
+  background-color: #18191c;
+}
+
+.robbie :is(.agent-message-bubble, .user-message-bubble) :not(pre) > code.bg-inline-code {
+  color: #ffd9a8;
+}
+
+.robbie ::selection {
+  background-color: rgba(255, 107, 26, 0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════
    iOS FOCUS ZOOM
    Safari on iPhone zooms in when focusing any editable field whose
    font-size is < 16px, and doesn't zoom back out on blur. Forcing 16px

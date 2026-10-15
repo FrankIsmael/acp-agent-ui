@@ -265,6 +265,65 @@ const auraFontTokens: Partial<Pick<ThemeTokens, BaseTokenKey>> = {
 };
 
 // ---------------------------------------------------------------------------
+// Robbie theme — colors & shadows (dark variant)
+// The brand theme, after an orange robot with a black visor and glowing eyes:
+// gunmetal surfaces, safety-orange accent, warm cream "eye glow" as the
+// second color.
+// ---------------------------------------------------------------------------
+const robbieColorTokens: ColorTokens = {
+  // Backgrounds
+  '--color-background-primary': '#111214',
+  '--color-background-secondary': '#18191c',
+  '--color-background-tertiary': '#222327',
+  '--color-background-inverse': '#ff6b1a',
+  '--color-background-ghost': 'transparent',
+  '--color-background-info': '#7cc4ff',
+  '--color-background-danger': '#ff5a4f',
+  '--color-background-success': '#7ddc8a',
+  '--color-background-warning': '#ffc14d',
+  '--color-background-disabled': '#26272b',
+
+  // Text
+  '--color-text-primary': '#f3eee7',
+  '--color-text-secondary': '#9a948c',
+  '--color-text-tertiary': '#6b6762',
+  '--color-text-inverse': '#111214',
+  '--color-text-ghost': '#9a948c',
+  '--color-text-info': '#7cc4ff',
+  '--color-text-danger': '#ff5a4f',
+  '--color-text-success': '#7ddc8a',
+  '--color-text-warning': '#ffc14d',
+  '--color-text-disabled': '#4d4a47',
+
+  // Borders
+  '--color-border-primary': '#26272b',
+  '--color-border-secondary': '#34353a',
+  '--color-border-tertiary': '#43444a',
+  '--color-border-inverse': '#ff8a3d',
+  '--color-border-ghost': 'transparent',
+  '--color-border-info': '#7cc4ff',
+  '--color-border-danger': '#ff5a4f',
+  '--color-border-success': '#7ddc8a',
+  '--color-border-warning': '#ffc14d',
+  '--color-border-disabled': '#26272b',
+
+  // Rings
+  '--color-ring-primary': '#ff6b1a',
+  '--color-ring-secondary': '#34353a',
+  '--color-ring-inverse': '#111214',
+  '--color-ring-info': '#7cc4ff',
+  '--color-ring-danger': '#ff5a4f',
+  '--color-ring-success': '#7ddc8a',
+  '--color-ring-warning': '#ffc14d',
+
+  // Shadows (dark)
+  '--shadow-hairline': '0 0 0 1px rgba(0, 0, 0, 0.3)',
+  '--shadow-sm': '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
+  '--shadow-md': '0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3)',
+  '--shadow-lg': '0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3)',
+};
+
+// ---------------------------------------------------------------------------
 // Merged token maps — used by applyThemeTokens() and buildMcpHostStyles()
 // ---------------------------------------------------------------------------
 export const lightTokens: ThemeTokens = { ...baseTokens, ...lightColorTokens };
@@ -274,6 +333,7 @@ export const auraTokens: ThemeTokens = {
   ...(auraFontTokens as ThemeTokens),
   ...auraColorTokens,
 };
+export const robbieTokens: ThemeTokens = { ...baseTokens, ...robbieColorTokens };
 
 // ---------------------------------------------------------------------------
 // Theme registry — the set of selectable named themes.
@@ -281,7 +341,7 @@ export const auraTokens: ThemeTokens = {
 // the token system; `tokens` is the map applied to :root. Adding a future theme
 // is a single entry here plus its token map above.
 // ---------------------------------------------------------------------------
-export type ThemeId = 'light' | 'dark' | 'aura';
+export type ThemeId = 'light' | 'dark' | 'aura' | 'robbie';
 export type ThemeVariant = 'light' | 'dark';
 
 interface ThemeDefinition {
@@ -293,6 +353,7 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
   light: { variant: 'light', tokens: lightTokens },
   dark: { variant: 'dark', tokens: darkTokens },
   aura: { variant: 'dark', tokens: auraTokens },
+  robbie: { variant: 'dark', tokens: robbieTokens },
 };
 
 // ---------------------------------------------------------------------------
@@ -367,7 +428,7 @@ export function getResolvedTheme(): ThemeId {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   const stored = localStorage.getItem('theme');
-  if (stored === 'aura') return 'aura';
+  if (stored === 'aura' || stored === 'robbie') return stored;
   return stored === 'dark' ? 'dark' : 'light';
 }
 

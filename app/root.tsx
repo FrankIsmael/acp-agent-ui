@@ -15,7 +15,7 @@ import {
 import type { Route } from './+types/root';
 import './app.css';
 import { themes } from './theme/theme-tokens';
-import { themeClass, themeFromCookies } from './lib/theme';
+import { DEFAULT_THEME, themeClass, themeFromCookies } from './lib/theme';
 
 export const middleware = [demoMiddleware];
 
@@ -25,11 +25,24 @@ export function loader({ request }: Route.LoaderArgs) {
     demo: demoEnabled(),
     theme: themeFromCookies(cookies),
     locale: localeFromCookies(cookies),
+    origin: publicOrigin(request),
     ENV: {
       GOOGLE_MAPS_KEY: process.env.GM_DEMO_KEY,
     },
   };
 }
+
+// Link previews (WhatsApp, LinkedIn, X…) need absolute URLs. Behind Caddy with DEMO on,
+// Express does not trust the proxy, so request.url says http: prefer the configured domain.
+function publicOrigin(request: Request): string {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
+  if (process.env.APP_DOMAIN) return `https://${process.env.APP_DOMAIN}`;
+  return new URL(request.url).origin;
+}
+
+const SITE_TITLE = 'Robbie · Your AI agent, on its own machine';
+const SITE_DESCRIPTION =
+  'Robbie is an AI agent that works on its own machine: it runs tools, writes code, builds apps and researches the web. Chat with it from the web or WhatsApp.';
 
 // Theme tokens are static CSS; server sets the theme class on <html> from cookies to prevent SSR mismatch.
 function tokensToCss(): string {
@@ -41,16 +54,20 @@ function tokensToCss(): string {
     block(':root', themes.light.tokens),
     block('.dark', themes.dark.tokens),
     block('.aura', themes.aura.tokens),
+    block('.robbie', themes.robbie.tokens),
     // Without an explicit class, the system preference is used.
     `@media (prefers-color-scheme: dark){${block(
-      ':root:not(.light):not(.dark):not(.aura)',
+      ':root:not(.light):not(.dark):not(.aura):not(.robbie)',
       themes.dark.tokens,
     )}}`,
   ].join('\n');
 }
 
 export function links() {
-  return [{ rel: 'icon', type: 'image/png', href: '/favicon.png' }];
+  return [
+    { rel: 'icon', type: 'image/png', href: '/favicon.png' },
+    { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+  ];
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -58,18 +75,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // in those cases it falls back to the system theme.
   const data = useRouteLoaderData<typeof loader>('root');
   const locale = data?.locale ?? DEFAULT_LOCALE;
+  const ogImage = `${data?.origin ?? ''}/og.png`;
   return (
     <I18nProvider locale={locale}>
-      <html lang={locale} className={themeClass(data?.theme ?? 'system')}>
+      <html lang={locale} className={themeClass(data?.theme ?? DEFAULT_THEME)}>
         <head>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <Meta />
-          <title>Agent</title>
+          <title>Robbie</title>
+          <meta name="description" content={SITE_DESCRIPTION} />
+          <meta name="application-name" content="Robbie" />
+          <meta name="apple-mobile-web-app-title" content="Robbie" />
+          <meta name="author" content="Ismael Francisco" />
+          <meta name="theme-color" content="#111214" />
+          <meta property="og:type" content="website" />
+          <meta property="og:site_name" content="Robbie" />
+          <meta property="og:title" content={SITE_TITLE} />
+          <meta property="og:description" content={SITE_DESCRIPTION} />
+          {data?.origin && <meta property="og:url" content={data.origin} />}
+          <meta property="og:image" content={ogImage} />
+          <meta property="og:image:type" content="image/png" />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
           <meta
-            name="description"
-            content="UI for an Agent running inside a microVM, communicating via ACP"
+            property="og:image:alt"
+            content="Robbie, a pixel-art robot: your AI agent, on its own machine"
           />
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={SITE_TITLE} />
+          <meta name="twitter:description" content={SITE_DESCRIPTION} />
+          <meta name="twitter:image" content={ogImage} />
           <Links />
           <style dangerouslySetInnerHTML={{ __html: tokensToCss() }} />
         </head>

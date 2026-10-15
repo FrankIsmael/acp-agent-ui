@@ -39,6 +39,7 @@ export default function Settings() {
     { id: "system", label: t("System") },
     { id: "light", label: t("Light") },
     { id: "dark", label: t("Dark") },
+    { id: "robbie", label: "Robbie" },
     { id: "aura", label: "aura" },
   ];
   const data = useLoaderData<typeof loader>();
