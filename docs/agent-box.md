@@ -8,9 +8,9 @@ Rebooting is fine; recreating the box or rebaking the template is not.
 
 | Piece | Where | Survives a new box? | Installed by |
 |---|---|---|---|
-| **System prompt** (persona, tools, output format by channel, widget rules, reply language) | the EasyBits agent (`systemPrompt`, mode `replace`) → `/data/agent/PROMPT.md` | Set again on create | `scripts/agent-prompt.mjs` ← `scripts/system-prompt.md` |
-| Agent icon (Robbie) | `/data/work/robbie.png` ← `public/favicon.png` | **No** | `scripts/agent-prompt.mjs` (`/files` API) |
-| Hooks without their own paragraph | `/usr/local/bin/ghosty-prompt-hooks` | **No** | `scripts/agent-prompt.mjs` (exec) |
+| **System prompt** (persona, tools, output format by channel, widget rules, reply language) | the EasyBits agent (`SYSTEM_PROMPT`, mode `replace`) → `/data/agent/PROMPT.md` | Set again on create | `scripts/new-ghosty-agent.mjs` ← `scripts/system-prompt.md` |
+| Agent icon (Robbie) | `/data/work/robbie.png` ← `public/favicon.png` | **No** | `scripts/new-ghosty-agent.mjs` (`/files` API) |
+| Hooks without their own paragraph | `/usr/local/bin/ghosty-prompt-hooks` | **No** | `scripts/new-ghosty-agent.mjs` (exec) |
 | Skill descriptions in English | `description:` in each `/opt/goose/skills/<name>/SKILL.md` | **No** | `scripts/translate-skills.mjs` ← `scripts/skill-translations.json` |
 | Image MCP (`generate_image`) | `image.service` → `/data/workspace/image.ts`, port 4123 | **No** | `scripts/install-image-mcp.mjs` |
 | Project skills (`trip-planner`, …) | `/data/repo` (clone of `SKILLS_REPO_URL`), linked into `/data/work/.agents/skills`; re-run by the box's boot script (`eb_boot`) | **No** | `scripts/bootstrap-memory.mjs --apply` |
@@ -21,12 +21,12 @@ Rebooting is fine; recreating the box or rebaking the template is not.
 **`scripts/system-prompt.md` is the only system prompt.** Everything the agent is told lives
 there: who it is, its tools, how to format by channel (web artifacts, `[channel:
 whatsapp-group]`, `[channel: portfolio-widget]`), and the reply-language rule. It goes through
-the EasyBits agents API in `replace` mode, so the template's Ghosty house prompt
+the EasyBits agents API in `replace` mode when the agent is created, so the template's Ghosty house prompt
 (`/opt/goose/goosehints.md`) is left out entirely. On the box, `ghosty-prompt-hooks` writes it to
 `/data/agent/PROMPT.md` and builds the three copies the brain reads (`/data/work/CLAUDE.md`,
 `/data/work/.goosehints`, `/data/ghosty/config/.goosehints`) from it. The hooks would also append
 their own `hilos` / disk paragraph in Spanish; that text is in the doc instead, so
-`agent-prompt.mjs` empties the hooks' heredoc and the copies end up exactly the doc. Never edit
+`new-ghosty-agent.mjs` empties the hooks' heredoc and the copies end up exactly the doc. Never edit
 the copies by hand. `tests/artifacts.test.mjs` checks that the doc keeps
 the exact rules and markers the server sends.
 
@@ -35,9 +35,6 @@ reads his public profile from the portfolio's MCP (`get_website_info` at `PORTFO
 default `https://ismaelfrancisco.tech/mcp`, cached 10 min) and sends it between
 `[portfolio-profile]` tags (`app/.server/portfolio-profile.ts`). If the MCP fails, the next turn
 tries again. Edit the portfolio, not this repo, to change what the widget knows.
-
-The prompt API needs the **agent id**, not the sandbox id in `AGENT_BOX_ID` (`/agents/sb_…/prompt`
-answers 500). `agent-prompt.mjs` looks it up by sandbox; set `AGENT_ID` to skip that.
 
 The `/opt` skills are the template's. Our own skills live in this repo under
 `.agents/skills/` and reach the box differently: `bootstrap-memory.mjs` clones the repo
@@ -49,28 +46,21 @@ boot step, and its project skills silently disappear from the app.
 
 ## Changing the prompt
 
-Edit `scripts/system-prompt.md`, then:
-
-```sh
-node --env-file=.env scripts/agent-prompt.mjs --check   # compare with what is live
-node --env-file=.env scripts/agent-prompt.mjs           # PATCH it (and the icon)
-```
-
-It takes effect without a reboot, on the next session: open threads keep the prompt they started
-with.
+Edit `scripts/system-prompt.md`, then create a new agent with it (below). The prompt is only
+sent at creation; nothing in this repo updates the prompt of a running agent.
 
 ## Creating a new agent
 
-1. **Create it with the prompt** (POST, `SYSTEM_PROMPT` + `SYSTEM_PROMPT_MODE=replace`):
+1. **Create it with the prompt** (POST, `SYSTEM_PROMPT` + `SYSTEM_PROMPT_MODE=replace`), then
+   the icon and the hooks patch once the box is up:
 
    ```sh
-   node --env-file=.env scripts/agent-prompt.mjs --create mi-agente
+   node --env-file=.env scripts/new-ghosty-agent.mjs "Robbie Agent"
    ```
 
-   Then point the app at it: update `AGENT_BOX_ID` (the printed `sandboxId`) and `ACP_WS_URL`
-   (and `ACP_SECRET` if it changed) in `.env`, and in the deployed app's `.env` on the VM (see
-   [oracle-deployment.md](oracle-deployment.md)). Rerun `agent-prompt.mjs` without `--create` if
-   the hooks patch or the icon failed while the box was starting.
+   It writes `AGENT_BOX_ID`, `ACP_SECRET` and `ACP_WS_URL` to the local `.env`; copy them to the
+   deployed app's `.env` on the VM (see [oracle-deployment.md](oracle-deployment.md)). If the icon
+   or the hooks step fails, it says so and the agent still works.
 
 2. **Skill descriptions in English** (the template's skills; the API cannot reach `/opt`):
 
@@ -143,7 +133,7 @@ rest still get translated. To update it: translate the new description into
 (the `description:` line plus its indented continuation lines, joined with `\n`). Keep Spanish
 trigger phrases as quoted examples, and keep tool names, binaries and block tags verbatim.
 
-**Prompt hooks.** `agent-prompt.mjs` stops with "the template changed" if
+**Prompt hooks.** `new-ghosty-agent.mjs` leaves the hooks alone ("the template changed") if
 `ghosty-prompt-hooks` no longer has the `HINT` heredoc it empties. Diff the new script against
 `/usr/local/bin/ghosty-prompt-hooks.bak` from an old box and adjust `HOOKS_HEREDOC`. If the
 template's paragraph changed, carry the change into `scripts/system-prompt.md`.
@@ -213,64 +203,63 @@ small: the trend is a signal, not a measurement.
 **Still open:** test the current rule on a live agent with greetings, a language switch
 mid-thread, and a UI locale different from the message language.
 
+## Backing up a box before replacing it
 
-## Backup steps for current box
-Run all commands from acp-agent-ui with boxexec defined as in CURLS.md.
+A new box starts empty: everything under `/data` and the lines added by hand to
+`/etc/ghosty-lite-runtime/.env` are lost. Before deleting one, from this repo with `boxexec`
+(see `CURLS.md`). Last done on 2026-10-14 for `sb_ec797428…`: 33 sessions, 567 messages, an
+84 MB archive.
 
-1. Make a private folder and save the current .env
-
-new-ghosty-agent.mjs overwrites AGENT_BOX_ID, ACP_SECRET and ACP_WS_URL, so copy .env first. .memory-backups/ is already in .gitignore.
-
+```sh
 set -a; . ./.env; set +a
-B=.memory-backups/box-$AGENT_BOX_ID; mkdir -p -m 700 $B
-cp -p .env $B/app.env
+B=.memory-backups/box-$AGENT_BOX_ID; mkdir -p -m 700 $B   # ignored by Git
+cp -p .env $B/app.env   # new-ghosty-agent.mjs overwrites AGENT_BOX_ID, ACP_SECRET, ACP_WS_URL
 
-1. Session database (Goose's history of every conversation)
-
-The repo already has a script for this. It copies the live database safely, uploads it as a private EasyBits file, and writes a checksum manifest:
-
+# 1. Session database: a consistent copy, uploaded as a private EasyBits file, plus a manifest.
 node --env-file=.env scripts/backup-sessions.mjs --manifest $B/sessions.json
 
-2. The box settings you added by hand
+# 2. The runtime lines added by hand (the rest of that .env is regenerated on create).
+#    Written straight to the file, never shown. Expect 6.
+(umask 077; boxexec "grep -E '^(GS_RENDER_URL|TIGRIS_|STORAGE_)' /etc/ghosty-lite-runtime/.env" > $B/runtime.env)
+grep -c = $B/runtime.env
+```
 
-The rest of /etc/ghosty-lite-runtime/.env is regenerated when the agent is created. Only the render URL and the storage keys were added by hand. This writes them straight to a file without showing them on screen:
+**3. Files.** Conversation folders (`/data/work/s/<uid>`: Claude Code's transcripts and
+`adjuntos/`), `CLAUDE.md`, `robbie.png`, `/data/agent` and the image service. The archive is
+too big to come back through `exec`, so the box packs it and uploads it with its own storage
+helper (a 7-day link):
 
-boxexec "grep -E '^(GS_RENDER_URL|TIGRIS_|STORAGE_)' /etc/ghosty-lite-runtime/.env" > $B/runtime.env
-chmod 600 $B/runtime.env; grep -c = $B/runtime.env    # expect 6
-
-3. Files: conversation folders, CLAUDE.md, the icon, /data/agent, the image service
-
-The archive is too big to return through exec. So it's packed on the box, uploaded with the box's own storage helper (7-day private link), then downloaded:
-
-boxexec 'cd / && tar czf /data/tmp/box-backup.tgz data/work data/agent data/workspace etc/systemd/system/image.service && ls -lh /data/tmp/box-backup.tgz
+```sh
+boxexec 'cd / && tar czf /data/tmp/box-backup.tgz data/work data/agent data/workspace etc/systemd/system/image.service && sha256sum /data/tmp/box-backup.tgz
 cd /data/work && eval "$(sed -nE "s/^(TIGRIS_|STORAGE_)/export &/p" /etc/ghosty-lite-runtime/.env)"
 node --input-type=module -e "import {publish} from \"/opt/gs-sdk/storage.mjs\"; import {readFileSync} from \"fs\"; console.log(await publish(readFileSync(\"/data/tmp/box-backup.tgz\"), \"box-backup.tgz\"))"'
-# copy the https://… link it prints:
-curl -fo $B/box-backup.tgz '<link>' && tar -tzf $B/box-backup.tgz | grep -c jsonl
+(umask 077; curl -fo $B/box-backup.tgz '<the link it printed>') && shasum -a 256 $B/box-backup.tgz
+boxexec 'rm -f /data/tmp/box-backup.tgz'
+```
 
-The archive contains each conversation's .gs-turn.json, which holds the storage keys, so keep it private. /data/repo is left out because it's a git clone that gets cloned again.
+The archive holds each conversation's `.gs-turn.json`, with the storage keys: keep it private,
+and delete the `box-backup.tgz` object from `acp-agent-files` once it is downloaded.
+`/data/repo` is left out: `bootstrap-memory.mjs` clones it again.
 
-4. Check before deleting
+**4. Check** that `sessions.json` says `"uploaded": true` and that both checksums match.
 
-cat $B/sessions.json | grep -E '"(uploaded|sessions|messages)"'   # uploaded: true
-ls -lh $B
+Not needed: user uploads and delivered files are in the Oracle buckets, and the app's `.data/`
+lives with the app, not the box.
 
-What you don't need to back up
+**On the new box.** `new-ghosty-agent.mjs` already sets the prompt, the icon and the hooks.
+Then add the lines in `$B/runtime.env` (see [agent-storage.md](agent-storage.md)), run
+`install-image-mcp.mjs`, `install-maps-mcp.mjs` and `bootstrap-memory.mjs --apply`, and bring
+the history back:
 
-- Uploaded files (acp-agent-uploads) and delivered files (acp-agent-files) are in Oracle, not on the box.
-- The app's .data/ (uploads, extensions, WhatsApp) is on your machine or the VM. Rows in uploads.db still point to the old conversation ids, which is harmless.
+```sh
+node --env-file=.env scripts/restore-sessions.mjs --force --manifest $B/sessions.json
+```
 
-On the new box afterwards
-
-Add the 6 lines from runtime.env (see docs/agent-storage.md). Then run agent-prompt.mjs, install-image-mcp.mjs, install-maps-mcp.mjs and bootstrap-memory.mjs --apply, and restore the history with restore-sessions.mjs --manifest $B/sessions.json if you want it. scripts/new-ghosty-agent.mjs changed on disk since I edited it. If you still want to reproduce the problem first, make sure the skills-linking step is out of it; otherwise the new box gets the workaround and won't show the bug.
-
-Want me to run steps 0–4 for you?
-
-- Uploaded files (acp-agent-uploads) and delivered files (acp-agent-files) are in Oracle, not on the box.
-- The app's .data/ (uploads, extensions, WhatsApp) is on your machine or the VM. Rows in uploads.db still point to the old conversation ids, which is harmless.
-
-On the new box afterwards
-
-Add the 6 lines from runtime.env (see docs/agent-storage.md). Then run agent-prompt.mjs, install-image-mcp.mjs, install-maps-mcp.mjs and bootstrap-memory.mjs --apply, and restore the history with restore-sessions.mjs --manifest $B/sessions.json if you want it. scripts/new-ghosty-agent.mjs changed on disk since I edited it. If you still want to reproduce the problem first, make sure the skills-linking step is out of it; otherwise the new box gets the workaround and won't show the bug.
-
-Want me to run steps 0–4 for you?
+`--force` is needed because the new box creates its own `sessions.db` on the first session; it
+archives that one first. Check it has no messages worth keeping. This restores the history the
+app shows, not what the agent remembers: with `claude-acp` that is Claude Code's transcript in
+each conversation's folder, and an old conversation resumed on the new box gets a new, empty
+one. Bringing it back means unpacking `data/work/s` and `data/agent/.session-uids.json` from the
+archive with their owners, after removing the new box's own (empty) homes, whose uids clash
+with the old ones. The archive's `data/agent/skills` is whatever was installed there (in
+2026-10 the links to `/opt/goose/skills`).

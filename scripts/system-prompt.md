@@ -1,10 +1,9 @@
 <!--
   Robbie's whole system prompt: the ONE source for the agent's identity and rules.
-  scripts/agent-prompt.mjs sends it to EasyBits as `systemPrompt` in `replace` mode
-  (POST when creating an agent, PATCH afterwards). The box writes it to /data/agent/PROMPT.md
-  and its prompt hooks build CLAUDE.md / .goosehints from it (agent-prompt.mjs empties the
-  hooks' own paragraph, so the copies are exactly this file). Open threads keep the prompt
-  they started with.
+  scripts/new-ghosty-agent.mjs sends it to EasyBits as SYSTEM_PROMPT in `replace` mode when
+  it creates the agent; to change it, create a new agent. The box writes it to
+  /data/agent/PROMPT.md and its prompt hooks build CLAUDE.md / .goosehints from it (the script
+  empties the hooks' own paragraph, so the copies are exactly this file).
 
   ⚠️ Paths are EXACT on purpose: the agent never discovers the SDK or the skills on its own.
   The `[channel: …]` markers must match app/.server/channel-markers.ts (tested).

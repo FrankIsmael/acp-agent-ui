@@ -133,7 +133,7 @@ because they update the existing row.
 
 Mount the folders; don't `docker compose cp` a single file. `install-image-mcp`
 imports `./lib/` and reads `mcp/image.ts`, so copying just the script fails.
-(`agent-prompt.mjs` reads `scripts/system-prompt.md` and `public/`, so it has to
+(`new-ghosty-agent.mjs` reads `scripts/system-prompt.md` and `public/`, so it has to
 run from a full checkout too.) Never run these scripts as root (`docker compose exec -u root`,
 plain `docker run`): SQLite would leave root-owned `-wal`/`-shm` files in
 `.data`, and the app would fail with `unable to open database file`.

@@ -13,6 +13,13 @@
  * and rejects EasyBits's `tools/list` (see ESTADO.md). With `claude-acp` the turn is executed by the
  * Claude Code adapter, which brings its own MCP client and does deliver the tools.
  *
+ * The system prompt is `scripts/system-prompt.md`, sent at creation as SYSTEM_PROMPT in `replace`
+ * mode: it is the whole persona, so the Ghosty house prompt baked into the template is left out.
+ * To change it, edit the file and create a new agent. Once the box is up, the script also puts
+ * Robbie's icon at `/data/work/robbie.png` (the path the prompt tells the agent to open) and
+ * empties the `hilos` / disk paragraph the box's `ghosty-prompt-hooks` appends in Spanish (the
+ * prompt already has it), so CLAUDE.md is exactly the doc. Both changes are lost with the box.
+ *
  * Variables:
  *   GHOSTY_PROVIDER   default claude-acp (alternatives: claude-code, anthropic)
  *   GHOSTY_MODEL      default sonnet
@@ -38,6 +45,13 @@ const MODEL = process.env.GHOSTY_MODEL ?? 'sonnet';
 const MODE = process.env.GOOSE_MODE ?? 'approve';
 const AGENT_TOKEN =
   process.env.ACP_AGENT_TOKEN ?? `agt_${randomBytes(24).toString('hex')}`;
+const PROMPT = readFileSync(new URL('./system-prompt.md', import.meta.url), 'utf8')
+  // The leading comment is for whoever edits the file, not for the agent.
+  .replace(/^<!--[\s\S]*?-->\s*/, '');
+const ICON = readFileSync(new URL('../public/favicon.png', import.meta.url));
+const API = process.env.EASYBITS_API_URL ?? 'https://www.easybits.cloud/api/v2';
+const HOOKS = '/usr/local/bin/ghosty-prompt-hooks';
+const HOOKS_HEREDOC = /(cat >> "\$OUT" <<'HINT'\n)[\s\S]*?(^HINT\n)/m;
 
 const { EasybitsClient } = await import('@easybits.cloud/sdk');
 const eb = new EasybitsClient({ apiKey: KEY });
@@ -51,12 +65,14 @@ const env = {
   GOOSE_MODE: MODE,
   ACP_AGENT_TOKEN: AGENT_TOKEN,
   EASYBITS_API_KEY: KEY,
+  SYSTEM_PROMPT: PROMPT,
+  SYSTEM_PROMPT_MODE: 'replace',
   ...(OAUTH
     ? { CLAUDE_CODE_OAUTH_TOKEN: OAUTH }
     : { ANTHROPIC_API_KEY: API_KEY }),
 };
 console.log(
-  `creating ${NAME}: ghosty-lite · ${PROVIDER}/${MODEL} · GOOSE_MODE=${MODE} · auth=${OAUTH ? 'oauth' : 'api-key'}`,
+  `creating ${NAME}: ghosty-lite · ${PROVIDER}/${MODEL} · GOOSE_MODE=${MODE} · auth=${OAUTH ? 'oauth' : 'api-key'} · prompt ${PROMPT.length} chars (replace)`,
 );
 const created = await eb.createAgent({
   template: 'ghosty-lite',
@@ -113,6 +129,41 @@ for (let i = 0; i < 90; i++) {
 }
 set('ACP_WS_URL', agentUrl);
 writeFileSync(file, text, { mode: 0o600 });
+
+// Icon and hooks: the box is up, but neither is worth failing the run over; each says how to retry.
+const { easybitsClient, shellQuote } = await import('./lib/easybits.mjs');
+const box = easybitsClient({ apiKey: KEY });
+try {
+  const response = await fetch(`${API}/agents/${created.agentId}/files/robbie.png`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${KEY}`, 'content-type': 'image/png' },
+    body: ICON,
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  console.log('icon: /data/work/robbie.png');
+} catch (error) {
+  console.error(`icon: not uploaded (${error.message}); PUT public/favicon.png to /agents/${created.agentId}/files/robbie.png`);
+}
+// Empties the hooks' own paragraph (`cat >> "$OUT" <<'HINT'` then nothing) and reruns them.
+try {
+  const out = (await box.exec(created.sandboxId, `[ -f ${HOOKS} ] && base64 -w0 ${HOOKS} || echo MISSING`)).trim();
+  if (out === 'MISSING') throw new Error(`${HOOKS} does not exist`);
+  const current = Buffer.from(out, 'base64').toString();
+  if (!HOOKS_HEREDOC.test(current)) throw new Error(`${HOOKS} no longer has the HINT heredoc: the template changed`);
+  const next = current.replace(HOOKS_HEREDOC, '$1$2');
+  const steps = ['set -e'];
+  if (next !== current) steps.push(
+    `cp -n ${HOOKS} ${HOOKS}.bak`,
+    `echo ${shellQuote(Buffer.from(next).toString('base64'))} | base64 -d > ${HOOKS}.new`,
+    `bash -n ${HOOKS}.new`,
+    `chmod 0755 ${HOOKS}.new`,
+    `mv ${HOOKS}.new ${HOOKS}`,
+  );
+  steps.push(HOOKS);
+  console.log(`hooks: ${(await box.exec(created.sandboxId, steps.join('\n'))).trim()}`);
+} catch (error) {
+  console.error(`hooks: left as they are (${error.message}); CLAUDE.md keeps the template's own paragraph`);
+}
 
 // The template's own skills (pdf-reader, big-files, office-reader…) live in /opt/goose/skills,
 // but each conversation's `~/.claude/skills` points only at /data/agent/skills, so Claude Code
