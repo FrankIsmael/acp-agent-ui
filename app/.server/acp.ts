@@ -15,12 +15,13 @@ import {
   demoChannelConversation,
 } from './demo';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
 import { client, type ClientConnection } from '@agentclientprotocol/sdk';
 import { createWebSocketStream } from '@agentclientprotocol/sdk/experimental/ws-client';
 import { WebSocket } from 'ws';
 import type { ConnectPhase } from '~/hooks/useAcpStream';
 import { parseSkills, replayMetadata } from './goose-adapter';
+import { AGENT_BOX, ensureAgentBox, suspendAgentBox } from './agent-box';
+import { AgentError } from './errors';
 import {
   CHANNEL_MARKER,
   EMBED_MARKER,
@@ -79,104 +80,6 @@ const EXTRA_MODELS = (process.env.ACP_EXTRA_MODELS ?? '')
     return { value: value.trim(), name: name.join('|').trim() || value.trim() };
   });
 const IDLE_MS = Number(process.env.ACP_IDLE_MS ?? 15 * 60 * 1000);
-
-// ---------------------------------------------------------------------------
-// Agent box lifecycle (app-owned): it wakes up when spoken to and
-// suspends when inactive.
-// ---------------------------------------------------------------------------
-// Optional, with no fallback for the same reason as WS_URL: they pointed to a specific box and snapshot,
-// so a partially filled .env could operate other people's resources. Without them, this is a normal ACP client
-// and the lifecycle logic simply doesn't run.
-const AGENT_BOX = process.env.AGENT_BOX_ID ?? '';
-const AGENT_SNAPSHOT = process.env.AGENT_SNAPSHOT_ID ?? '';
-const EB_KEY =
-  process.env.EASYBITS_API_KEY ??
-  (() => {
-    try {
-      return readFileSync('/root/.ebkey', 'utf8').trim();
-    } catch {
-      return null;
-    }
-  })();
-
-let ebClient: any = null;
-async function getEbClient() {
-  if (ebClient) return ebClient;
-  if (!EB_KEY) return null;
-  try {
-    // The SDK is optional: without it, the app still works, it just doesn't manage the box.
-    // @ts-ignore -- optional dependency, may not be installed
-    const { EasybitsClient } = await import('@easybits.cloud/sdk');
-    ebClient = new EasybitsClient({ apiKey: EB_KEY });
-  } catch (e: any) {
-    console.warn('[lifecycle] sin SDK/API key:', e.message);
-    ebClient = null;
-  }
-  return ebClient;
-}
-
-/**
- * Wakes up the agent box BEFORE connecting. This is specific to EasyBits and OPTIONAL: without
- * `EASYBITS_API_KEY` + `AGENT_BOX_ID` this does not run and the client works the same with
- * any ACP agent — only without waking it up (the agent must already be up).
- */
-export async function ensureAgentBox() {
-  if (!AGENT_BOX) return null;
-  const eb = await getEbClient();
-  if (!eb) {
-    console.warn('[lifecycle] no SDK — not managing agent box lifecycle');
-    return null;
-  }
-  const sb = await eb.sandboxes.get(AGENT_BOX);
-  await sb.refresh();
-  console.log(`[lifecycle] agent box status=${sb.status}`);
-  if (sb.status === 'running') {
-    await sb
-      .extend(3600)
-      .catch((e: Error) =>
-        console.warn('[lifecycle] extend failed:', e.message),
-      );
-    return sb;
-  }
-  if (sb.status === 'suspended') await sb.resume().catch(() => {});
-  try {
-    await sb.waitUntilReady(90_000);
-    console.log('[lifecycle] agent box is now awake');
-    return sb;
-  } catch {
-    // lost box → self-heal from snapshot
-  }
-  // Self-healing from snapshot used to create a NEW box — with a new URL — and immediately connect
-  // to the old ACP_WS_URL, so it never actually worked: a recovery that lies is worse than none.
-  // This is only attempted if a snapshot is configured, and a warning is given that the URL
-  // must be updated manually.
-  if (!AGENT_SNAPSHOT) {
-    throw new AgentError(
-      'Agent did not wake up and there is no AGENT_SNAPSHOT_ID to recreate it. Please start it again and update ACP_WS_URL.',
-    );
-  }
-  console.warn('[lifecycle] lost box; self-healing from snapshot');
-  const [child] = await eb.sandboxes.forkFromSnapshot(AGENT_SNAPSHOT, {});
-  await child.waitUntilReady(90_000);
-  console.warn(
-    `[lifecycle] box recreated (${child.id}) — ⚠️ its URL is different: update ACP_WS_URL or you will keep connecting to the previous one`,
-  );
-  return child;
-}
-
-async function suspendAgentBox() {
-  if (!AGENT_BOX) return;
-  const eb = await getEbClient();
-  if (!eb) return;
-  try {
-    const sb = await eb.sandboxes.get(AGENT_BOX);
-    await sb.refresh();
-    if (sb.status === 'running') {
-      await sb.suspend();
-      console.log('[lifecycle] box suspended (idle)');
-    }
-  } catch {}
-}
 
 // ---------------------------------------------------------------------------
 // Types of events sent to the browser
@@ -258,8 +161,9 @@ const CONNECT_TIMEOUT_MS = Number(process.env.ACP_CONNECT_TIMEOUT_MS ?? 60_000);
 // a server that does not respond (bad URL, wrong credential) would leave the request hanging forever, blocking any attempt to open a conversation.
 const SESSION_TIMEOUT_MS = Number(process.env.ACP_SESSION_TIMEOUT_MS ?? 60_000);
 
-/** A failure with a message aimed at the user: routes just return it as is. */
-export class AgentError extends Error {}
+// Routes import it from here.
+export { AgentError };
+
 
 // ghosty does not deliver the permission response with claude-acp (`No task waiting for confirmation`)
 // and the tool stays stuck forever. Until it's fixed, the thread is set to this mode when opened.
@@ -345,7 +249,7 @@ async function connectAgent(): Promise<ClientConnection> {
   if (connecting) return connecting;
   connecting = (async () => {
     if (!WS_URL) throw new AgentError('Missing ACP_WS_URL on the server.');
-    await ensureAgentBox();
+    await ensureAgentBox(IDLE_MS);
     const target = new URL(WS_URL);
     if (TOKEN && !target.searchParams.has('token'))
       target.searchParams.set('token', TOKEN);
