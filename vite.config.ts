@@ -14,6 +14,20 @@ export default defineConfig({
         });
       },
     },
+    {
+      name: "slack-on-boot",
+      configureServer(server) {
+        // The app's server code only loads on the first request; Slack has to be up before
+        // anyone opens a page (server.js does the same in production). acp.ts starts it when it
+        // loads; going through slack.ts first would run startSlack before slack.ts finished.
+        if (!process.env.SLACK_BOT_TOKEN) return;
+        server.httpServer?.once("listening", () => {
+          server
+            .ssrLoadModule("/app/.server/acp.ts")
+            .catch((error) => console.warn("[slack] could not load:", error.message));
+        });
+      },
+    },
     tailwindcss(), reactRouter(),
   ],
   resolve: {

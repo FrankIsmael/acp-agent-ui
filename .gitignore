@@ -24,3 +24,6 @@ docker-compose.override.yml
 .deploy-failed
 
 test.js
+ghosty-lite-local-e2e.md
+
+posts/

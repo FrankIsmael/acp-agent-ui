@@ -46,8 +46,19 @@ boot step, and its project skills silently disappear from the app.
 
 ## Changing the prompt
 
-Edit `scripts/system-prompt.md`, then create a new agent with it (below). The prompt is only
-sent at creation; nothing in this repo updates the prompt of a running agent.
+Edit `scripts/system-prompt.md`, then put it into the running agent:
+
+```sh
+node --env-file=.env scripts/update-agent-prompt.mjs --dry-run   # shows the changed lines
+node --env-file=.env scripts/update-agent-prompt.mjs
+```
+
+It goes through the EasyBits agents API: `GET /agents/:id/prompt` reads the prompt in force and
+`PATCH /agents/:id` (`systemPrompt`, `systemPromptMode`) changes it live; the box rewrites
+`/data/agent/PROMPT.md` and reruns `ghosty-prompt-hooks`, so the copies are rebuilt without a
+reboot. The agent id is looked up from `AGENT_BOX_ID` (or set `AGENT_ID`). Conversations opened
+afterwards use the new prompt; one already open keeps the old one. A new agent (below) gets the
+file's current version at creation.
 
 ## Creating a new agent
 

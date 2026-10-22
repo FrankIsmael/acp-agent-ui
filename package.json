@@ -37,6 +37,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@react-router/express": "^8.3.1",
     "@react-router/node": "^8",
+    "@slack/bolt": "^5.1.0",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

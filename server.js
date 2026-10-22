@@ -79,4 +79,7 @@ app.use(
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[web3] http://localhost:${PORT}`);
+  // Load the app now instead of on the first request: channels that connect by themselves
+  // (Slack) should be up before anyone opens the page.
+  if (process.env.SLACK_BOT_TOKEN) void import('./build/server/index.js');
 });

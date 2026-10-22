@@ -9,6 +9,9 @@
 /** Turn for a messaging channel (WhatsApp): web and WhatsApp share the same thread. */
 export const CHANNEL_MARKER = '[channel: whatsapp-group]';
 
+/** Turn from Slack (`slack.ts`): a channel mention or a DM, shared thread too. Slack writes mrkdwn. */
+export const SLACK_MARKER = '[channel: slack]';
+
 /**
  * Turn for the embedded widget in the portfolio (`/embed`). The server adds this to each turn of
  * a conversation opened from the widget (see `embed-conversations.ts`), so the

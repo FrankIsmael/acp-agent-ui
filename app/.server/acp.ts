@@ -28,6 +28,7 @@ import {
   LEGACY_INSTRUCTIONS,
   PROFILE_CLOSE,
   PROFILE_OPEN,
+  SLACK_MARKER,
 } from './channel-markers';
 import { embedConversation, markProfiled } from './embed-conversations';
 import { portfolioProfile } from './portfolio-profile';
@@ -540,7 +541,7 @@ class GooseSession extends EventEmitter {
           if (stop > -1)
             content.text = content.text.slice(stop + end.length).trimStart();
         }
-        for (const marker of [CHANNEL_MARKER, EMBED_MARKER]) {
+        for (const marker of [CHANNEL_MARKER, SLACK_MARKER, EMBED_MARKER]) {
           if (content.text.startsWith(marker))
             content.text = content.text.slice(marker.length).trimStart();
         }
@@ -770,7 +771,7 @@ class GooseSession extends EventEmitter {
           : undefined;
       try {
         // Formatting and language rules live in CLAUDE.md / .goosehints in the box.
-        // Only the channel varies per turn: web and WhatsApp share the thread. A thread
+        // Only the channel varies per turn: web, WhatsApp and Slack share the thread. A thread
         // opened from the portfolio widget always carries its marker, and its first turn
         // (or the next one, if the portfolio did not answer) Ismael's profile.
         const embed = channel ? null : embedConversation(this.sessionId);
@@ -780,7 +781,13 @@ class GooseSession extends EventEmitter {
           sessionId: this.sessionId,
           prompt: [
             ...(channel
-              ? [{ type: 'text' as const, text: CHANNEL_MARKER }]
+              ? [
+                  {
+                    type: 'text' as const,
+                    text:
+                      channel.via === 'slack' ? SLACK_MARKER : CHANNEL_MARKER,
+                  },
+                ]
               : embed
                 ? [{ type: 'text' as const, text: EMBED_MARKER }]
                 : []),
@@ -1440,3 +1447,7 @@ export function changeSessionExtension(
     }
   });
 }
+
+// Slack connects on its own (Socket Mode), not when a page asks for it like WhatsApp: it starts
+// the first time this module loads. Imported late because `slack.ts` imports this module.
+void import('./slack').then(({ startSlack }) => startSlack());
