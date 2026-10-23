@@ -65,6 +65,24 @@ export function isFullAccess(id: string) {
     )
     .get(id, Date.now());
 }
+/**
+ * The guest a server-side channel (Slack) speaks as in the demo: a full-access invite with this
+ * label, created the first time. Nobody holds its link (the token is thrown away), so it is only
+ * an owner for the channel's own thread. `demo-invite.mjs revoke <label>` puts it under the
+ * guest limits again.
+ */
+export function demoChannelOwner(label: string) {
+  const db = demoDb();
+  const existing = db
+    .prepare('SELECT id FROM demo_guests WHERE label = ? ORDER BY rowid LIMIT 1')
+    .get(label) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = randomUUID();
+  db.prepare(
+    'INSERT INTO demo_guests(id, proof, full_access, label) VALUES (?, ?, 1, ?)',
+  ).run(id, hash(randomBytes(32).toString('hex')), label);
+  return id;
+}
 /** `?invite=<token>` becomes the guest cookie; the redirect drops the token from the URL. */
 export function redeemInvite(request: Request) {
   if (request.method !== 'GET') return null;

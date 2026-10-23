@@ -2,11 +2,12 @@
  * Slack channel integration via Socket Mode (no public endpoint needed).
  * Replies to @mentions or DMs in invited channels, always threading responses.
  * Access is controlled by `SLACK_ALLOWED_USERS` (user IDs) and `SLACK_ALLOWED_CHANNELS` (channel IDs); others are ignored.
- * Disabled if missing tokens or allowlists, or running the public demo.
+ * Disabled if missing tokens or allowlists. In the public demo (`DEMO=true`) it speaks as its own
+ * full-access guest (`demoChannelOwner('slack')`): its own agent thread, without guest limits.
  */
 import { App, LogLevel } from '@slack/bolt';
 import { askFromChannel, type PromptImage } from './acp';
-import { demoEnabled } from './demo';
+import { demoChannelOwner, demoEnabled } from './demo';
 import { splitFiles } from '../lib/files';
 
 /** Slack refuses a message over ~40k characters; long answers are split. */
@@ -93,6 +94,8 @@ class SlackChannel {
   private channels = ids(process.env.SLACK_ALLOWED_CHANNELS);
   /** The workspace the bot belongs to, from `auth.test` when starting. */
   private team: string | undefined;
+  /** Demo only: the guest whose thread Slack turns go to. */
+  private owner = demoEnabled() ? demoChannelOwner('slack') : undefined;
 
   constructor(token: string, appToken: string) {
     this.app = new App({
@@ -211,6 +214,7 @@ class SlackChannel {
         'slack',
         from,
         images,
+        this.owner,
       );
       await this.deliver(m.channel, thread_ts, answer);
       void this.react(m, 'white_check_mark');
@@ -272,10 +276,6 @@ export function startSlack() {
     console.warn(
       '[slack] off: set SLACK_ALLOWED_USERS and/or SLACK_ALLOWED_CHANNELS to say who may use the agent.',
     );
-    return;
-  }
-  if (demoEnabled()) {
-    console.warn('[slack] off: not available with DEMO=true.');
     return;
   }
   const channel = new SlackChannel(token, appToken);
