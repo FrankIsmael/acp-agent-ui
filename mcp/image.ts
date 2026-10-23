@@ -7,12 +7,17 @@
  * about WhatsApp or the web: it returns the image through the protocol and each channel decides
  * how to deliver it.
  *
- * Generator: https://image.pollinations.ai/prompt/<prompt>?width=&height= (`IMAGE_URL` overrides it).
+ * Generator: pollinations. With `POLLINATIONS_KEY` (an `sk_` key from enter.pollinations.ai/keys)
+ * it uses the keyed API, https://gen.pollinations.ai/image/<prompt>, with the key as a Bearer
+ * header; without it, the anonymous and heavily rate-limited
+ * https://image.pollinations.ai/prompt/<prompt>. `IMAGE_URL` overrides either.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createInterface } from "node:readline";
 
-const GENERATOR = process.env.IMAGE_URL ?? "https://image.pollinations.ai/prompt/";
+const KEY = process.env.POLLINATIONS_KEY;
+const GENERATOR = process.env.IMAGE_URL
+  ?? (KEY ? "https://gen.pollinations.ai/image/" : "https://image.pollinations.ai/prompt/");
 const TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS ?? 90_000);
 
 type Json = Record<string, unknown>;
@@ -41,7 +46,11 @@ async function generate(args: Json) {
   url.searchParams.set("height", String(clamp(args.height, 1024)));
   url.searchParams.set("nologo", "true");
   url.searchParams.set("seed", String(Math.floor(Math.random() * 1e9)));
-  const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const response = await fetch(url, {
+    headers: KEY ? { authorization: `Bearer ${KEY}` } : undefined,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (response.status === 429) throw new Error("The generator is rate-limited right now (429); try again in a minute");
   if (!response.ok) throw new Error(`The generator responded ${response.status}`);
   const mimeType = response.headers.get("content-type")?.split(";")[0] || "image/jpeg";
   if (!mimeType.startsWith("image/")) throw new Error(`The generator did not return an image (${mimeType})`);

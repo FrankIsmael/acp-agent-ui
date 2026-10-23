@@ -13,18 +13,24 @@
  *   node --env-file=.env scripts/install-image-mcp.mjs
  *
  * Variables: EASYBITS_API_KEY, AGENT_BOX_ID, ACP_EXTENSIONS_DB (optional),
- * IMAGE_PORT (4123).
+ * IMAGE_PORT (4123), POLLINATIONS_KEY (optional `sk_` key from enter.pollinations.ai/keys: written to
+ * `/etc/image-mcp.env`, root only; without it the generator is the anonymous, rate-limited one).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { easybitsClient, required } from './lib/easybits.mjs';
+import { easybitsClient, required, shellQuote } from './lib/easybits.mjs';
 
 const BOX = required(process.env.AGENT_BOX_ID, 'AGENT_BOX_ID');
 const PORT = Number(process.env.IMAGE_PORT ?? 4123);
 const REMOTE = '/data/workspace/image.ts';
 const eb = easybitsClient();
+const KEY = process.env.POLLINATIONS_KEY ?? '';
+// Rewritten on every install, so dropping the variable here also drops the key on the box.
+const KEY_STEP = KEY
+  ? `(umask 077; printf 'POLLINATIONS_KEY=%s\\n' ${shellQuote(KEY)} > /etc/image-mcp.env)`
+  : 'rm -f /etc/image-mcp.env';
 
 const source = readFileSync(
   new URL('../mcp/image.ts', import.meta.url),
@@ -37,6 +43,7 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart=__NODE__ --experimental-strip-types ${REMOTE} --http ${PORT}
+EnvironmentFile=-/etc/image-mcp.env
 Restart=always
 RestartSec=2
 
@@ -59,6 +66,7 @@ if [ -f /etc/systemd/system/imagen.service ]; then
   rm -f /etc/systemd/system/imagen.service
 fi
 rm -f /data/workspace/imagen.ts
+${KEY_STEP}
 cat > /etc/systemd/system/image.service <<UNIT
 ${unit.replace('__NODE__', '$NODE')}UNIT
 systemctl daemon-reload
@@ -70,7 +78,7 @@ curl -s -X POST http://127.0.0.1:${PORT}/mcp -H 'content-type: application/json'
 echo
 `;
 
-console.log(`[image] installing on ${BOX}…`);
+console.log(`[image] installing on ${BOX}… (${KEY ? 'with' : 'without'} POLLINATIONS_KEY)`);
 const out = await eb.exec(BOX, script, 180);
 console.log(out.trim());
 if (!out.includes('generate_image')) {
