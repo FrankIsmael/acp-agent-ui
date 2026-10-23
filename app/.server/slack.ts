@@ -64,6 +64,8 @@ export function paraSlack(text: string) {
       /<artifact\b[^>]*>[\s\S]*?(?:<\/artifact\s*>|$)/gi,
       '📎 _File_ (see it in the web chat)',
     )
+    // An inline data: image would be posted as kilobytes of URL-encoded text.
+    .replace(/!\[([^\]]*)\]\(data:[^)]*\)/g, (_, alt) => `🖼️ _${alt || 'Image'}_ (see it in the web chat)`)
     .replace(/!?\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<$2|$1>')
     .replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
     .replace(/\*\*(.+?)\*\*/g, '*$1*')
