@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "name": "V-belt pulley",
+  "units": "mm",
+  "material": {
+    "name": "6061-T6 aluminum",
+    "density": 2.7
+  },
+  "stock": {
+    "diameter": 95,
+    "length": 90,
+    "stickout": 55,
+    "faceStock": 1
+  },
+  "profile": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      40
+    ],
+    [
+      -15,
+      40
+    ],
+    [
+      -15,
+      90
+    ],
+    [
+      -18.5,
+      90
+    ],
+    [
+      -22.29,
+      68
+    ],
+    [
+      -27.71,
+      68
+    ],
+    [
+      -31.5,
+      90
+    ],
+    [
+      -35,
+      90
+    ]
+  ],
+  "tools": [
+    {
+      "id": 1,
+      "name": "Rougher",
+      "type": "turning",
+      "insert": "CNMG 120408",
+      "noseRadius": 0.8,
+      "angle": 80,
+      "approach": 95
+    },
+    {
+      "id": 2,
+      "name": "Groove profiler",
+      "type": "turning",
+      "insert": "VBMT 160404",
+      "noseRadius": 0.4,
+      "angle": 35,
+      "approach": 72.5
+    },
+    {
+      "id": 3,
+      "name": "Parting",
+      "type": "parting",
+      "width": 3
+    }
+  ],
+  "operations": [
+    {
+      "name": "Face",
+      "tool": 1,
+      "lines": [
+        5,
+        11
+      ]
+    },
+    {
+      "name": "Rough rim OD",
+      "tool": 1,
+      "lines": [
+        12,
+        15
+      ],
+      "depthOfCut": 2
+    },
+    {
+      "name": "Rough hub",
+      "tool": 1,
+      "lines": [
+        16,
+        52
+      ],
+      "depthOfCut": 3
+    },
+    {
+      "name": "Rough groove",
+      "tool": 2,
+      "lines": [
+        53,
+        102
+      ],
+      "depthOfCut": 1.5
+    },
+    {
+      "name": "Finish profile",
+      "tool": 2,
+      "lines": [
+        103,
+        116
+      ]
+    },
+    {
+      "name": "Part off",
+      "tool": 3,
+      "lines": [
+        117,
+        124
+      ]
+    }
+  ],
+  "gcode": "%\nO1002 (V-BELT PULLEY A SECTION)\nG21 G18 G40 G99\nG50 S3000\nT0101 (ROUGHER CNMG 120408)\nG96 S300 M3\nM8\nG0 X99. Z3.\nG0 Z0.\nG1 X-1.6 F0.2\nG0 Z3.\nG0 X90.5\nG1 Z-39. F0.3\nG0 X99.\nG0 Z3.\nG0 X84.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X78.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X72.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X66.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X60.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X54.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X48.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X42.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG0 X40.5\nG1 Z-14.75 F0.3\nG0 U2.\nG0 Z3.\nG28 U0 W0\nT0202 (GROOVE VBMT 160404 NEUTRAL)\nG96 S300 M3\nG0 X94. Z-19.191\nG0 X91.5\nG1 X87. Z-19.966 F0.15\nG1 X87. Z-30.834\nG1 X91.5 Z-31.609\nG0 X94.\nG0 X94. Z-19.794\nG0 X88.\nG1 X84. Z-20.483 F0.15\nG1 X84. Z-30.317\nG1 X88. Z-31.006\nG0 X94.\nG0 X94. Z-20.311\nG0 X85.\nG1 X81. Z-20.999 F0.15\nG1 X81. Z-29.801\nG1 X85. Z-30.489\nG0 X94.\nG0 X94. Z-20.827\nG0 X82.\nG1 X78. Z-21.516 F0.15\nG1 X78. Z-29.284\nG1 X82. Z-29.973\nG0 X94.\nG0 X94. Z-21.344\nG0 X79.\nG1 X75. Z-22.032 F0.15\nG1 X75. Z-28.768\nG1 X79. Z-29.456\nG0 X94.\nG0 X94. Z-21.86\nG0 X76.\nG1 X72. Z-22.549 F0.15\nG1 X72. Z-28.251\nG1 X76. Z-28.94\nG0 X94.\nG0 X94. Z-22.377\nG0 X73.\nG1 X69. Z-23.065 F0.15\nG1 X69. Z-27.735\nG1 X73. Z-28.423\nG0 X94.\nG0 X94. Z-22.893\nG0 X70.\nG1 X68.5 Z-23.151 F0.15\nG1 X68.5 Z-27.649\nG1 X70. Z-27.907\nG0 X94.\nG96 S350\nG0 X94. Z3.\nG0 X36.\nG0 Z1.\nG1 X40. Z1. F0.1\nG1 X40. Z-15.\nG1 X90. Z-15.\nG1 X90. Z-19.185\nG1 X68. Z-22.973\nG1 X68. Z-27.827\nG1 X90. Z-31.615\nG1 Z-39.\nG0 X99.\nG28 U0 W0\nT0303 (PARTING 3 MM)\nG96 S150 M3\nG0 X99. Z-38.\nG1 X0. F0.06\nG0 X99.\nM9\nG28 U0 W0\nM5\nM30\n%",
+  "assumptions": [
+    "Single A-section groove: 13 mm wide at the rim, 11 mm deep, 38° included",
+    "Ø95 6061 bar, 55 mm out of the jaws",
+    "Neutral 35° insert (72.5° approach) so both groove walls can be followed",
+    "0.25 mm left for the finishing pass; the bore and keyway are a second operation"
+  ]
+}

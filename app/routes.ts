@@ -11,6 +11,7 @@ export default [
   route('api/model-preference', 'routes/api.model-preference.ts'),
   route('api/extensions', 'routes/api.extensions.ts'),
   route('api/whatsapp', 'routes/api.whatsapp.ts'),
+  route('api/lathe/jobs', 'routes/api.lathe.jobs.ts'),
   route('api/whatsapp/events', 'routes/api.whatsapp.events.ts'),
   route('api/conversations', 'routes/api.conversations.ts'),
   route(
@@ -60,5 +61,7 @@ export default [
     route('settings', 'routes/settings.tsx'),
     route('gmaps', 'routes/gmaps.tsx'),
   ]),
+  // Lathe simulator: full screen, outside the shell (docs/lathe/plan.md).
+  route('lathe', 'routes/lathe.tsx'),
   route('test', 'routes/test.tsx'),
 ] satisfies RouteConfig;

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "name": "Dumbbell handle",
+  "units": "mm",
+  "material": {
+    "name": "AISI 1045 steel",
+    "density": 7.85
+  },
+  "stock": {
+    "diameter": 60,
+    "length": 160,
+    "stickout": 120,
+    "faceStock": 1
+  },
+  "profile": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      50
+    ],
+    [
+      -12,
+      50
+    ],
+    [
+      -22,
+      30
+    ],
+    [
+      -88,
+      30
+    ],
+    [
+      -98,
+      50
+    ],
+    [
+      -110,
+      50
+    ]
+  ],
+  "tools": [
+    {
+      "id": 1,
+      "name": "Rougher",
+      "type": "turning",
+      "insert": "CNMG 120408",
+      "noseRadius": 0.8,
+      "angle": 80,
+      "approach": 95
+    },
+    {
+      "id": 2,
+      "name": "Profiler",
+      "type": "turning",
+      "insert": "VNMG 160404",
+      "noseRadius": 0.4,
+      "angle": 35,
+      "approach": 93
+    },
+    {
+      "id": 3,
+      "name": "Parting",
+      "type": "parting",
+      "width": 3
+    }
+  ],
+  "operations": [
+    {
+      "name": "Face",
+      "tool": 1,
+      "lines": [
+        5,
+        9
+      ]
+    },
+    {
+      "name": "Rough OD",
+      "tool": 1,
+      "lines": [
+        10,
+        22
+      ],
+      "depthOfCut": 2
+    },
+    {
+      "name": "Rough grip",
+      "tool": 2,
+      "lines": [
+        23,
+        54
+      ],
+      "depthOfCut": 2
+    },
+    {
+      "name": "Finish profile",
+      "tool": 2,
+      "lines": [
+        55,
+        64
+      ]
+    },
+    {
+      "name": "Part off",
+      "tool": 3,
+      "lines": [
+        65,
+        72
+      ]
+    }
+  ],
+  "gcode": "%\nO1001 (DUMBBELL HANDLE)\nG21 G18 G40 G99\nG50 S2500\nT0101 (ROUGHER CNMG 120408)\nG96 S200 M3\nM8\nG0 X64. Z0.\nG1 X-1.6 F0.2\nG0 Z2.\nG0 X56.\nG1 Z-111. F0.25\nG0 U2.\nG0 Z2.\nG0 X52.\nG1 Z-111. F0.25\nG0 U2.\nG0 Z2.\nG0 X50.5\nG1 Z-111. F0.25\nG0 U2.\nG28 U0 W0\nT0202 (PROFILER VNMG 160404)\nG96 S220 M3\nG0 Z-12.169\nG0 X51.5\nG1 X46.5 Z-14.669 F0.2\nG1 X46.5 Z-96.131\nG1 X51.5 Z-98.631\nG0 X54.\nG0 Z-14.169\nG0 X47.5\nG1 X42.5 Z-16.669 F0.2\nG1 X42.5 Z-94.131\nG1 X47.5 Z-96.631\nG0 X54.\nG0 Z-16.169\nG0 X43.5\nG1 X38.5 Z-18.669 F0.2\nG1 X38.5 Z-92.131\nG1 X43.5 Z-94.631\nG0 X54.\nG0 Z-18.169\nG0 X39.5\nG1 X34.5 Z-20.669 F0.2\nG1 X34.5 Z-90.131\nG1 X39.5 Z-92.631\nG0 X54.\nG0 Z-20.169\nG0 X35.5\nG1 X30.5 Z-22.669 F0.2\nG1 X30.5 Z-88.131\nG1 X35.5 Z-90.631\nG0 X54.\nG96 S260\nG0 Z1.\nG0 X50.\nG1 X50. Z-12.566 F0.1\nG1 X30. Z-22.566\nG1 X30. Z-88.234\nG1 X50. Z-98.234\nG1 Z-111.\nG0 X62.\nG28 U0 W0\nT0303 (PARTING 3 MM)\nG96 S100 M3\nG0 X64. Z-113.\nG1 X0. F0.06\nG0 X64.\nM9\nG28 U0 W0\nM5\nM30\n%",
+  "assumptions": [
+    "60 mm cold-drawn 1045 bar, 120 mm out of the jaws",
+    "2 mm depth of cut, 0.25 mm/rev roughing feed",
+    "Grip walls at 45° so the VNMG can follow them",
+    "0.25 mm left for the finishing pass"
+  ]
+}
