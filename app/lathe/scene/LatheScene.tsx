@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import type { Player } from '../player.ts';
 import type { Timeline } from '../sim/timeline.ts';
 import type { Tool } from '../sim/job-schema.ts';
+import { profilePolyline } from '../sim/profile.ts';
 import { JAW_FACE_X, JAW_GRIP_RADIUS, PARTS, SPINDLE_Y, SPINDLE_Z, TIP_HOME, worldX, worldZ } from './calibration.ts';
 import { Workpiece } from './Workpiece.tsx';
 
@@ -228,7 +229,7 @@ function TargetProfile({ timeline }: { timeline: Timeline }) {
   const lines = useMemo(() => {
     if (profile.length < 2) return [];
     return [1, -1].map((side) =>
-      profile.map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002)),
+      profilePolyline(profile).map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002)),
     );
   }, [profile, stock]);
   return (

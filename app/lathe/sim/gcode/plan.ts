@@ -36,6 +36,7 @@ const IGNORED_G = new Set([18, 21, 40, 41, 42, 54, 80]); // accepted, no effect 
 export const MACHINE = { rapid: 6000, maxRpm: 4000, toolChangeS: 1.5 };
 const TOOL_CHANGE_S = MACHINE.toolChangeS;
 const ARC_STEP_DEG = 3;
+const ARC_CHORD_MM = 0.005; // arcs are cut as chords no further than this from the true arc
 
 export function planProgram(blocks: Block[], options: PlanOptions): Plan {
   const rapid = options.rapid ?? MACHINE.rapid;
@@ -135,7 +136,8 @@ export function planProgram(blocks: Block[], options: PlanOptions): Plan {
     if (cw) { while (sweep >= 0) sweep -= 2 * Math.PI; if (sweep < -2 * Math.PI) sweep += 2 * Math.PI; }
     else { while (sweep <= 0) sweep += 2 * Math.PI; if (sweep > 2 * Math.PI) sweep -= 2 * Math.PI; }
     if (Math.abs(sweep) > 2 * Math.PI - 1e-9 && Math.hypot(p1.u - p0.u, p1.v - p0.v) < 1e-9) sweep = cw ? -2 * Math.PI : 2 * Math.PI;
-    const steps = Math.max(2, Math.ceil(Math.abs(sweep) / ((ARC_STEP_DEG * Math.PI) / 180)));
+    const maxStep = Math.min((ARC_STEP_DEG * Math.PI) / 180, 2 * Math.acos(Math.max(0, 1 - ARC_CHORD_MM / Math.max(radius, 1e-6))));
+    const steps = Math.max(2, Math.ceil(Math.abs(sweep) / maxStep));
     for (let i = 1; i <= steps; i++) {
       const a = a0 + (sweep * i) / steps;
       const next = i === steps ? to : { x: 2 * (cv + radius * Math.sin(a)), z: cu + radius * Math.cos(a) };

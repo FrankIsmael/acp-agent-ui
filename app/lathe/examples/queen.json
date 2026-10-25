@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "Chess queen (classic)",
+  "units": "mm",
+  "material": { "name": "AISI 1045 steel", "density": 7.85 },
+  "stock": { "diameter": 60, "length": 160, "stickout": 120, "faceStock": 1 },
+  "profile": [[0, 0], [0, 3], [-0.8, 5], [-2, 6], [-3, 6], [-4.2, 5], [-5, 4], [-5.6, 4], [-6.5, 8], [-8, 11.5], [-10, 14], [-12.5, 16], [-13, 16], [-13, 26], [-14.5, 26], [-27, 14], [-28, 14], [-28, 16], [-29.5, 16], [-30.5, 14], [-32.5, 14], [-32.5, 22], [-34, 22], [-35, 20], [-36, 20], [-36, 24], [-39.5, 24], [-42.5, 18], [-44, 17.5], [-60, 19], [-72, 22], [-75, 24], [-75, 28], [-77.5, 28], [-78.5, 26], [-79.5, 26], [-82, 32], [-85, 36.5], [-88, 39], [-90, 40], [-92, 40], [-94, 38], [-95, 36], [-96, 36], [-96, 40], [-102, 40], [-103, 38]],
+  "tools": [
+    { "id": 1, "name": "Rougher", "type": "turning", "insert": "CNMG 120408", "noseRadius": 0.8, "angle": 80, "approach": 95 },
+    { "id": 2, "name": "Profiler", "type": "turning", "insert": "VNMG 160404", "noseRadius": 0.4, "angle": 35, "approach": 93 },
+    { "id": 3, "name": "Parting", "type": "parting", "width": 3 }
+  ],
+  "gcode": "%\nO1013 (CHESS QUEEN CLASSIC)\nG21 G18 G40 G99\nG50 S2500\n(Face)\nT0101\nG96 S200 M3\nM8\nG0 X64 Z3\nG0 Z0\nG1 X-1.6 F0.2\nG0 Z3\n(Rough OD)\nG0 X54\nG1 Z-105 F0.25\nG0 U2\nG0 Z3\nG0 X48\nG1 Z-105 F0.25\nG0 U2\nG0 Z3\nG0 X42\nG1 Z-105 F0.25\nG0 U2\nG0 Z3\nG0 X40.5\nG1 Z-105 F0.25\nG0 U2\nG0 Z3\nG0 X39.5\nG1 Z-87.8 F0.25\nG0 U2\nG0 Z3\nG0 X37\nG1 Z-84.8 F0.25\nG0 U2\nG0 Z3\nG0 X34\nG1 Z-82.8 F0.25\nG0 U2\nG0 Z3\nG0 X31\nG1 Z-81.2 F0.25\nG0 U2\nG0 Z3\nG0 X28.5\nG1 Z-74.75 F0.25\nG0 U2\nG0 Z3\nG0 X26.5\nG1 Z-74.75 F0.25\nG0 U2\nG0 Z3\nG0 X23\nG1 Z-12.75 F0.25\nG0 U2\nG0 Z3\nG0 X20\nG1 Z-12.75 F0.25\nG0 U2\nG0 Z3\nG0 X17\nG1 Z-12.75 F0.25\nG0 U2\nG0 Z3\nG0 X14.5\nG1 Z-9.8 F0.25\nG0 U2\nG0 Z3\nG0 X12\nG1 Z-7.8 F0.25\nG0 U2\nG0 Z3\nG0 X9\nG1 Z-6.5 F0.25\nG0 U2\nG0 Z3\n(Rough ball neck)\nG28 U0 W0\nT0202\nG96 S200 M3\nG0 X64 Z3\nG0 X9.5\nG0 Z-1.8\nG1 X6.5 F0.15\nG1 Z-5.9\nG1 X9 Z-6.4\nG0 X9.5\nG0 Z-3.2\nG0 X7\nG1 X4.5 Z-4.8 F0.15\nG1 Z-5.7\nG1 X6.5 Z-6.1\nG1 X9 Z-6.4\nG0 X9.5\n(Rough crown)\nG0 X27\nG0 Z-17.4\nG0 X26.5\nG1 X23.5 Z-17.6 F0.15\nG1 Z-35.75\nG1 X26.5\nG0 X27\nG0 Z-20.5\nG0 X26.5\nG1 X20.5 Z-20.7 F0.15\nG1 Z-32.25\nG1 X23.5\nG0 X27\nG0 Z-23.6\nG0 X23.5\nG1 X17.5 Z-23.8 F0.15\nG1 Z-32.25\nG1 X20.5\nG0 X27\nG0 Z-26.7\nG0 X20.5\nG1 X14.5 Z-26.9 F0.15\nG1 Z-27.75\nG1 X17.5\nG0 X27\nG0 Z-29.4\nG0 X17.5\nG1 X14.5 Z-30.7 F0.15\nG1 Z-32.25\nG1 X17.5\nG0 X27\n(Rough collar groove)\nG0 Z-34.2\nG0 X24\nG1 X20.5 Z-35.6 F0.15\nG1 Z-35.75\nG1 X23.5\nG0 X27\n(Rough stem)\nG0 Z-39.8\nG0 X26.5\nG1 X23.5 Z-40 F0.15\nG1 Z-73.3\nG1 X26.5 Z-74.6\nG0 X27\nG0 Z-41.3\nG0 X23.5\nG1 X20.5 Z-41.5 F0.15\nG1 Z-63.8\nG1 X23.5 Z-73.3\nG0 X27\nG0 Z-42.5\nG0 X20.5\nG1 X18 Z-42.75 F0.15\nG1 Z-44\nG1 X20.5 Z-63.8\nG0 X27\n(Rough base grooves)\nG0 X41\nG0 Z-74.6\nG0 X31.5\nG1 X28.5 Z-74.75 F0.15\nG1 Z-77.3\nG1 X26.5 Z-78.6\nG1 Z-79.6\nG1 X31 Z-81.15\nG0 X41\nG0 Z-91.8\nG1 X38.5 Z-93.75 F0.15\nG1 X36.5 Z-95.2\nG1 Z-95.75\nG1 X40.5\nG0 X41\nG0 X64\n(Finish profile)\nG96 S260\nG0 Z1\nG0 X2\nG1 Z0 F0.1\nG1 X3\nG1 X5 Z-0.95\nG1 X6 Z-2.3\nG1 Z-3.5\nG1 X5 Z-4.68\nG1 X4 Z-5.51\nG1 Z-5.75\nG1 X8 Z-6.65\nG1 X11.5 Z-8.25\nG1 X14 Z-10.28\nG1 X16 Z-12.8\nG1 Z-13\nG1 X26\nG1 Z-14.99\nG1 X14 Z-27.49\nG1 Z-28\nG1 X16\nG1 Z-30.066\nG1 X14 Z-31.066\nG1 Z-32.5\nG1 X22\nG1 Z-34.566\nG1 X20 Z-35.566\nG1 Z-36\nG1 X24\nG1 Z-40.066\nG1 X18 Z-43.066\nG1 X17.5 Z-44.4\nG1 X19 Z-60.38\nG1 X22 Z-72.35\nG1 X24 Z-75\nG1 X28\nG1 Z-78.066\nG1 X26 Z-79.066\nG1 Z-79.5\nG1 X32 Z-82.2\nG1 X36.5 Z-85.25\nG1 X39 Z-88.3\nG1 X40 Z-90.35\nG1 Z-92.5\nG1 X38 Z-94.5\nG1 X36 Z-95.566\nG1 Z-96\nG1 X40\nG1 Z-102.566\nG1 X38 Z-103.566\nG1 Z-105\nG0 X64\n(Part off)\nG28 U0 W0\nT0303\nG96 S100 M3\nG0 X64 Z3\nG0 Z-106\nG1 X0 F0.06\nG0 X64\nM9\nG28 U0 W0\nM5\nM30\n%",
+  "assumptions": [
+    "Scaled from the photo to 103 mm tall with a Ø40 foot; parted at Z-106 (3 mm blade), within the 111 mm limit",
+    "Crown points not turnable: crown is a plain Ø26 rim with a 26° taper down to Ø14; the dome sits inside the rim",
+    "Ball finial and dome approximated with facets; no true spheres",
+    "Collar: Ø16 ring, then Ø22 and Ø24 stacked rings with 45° undersides",
+    "Stem flares from Ø17.5 to Ø24 into a Ø28 band, then a Ø40 dome and a foot with a Ø36 groove",
+    "All falling walls are 45° or shallower, within the VNMG 52° limit; pockets roughed with the VNMG; sloped finish points shifted per the rn 0.4 table",
+    "Flat bottom is the parted-off face; no felt recess"
+  ]
+}

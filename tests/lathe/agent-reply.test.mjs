@@ -24,7 +24,24 @@ test('missing, repeated, broken and invalid blocks become errors the agent can f
     'stock.stickout: stickout (200) is longer than the bar (length 160); make length at least stickout + 30 mm to grip',
     'operations.0.tool: tool 9 is not in tools',
   ]);
-  // Cross-field checks only run once the fields themselves are valid.
+  // Without gcode the job is still checked; the program is generated from the profile.
   delete job.gcode;
-  assert.deepEqual(jobFromReply(reply(JSON.stringify(job))).errors, ['gcode: Invalid input: expected string, received undefined']);
+  job.tools[0].noseRadius = -1;
+  assert.equal(jobFromReply(reply(JSON.stringify(job))).errors[0], 'tools.0.noseRadius: Too small: expected number to be >=0');
+});
+
+test('a generated job on a bar far bigger than the part gets a standard bar 2–5 mm over it', () => {
+  const tools = [
+    { id: 1, name: 'Rougher', type: 'turning', insert: 'CNMG 120408', noseRadius: 0.8, angle: 80, approach: 95 },
+    { id: 3, name: 'Parting', type: 'parting', width: 3 },
+  ];
+  const pin = { version: 1, name: 'Pin', units: 'mm', material: { name: 'steel', density: 7.85 }, stock: { diameter: 60, length: 84, stickout: 54, faceStock: 1 }, profile: [[0, 0], [0, 11], [-1, 12], [-39, 12], [-40, 11]], tools };
+  const block = (job) => '```lathe-job\n' + JSON.stringify(job) + '\n```';
+  const result = jobFromReply(block(pin));
+  assert.ok(result.ok);
+  assert.equal(result.job.stock.diameter, 16);
+  assert.match(result.job.assumptions.at(-1), /Bar changed from Ø60 to Ø16/);
+  // Within 6 mm of the part, or with hand-written G-code, the bar stays.
+  const close = jobFromReply(block({ ...pin, stock: { ...pin.stock, diameter: 16 } }));
+  assert.ok(close.ok && close.job.stock.diameter === 16 && close.job.assumptions.length === 0);
 });

@@ -243,7 +243,10 @@ export async function requestJob(
     try {
       reply = await turn(
         'fix',
-        `[skill: lathe-job]\n${result.ok ? 'I ran your job in the simulator. It' : 'The lathe-job block'} has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\n\nFix every one of them (change the values they name, and anything that depends on them), check the rules of the skill again, then send the whole corrected job as one \`\`\`lathe-job block.`,
+        `[skill: lathe-job]\n${result.ok ? 'I ran your job in the simulator. It' : 'The lathe-job block'} has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\n\n` +
+          (result.ok && result.job.generated
+            ? 'The G-code was generated from your profile: fix the profile (or the bar or the tools) the way each problem says, then send the whole job again as one ```lathe-job block, still without `gcode`.'
+            : 'Fix every one of them (change the values they name, and anything that depends on them), check the rules of the skill again, then send the whole corrected job as one ```lathe-job block.'),
       );
     } catch (error) {
       // A fix that times out or fails keeps the job from before it, problems and all.

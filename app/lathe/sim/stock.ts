@@ -4,6 +4,9 @@
  */
 import type { Footprint } from './tool-shapes.ts';
 import type { Point } from './gcode/plan.ts';
+import { profileRangeAt, profileSegments, segmentsRangeAt, type Profile } from './profile.ts';
+
+export { profileRangeAt };
 
 export const STEP_MM = 0.05;
 
@@ -62,7 +65,7 @@ export function weight(r: Float32Array, step: number, density: number, from = 0,
 }
 
 /** Weight of the finished part: the stock between the ends of the target profile. */
-export function partWeight(r: Float32Array, shape: StockShape, profile: [number, number][], density: number): number {
+export function partWeight(r: Float32Array, shape: StockShape, profile: Profile, density: number): number {
   if (profile.length < 2) return NaN;
   const zs = profile.map(([z]) => z);
   const from = Math.round((shape.zFront - Math.max(...zs)) / shape.step);
@@ -70,37 +73,23 @@ export function partWeight(r: Float32Array, shape: StockShape, profile: [number,
   return weight(r, shape.step, density, from, to);
 }
 
-/** Target radius at z from a [z, diameter] profile, or NaN outside it. Vertical steps keep the larger. */
-export function profileRadiusAt(profile: [number, number][], z: number): number {
+/** Target radius at z from a profile, or NaN outside it. Vertical steps keep the larger. */
+export function profileRadiusAt(profile: Profile, z: number): number {
   return profileRangeAt(profile, z).hi;
 }
 
-/** Smallest and largest target radius at z: they differ on a vertical step, where both are right. */
-export function profileRangeAt(profile: [number, number][], z: number): { lo: number; hi: number } {
-  let lo = NaN, hi = NaN;
-  for (let j = 0; j + 1 < profile.length; j++) {
-    const [z0, d0] = profile[j];
-    const [z1, d1] = profile[j + 1];
-    if (z < Math.min(z0, z1) - 1e-9 || z > Math.max(z0, z1) + 1e-9) continue;
-    const a = z1 === z0 ? Math.min(d0, d1) / 2 : (d0 + ((d1 - d0) * (z - z0)) / (z1 - z0)) / 2;
-    const b = z1 === z0 ? Math.max(d0, d1) / 2 : a;
-    lo = Number.isNaN(lo) ? a : Math.min(lo, a);
-    hi = Number.isNaN(hi) ? b : Math.max(hi, b);
-  }
-  return { lo, hi };
-}
-
 /** Largest stock left over the target and deepest cut under it, in mm (radius). */
-export function compareToProfile(r: Float32Array, shape: StockShape, profile: [number, number][]) {
+export function compareToProfile(r: Float32Array, shape: StockShape, profile: Profile) {
   let leftover = 0, leftoverZ = NaN, gouge = 0, gougeZ = NaN;
   if (profile.length < 2) return { leftover, leftoverZ, gouge, gougeZ };
   // The ends are where the part is faced and parted off: compare only inside them.
   const zs = profile.map(([z]) => z);
   const lo = Math.min(...zs) + shape.step, hi = Math.max(...zs) - shape.step;
+  const segments = profileSegments(profile);
   for (let i = 0; i < r.length; i++) {
     const z = shape.zFront - i * shape.step;
     if (z < lo || z > hi) continue;
-    const target = profileRangeAt(profile, z);
+    const target = segmentsRangeAt(segments, z);
     if (Number.isNaN(target.hi)) continue;
     if (r[i] - target.hi > leftover) { leftover = r[i] - target.hi; leftoverZ = z; }
     if (target.lo - r[i] > gouge) { gouge = target.lo - r[i]; gougeZ = z; }

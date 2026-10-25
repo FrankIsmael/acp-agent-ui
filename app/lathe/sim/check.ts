@@ -5,6 +5,7 @@
  */
 import type { Segment } from './gcode/plan.ts';
 import type { Job, Tool } from './job-schema.ts';
+import { arcProblems } from './profile.ts';
 import { buildTimeline } from './timeline.ts';
 import { compareToProfile } from './stock.ts';
 import { endEdgeAngle, INSERT_EDGE_MM } from './tool-shapes.ts';
@@ -30,6 +31,7 @@ export function checkJob(job: Job): string[] {
     if (fat.length) problems.push(`profile: diameter ${fat[0][1]} is larger than the bar (Ø${stock.diameter}); a lathe only removes material`);
     if (profile.some(([, d]) => d < 0)) problems.push('profile: diameters must be ≥ 0');
     if (profile.some(([z], i) => i > 0 && z > profile[i - 1][0])) problems.push('profile: Z must never increase from one point to the next (front face first, toward the chuck)');
+    problems.push(...arcProblems(profile));
     const back = Math.min(...profile.map(([z]) => z));
     if (back < jawZ + JAW_CLEARANCE_MM)
       problems.push(`profile: it reaches Z${mm(back)}, but the jaws hold the bar from Z${mm(jawZ)}; increase stock.stickout (and stock.length) or shorten the part`);
@@ -46,7 +48,12 @@ export function checkJob(job: Job): string[] {
   else if (profile.length >= 2) {
     const { leftover, leftoverZ, gouge, gougeZ } = compareToProfile(timeline.final, timeline.shape, profile);
     if (leftover > LEFTOVER_MM)
-      problems.push(`the cut part is ${mm(leftover * 2)} mm over the profile's diameter at Z${mm(leftoverZ)}: a pass is missing there, or the tool's insert can't reach that wall`);
+      problems.push(
+        `the cut part is ${mm(leftover * 2)} mm over the profile's diameter at Z${mm(leftoverZ)}: ` +
+          (job.generated
+            ? `no tool in the turret reaches into that corner. ${unreachableHint(job)}`
+            : "a pass is missing there, or the tool's insert can't reach that wall"),
+      );
     if (gouge > GOUGE_MM)
       problems.push(
         `the cut part is ${mm(gouge * 2)} mm under the profile's diameter at Z${mm(gougeZ)}: ` +
@@ -54,6 +61,18 @@ export function checkJob(job: Job): string[] {
       );
   }
   return problems;
+}
+
+/** How to open up a corner that the generated program can't reach, with the turret's numbers. */
+function unreachableHint({ tools }: Job): string {
+  const nose = Math.min(...tools.flatMap((tool) => (tool.type === 'turning' ? [tool.noseRadius] : [])));
+  const reach = Math.max(0, ...tools.flatMap((tool) => (tool.type === 'turning' ? [endEdgeAngle(tool)] : [])));
+  const blade = tools.find((tool) => tool.type === 'parting');
+  return (
+    `Where a wall falling toward the chuck meets one rising again, leave room: a flat bottom at least ${mm(Math.max(1, nose * 4))} mm long ` +
+    `(${blade ? `${mm(blade.width)} mm if the falling wall is steeper than ${mm(reach)}°` : `with the falling wall under ${mm(reach)}°`}), ` +
+    `or a cove (negative R) of at least ${mm(Math.max(1, nose * 2.5))} mm, instead of a sharp V. Change the profile; the G-code is generated from it.`
+  );
 }
 
 /**

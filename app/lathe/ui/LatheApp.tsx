@@ -305,14 +305,15 @@ function GcodePanel({ job, timeline, player, onChange }: { job: Job; timeline: T
           className="min-h-[300px] flex-1 rounded-md border border-border-primary bg-background-secondary p-2 font-mono text-xs" />
         <div className="flex justify-end gap-2">
           <button onClick={() => { setDraft(job.gcode); setEditing(false); }} className="rounded-md px-3 py-1.5 text-sm text-text-secondary">{t('Cancel')}</button>
-          <button onClick={() => { onChange({ ...job, gcode: draft }); setEditing(false); }} className="rounded-md bg-background-inverse px-3 py-1.5 text-sm text-text-inverse">{t('Run again')}</button>
+          <button onClick={() => { onChange({ ...job, gcode: draft, generated: false }); setEditing(false); }} className="rounded-md bg-background-inverse px-3 py-1.5 text-sm text-text-inverse">{t('Run again')}</button>
         </div>
       </div>
     );
 
   return (
     <div className="py-1">
-      <div className="flex justify-end px-3 py-1">
+      <div className="flex items-center justify-between gap-2 px-3 py-1">
+        <span className="text-xs text-text-tertiary">{job.generated ? t('Generated from the profile') : ''}</span>
         <button onClick={() => setEditing(true)} className="text-xs text-text-secondary underline-offset-2 hover:underline">{t('Edit')}</button>
       </div>
       <div className="font-mono text-xs">

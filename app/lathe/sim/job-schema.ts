@@ -4,8 +4,11 @@
  * and negative Z goes toward the chuck.
  */
 import { z } from 'zod';
+import { GenerateError, generateGcode } from './gcode/generate.ts';
+import { arcProblems } from './profile.ts';
 
-const point = z.tuple([z.number(), z.number().nonnegative()]);
+// [z, diameter], or [z, diameter, R] when the segment ending there is an arc (sim/profile.ts).
+const point = z.union([z.tuple([z.number(), z.number().nonnegative()]), z.tuple([z.number(), z.number().nonnegative(), z.number()])]);
 
 const turning = z.object({
   id: z.number().int().positive(),
@@ -41,6 +44,22 @@ export const setupSchema = z
   .refine((setup) => setup.stock.stickout <= setup.stock.length);
 export type Setup = z.output<typeof setupSchema>;
 
+// Settings for the generated program; anything left out comes from the material (gcode/generate.ts).
+const camSchema = z.object({
+  depthOfCut: z.number().positive().max(10).optional(), // mm per side, roughing
+  finishAllowance: z.number().nonnegative().max(2).optional(), // mm per side
+  roughSpeed: z.number().positive().optional(), // m/min
+  finishSpeed: z.number().positive().optional(),
+  partSpeed: z.number().positive().optional(),
+  roughFeed: z.number().positive().optional(), // mm/rev
+  finishFeed: z.number().positive().optional(),
+  partFeed: z.number().positive().optional(),
+  maxRpm: z.number().positive().optional(),
+  roughTool: z.number().int().optional(),
+  finishTool: z.number().int().optional(),
+  partTool: z.number().int().optional(),
+});
+
 export const jobSchema = z
   .object({
     version: z.literal(1),
@@ -60,7 +79,8 @@ export const jobSchema = z
         }),
       )
       .default([]),
-    gcode: z.string().min(1),
+    gcode: z.string().min(1).optional(), // left out: generated from the profile
+    cam: camSchema.optional(),
     assumptions: z.array(z.string()).default([]),
   })
   .superRefine((job, ctx) => {
@@ -73,14 +93,29 @@ export const jobSchema = z
     });
   });
 
-export type Job = z.output<typeof jobSchema>;
+export type Job = Omit<z.output<typeof jobSchema>, 'gcode'> & {
+  gcode: string;
+  generated?: boolean; // the G-code was written from the profile, not by the author
+};
 export type Tool = z.output<typeof toolSchema>;
 
 /** Parses unknown JSON into a job, or returns readable errors (`path: message`). */
 export function parseJob(input: unknown): { ok: true; job: Job } | { ok: false; errors: string[] } {
   const result = jobSchema.safeParse(input);
   if (result.success) {
-    const job = result.data;
+    const { gcode, ...data } = result.data;
+    let job: Job;
+    if (gcode) job = { ...data, gcode };
+    else {
+      const problems = arcProblems(data.profile);
+      if (problems.length) return { ok: false, errors: problems };
+      try {
+        job = { ...data, gcode: generateGcode(data), generated: true };
+      } catch (error) {
+        if (error instanceof GenerateError) return { ok: false, errors: [error.message] };
+        throw error;
+      }
+    }
     if (!job.operations.length) job.operations = operationsFromGcode(job.gcode, job.tools);
     return { ok: true, job };
   }
