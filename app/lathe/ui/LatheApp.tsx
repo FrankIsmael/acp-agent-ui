@@ -13,15 +13,15 @@ import { parseJob, type Job } from '../sim/job-schema.ts';
 import { compareToProfile, partWeight, STEP_MM, weight } from '../sim/stock.ts';
 import type { CameraView } from '../scene/LatheScene.tsx';
 import { replyProse } from '../agent-reply.ts';
-import dumbbell from '../examples/dumbbell.json';
-import pulley from '../examples/pulley.json';
 
 const LatheScene = lazy(() => import('../scene/LatheScene.tsx'));
 
-export const EXAMPLES: { id: string; job: unknown }[] = [
-  { id: 'dumbbell', job: dumbbell },
-  { id: 'pulley', job: pulley },
-];
+// Every JSON dropped in ../examples shows up here; the dumbbell goes first since it is the default job.
+const exampleFiles = import.meta.glob<unknown>('../examples/*.json', { eager: true, import: 'default' });
+export const EXAMPLES: { id: string; job: unknown }[] = Object.entries(exampleFiles)
+  .map(([path, job]) => ({ id: path.replace(/^.*\/|\.json$/g, ''), job }))
+  .sort((a, b) => Number(b.id === 'dumbbell') - Number(a.id === 'dumbbell') || a.id.localeCompare(b.id));
+const dumbbell = EXAMPLES.find((example) => example.id === 'dumbbell')!.job;
 
 type Tab = 'describe' | 'job' | 'gcode' | 'results' | 'load';
 export type AgentAccess = 'ready' | 'locked' | 'invite' | 'unconfigured';
