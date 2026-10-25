@@ -38,8 +38,8 @@ request for a turned part, or a fix to a job you already sent.
 A reply that passes the simulator, for "An A-section V-belt pulley in aluminum, one groove":
 
 A 35 mm A-section pulley: a Ø40 hub 15 mm long and a Ø90 rim with one groove, 13 mm wide at the
-rim, 11 deep and 38° included. A neutral 35° VBMT finishes the groove walls; the bore and keyway
-are left for a second operation.
+rim, 11 deep and 38° included. A neutral 35° VBMT finishes the groove walls; the keyway is left
+for a second operation, and the hub stays solid since no bore was asked for.
 
 ```lathe-job
 {
@@ -58,7 +58,7 @@ are left for a second operation.
     "Single A-section groove: 13 mm wide at the rim, 11 mm deep, 38° included",
     "Ø95 6061 bar, 55 mm out of the jaws",
     "Neutral 35° insert (72.5° approach) so both groove walls can be followed",
-    "The bore and keyway are a second operation"
+    "The keyway is a second operation; no bore was asked for"
   ]
 }
 ```

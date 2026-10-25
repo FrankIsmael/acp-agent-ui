@@ -64,6 +64,15 @@ G90 G91`, `U`/`W` incremental, `G50 S` (rpm limit), `G96 G97`, `G98`/`G94` (mm/m
    down in X (`G1 X`) with a turning tool only cuts a groove as wide as its nose. Grooves narrower
    than the insert need a parting or grooving tool, stepped across in Z.
 7. **Every `T` in the program is in `tools`.** End with `M30`.
+8. **Inside tools** (`drill`, `boring`, `internal-grooving`) cut outward from the axis side. A
+   drill is programmed by its point at `X0`: peck with `G1 Z` moves at a fixed rpm (`G97 S… M3`),
+   retracting with `G0 Z1` between pecks; its full diameter is 0.3 × D behind the point. A boring
+   bar is programmed by its imaginary tip like a turning tool, mirrored: `G1 X` is the bore
+   diameter; rough with `G1 Z` passes, each one depth of cut larger, `G0` back toward the axis
+   (`G0 X(drilled − 1)`) before every `G0 Z` out of the hole. The internal grooving tool's point is
+   its chuck-side corner, like the parting tool: enter at the bore diameter, `G1 X(groove)`, back
+   to `G0 X(bore − 1)`, then out along Z. Leave every inside tool with `G0 Z2` in front of the face
+   before `G28 U0 W0`.
 
 ## Patterns that pass the simulator
 

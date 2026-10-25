@@ -32,8 +32,16 @@ export type PlanOptions = {
 export type Plan = { segments: Segment[]; duration: number; warnings: ParseIssue[] };
 
 const IGNORED_G = new Set([18, 21, 40, 41, 42, 54, 80]); // accepted, no effect in the simulator yet
-/** The simulated machine's limits; the agent is told about them too. */
-export const MACHINE = { rapid: 6000, maxRpm: 4000, toolChangeS: 1.5 };
+/**
+ * The simulated machine's limits; the agent is told about them too. The chuck is the model's
+ * Ø200 3-jaw: its jaws grip bars up to Ø160. A bar up to the spindle bore can pass through the
+ * headstock, so it can be long; a thicker one only fits in the chuck, `chuckDepth` deep behind the
+ * jaw face. The carriage travels `maxStickout` from the jaws, and the jaws need `minGrip` of bar.
+ */
+export const MACHINE = {
+  rapid: 6000, maxRpm: 4000, toolChangeS: 1.5,
+  maxBarDiameter: 160, spindleBore: 52, chuckDepth: 40, maxBarLength: 1000, maxStickout: 400, minGrip: 10,
+};
 const TOOL_CHANGE_S = MACHINE.toolChangeS;
 const ARC_STEP_DEG = 3;
 const ARC_CHORD_MM = 0.005; // arcs are cut as chords no further than this from the true arc

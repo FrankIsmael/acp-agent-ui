@@ -12,6 +12,7 @@ import type { Player } from '../player.ts';
 import type { Timeline } from '../sim/timeline.ts';
 import type { Tool } from '../sim/job-schema.ts';
 import { profilePolyline } from '../sim/profile.ts';
+import { endEdgeAngle, toolReach } from '../sim/tool-shapes.ts';
 import { JAW_FACE_X, JAW_GRIP_RADIUS, PARTS, SPINDLE_Y, SPINDLE_Z, TIP_HOME, worldX, worldZ } from './calibration.ts';
 import { Workpiece } from './Workpiece.tsx';
 
@@ -188,19 +189,36 @@ function Machine({ timeline, player }: { timeline: Timeline; player: Player }) {
   );
 }
 
-/** Insert and holder with the programmed point at the origin; +X is program +Z, +Z is program +X. */
+/**
+ * Insert and holder with the programmed point at the origin; +X is program +Z, +Z is program +X.
+ * Inside tools are the mirror image, cutting outward from the axis side, on a bar along +X; a
+ * drill is its body along +X with the point at the origin.
+ */
 function ToolShape({ tool }: { tool: Tool }) {
+  const mm = 0.001;
   const insert = useMemo(() => {
-    const mm = 0.001;
+    if (tool.type === 'drill') {
+      const radius = (tool.diameter / 2) * mm;
+      const point = radius / Math.tan((Math.min(179, tool.pointAngle) / 2) * (Math.PI / 180));
+      const length = toolReach(tool) * mm;
+      // A lathe profile around Y, then laid along +X: the point at the origin, the body behind it.
+      const geometry = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(radius, point), new THREE.Vector2(radius, point + length), new THREE.Vector2(0, point + length)], 24);
+      geometry.rotateZ(-Math.PI / 2);
+      return geometry;
+    }
     const outline = new THREE.Shape();
     if (tool.type === 'parting') {
       outline.moveTo(0, 0).lineTo(tool.width * mm, 0).lineTo(tool.width * mm, 0.022).lineTo(0, 0.022).closePath();
+    } else if (tool.type === 'internal-grooving') {
+      const depth = (tool.depth + 1) * mm;
+      outline.moveTo(0, 0).lineTo(tool.width * mm, 0).lineTo(tool.width * mm, -depth).lineTo(0, -depth).closePath();
     } else {
       const kr = (tool.approach * Math.PI) / 180;
-      const e = (Math.max(1, 180 - tool.approach - tool.angle) * Math.PI) / 180;
-      const L = 0.012;
-      const m = [Math.sin(kr - Math.PI / 2) * L, Math.cos(kr - Math.PI / 2) * L];
-      const s = [Math.cos(e) * L, Math.sin(e) * L];
+      const e = (endEdgeAngle(tool) * Math.PI) / 180;
+      const L = tool.type === 'boring' ? Math.min(0.008, tool.minBore * 0.35 * mm) : 0.012;
+      const side = tool.type === 'boring' ? -1 : 1; // a boring insert faces out, from the axis side
+      const m = [Math.sin(kr - Math.PI / 2) * L, side * Math.cos(kr - Math.PI / 2) * L];
+      const s = [Math.cos(e) * L, side * Math.sin(e) * L];
       outline.moveTo(0, 0).lineTo(s[0], s[1]).lineTo(s[0] + m[0], s[1] + m[1]).lineTo(m[0], m[1]).closePath();
     }
     const geometry = new THREE.ExtrudeGeometry(outline, { depth: 0.004, bevelEnabled: false });
@@ -209,6 +227,29 @@ function ToolShape({ tool }: { tool: Tool }) {
     return geometry;
   }, [tool]);
   useEffect(() => () => insert.dispose(), [insert]);
+  if (tool.type === 'drill')
+    return (
+      <mesh geometry={insert} castShadow>
+        <meshStandardMaterial color="#9aa3ad" metalness={0.7} roughness={0.35} />
+      </mesh>
+    );
+  if (tool.type === 'boring' || tool.type === 'internal-grooving') {
+    // The bar: thinner than the smallest bore it fits, on the axis side of the edge, out of the hole along +X.
+    const bar = tool.minBore * 0.6 * mm;
+    const length = toolReach(tool) * mm + 0.06;
+    const head = tool.type === 'internal-grooving' ? (tool.depth + 1) * mm : Math.min(0.008, tool.minBore * 0.35 * mm);
+    return (
+      <>
+        <mesh geometry={insert} castShadow>
+          <meshStandardMaterial color="#d4a537" metalness={0.6} roughness={0.35} />
+        </mesh>
+        <mesh position={[length / 2 + 0.001, -0.002, -head - bar / 2]} rotation-z={Math.PI / 2} castShadow>
+          <cylinderGeometry args={[bar / 2, bar / 2, length, 16]} />
+          <meshStandardMaterial color="#3b4048" metalness={0.5} roughness={0.5} />
+        </mesh>
+      </>
+    );
+  }
   const parting = tool.type === 'parting';
   return (
     <>
@@ -225,13 +266,15 @@ function ToolShape({ tool }: { tool: Tool }) {
 
 /** The finished shape as a ghost outline on the bar's silhouette. */
 function TargetProfile({ timeline }: { timeline: Timeline }) {
-  const { profile, stock } = timeline.job;
+  const { profile, bore, stock } = timeline.job;
   const lines = useMemo(() => {
-    if (profile.length < 2) return [];
-    return [1, -1].map((side) =>
-      profilePolyline(profile).map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002)),
+    const outlines = [profile, bore].filter((shape) => shape.length >= 2);
+    return outlines.flatMap((shape) =>
+      [1, -1].map((side) =>
+        profilePolyline(shape).map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002)),
+      ),
     );
-  }, [profile, stock]);
+  }, [profile, bore, stock]);
   return (
     <>
       {lines.map((points, i) => (

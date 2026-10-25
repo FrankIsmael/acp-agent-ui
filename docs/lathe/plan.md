@@ -208,6 +208,8 @@ instabox ssh "$CNC_AGENT_BOX_ID" -- 'cd /data/workspace/ghosty-lite &&
   "stock":    { "diameter": 60, "length": 160, "stickout": 120 },     // stickout = length out of the chuck
   "profile":  [[0, 0], [0, 50], [-12, 50], [-14, 30], [-96, 30], [-98, 50], [-110, 50]],
                                                                       // finished part: [z, diameter] from the front face
+  "bore":     [[0, 22], [-1, 20], [-40, 20]],                           // optional hole along the axis, the same way; drilled,
+                                                                      // bored and grooved with drill / boring / internal-grooving tools
   "tools": [
     { "id": 1, "name": "Rougher",   "type": "turning", "insert": "CNMG 120408", "noseRadius": 0.8, "angle": 80, "approach": 95 },
     { "id": 2, "name": "Finisher",  "type": "turning", "insert": "VNMG 160404", "noseRadius": 0.4, "angle": 35, "approach": 93 },

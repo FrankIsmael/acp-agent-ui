@@ -1,13 +1,13 @@
 /**
  * A job turned into a timeline: `stateAt(t)` gives the machine state and the workpiece profile at
- * any moment. Profiles are snapshotted before every segment that cuts, so scrubbing in either
- * direction only replays the part of one segment.
+ * any moment. Profiles (the outside and the hole) are snapshotted before every segment that cuts,
+ * so scrubbing in either direction only replays the part of one segment.
  */
 import type { Job } from './job-schema.ts';
 import { parseGcode, type ParseIssue } from './gcode/parse.ts';
 import { planProgram, type Point, type Segment } from './gcode/plan.ts';
-import { footprint, type Footprint } from './tool-shapes.ts';
-import { freshProfile, stockShape, sweep, weight, type StockShape } from './stock.ts';
+import { footprint, isInside, type Footprint } from './tool-shapes.ts';
+import { freshBore, freshProfile, stockShape, sweep, sweepInner, weight, type StockShape } from './stock.ts';
 
 export type MachineState = {
   t: number;
@@ -35,9 +35,12 @@ export type Timeline = {
   startWeight: number;
   endWeight: number;
   final: Float32Array;
+  finalBore: Float32Array;
+  /** Whether any tool cuts the inside: without it the hole stays at 0 and need not be drawn. */
+  hollow: boolean;
   stateAt(t: number): MachineState;
-  /** Writes the profile at `t` into `out` (length `shape.n`). */
-  profileAt(t: number, out: Float32Array): Float32Array;
+  /** Writes the profile at `t` into `out` (length `shape.n`), and the hole's into `inner` if given. */
+  profileAt(t: number, out: Float32Array, inner?: Float32Array): Float32Array;
   /** Time each source line starts, for stepping and the G-code panel. */
   lineStart: Map<number, number>;
 };
@@ -51,7 +54,11 @@ export function buildTimeline(job: Job): Timeline {
   const segments = plan.segments;
 
   const footprints = new Map<number, Footprint>();
-  for (const tool of job.tools) footprints.set(tool.id, footprint(tool, shape.step));
+  const inside = new Set<number>();
+  for (const tool of job.tools) {
+    footprints.set(tool.id, footprint(tool, shape.step));
+    if (isInside(tool)) inside.add(tool.id);
+  }
   const missing = new Set<number>();
   const fpFor = (segment: Segment) => {
     const fp = footprints.get(segment.tool);
@@ -62,19 +69,31 @@ export function buildTimeline(job: Job): Timeline {
     return fp;
   };
 
-  // Before segment i the profile is snapshots[i]; segments that don't cut share the previous array.
+  // Before segment i the profile is snapshots[i] (the hole, holes[i]); segments that don't cut share
+  // the previous arrays.
   const snapshots: Float32Array[] = new Array(segments.length + 1);
+  const holes: Float32Array[] = new Array(segments.length + 1);
   let current = freshProfile(shape);
+  let hole = freshBore(shape);
   const startWeight = weight(current, shape.step, job.material.density);
   let rapidWarned = false;
   segments.forEach((segment, i) => {
     snapshots[i] = current;
+    holes[i] = hole;
     const fp = segment.kind === 'dwell' ? undefined : fpFor(segment);
-    if (!fp || Math.min(segment.from.x, segment.to.x) / 2 >= shape.radius) return;
-    const next = current.slice();
-    const removed = sweep(next, shape, fp, segment.from, segment.to);
+    if (!fp) return;
+    let removed: number;
+    if (inside.has(segment.tool)) {
+      const next = hole.slice();
+      removed = sweepInner(next, current, shape, fp, segment.from, segment.to);
+      if (next.some((v, k) => v !== hole[k])) hole = next;
+    } else {
+      if (Math.min(segment.from.x, segment.to.x) / 2 >= shape.radius) return;
+      const next = current.slice();
+      removed = sweep(next, shape, fp, segment.from, segment.to);
+      if (removed > 0) current = next;
+    }
     if (removed > 0) {
-      current = next;
       if (segment.kind === 'rapid' && removed > 1 && !rapidWarned) {
         rapidWarned = true;
         warnings.push({ line: segment.line, message: 'A rapid move (G0) goes through the material' });
@@ -82,7 +101,9 @@ export function buildTimeline(job: Job): Timeline {
     }
   });
   snapshots[segments.length] = current;
+  holes[segments.length] = hole;
   const final = current;
+  const finalBore = hole;
   warnings.sort((a, b) => a.line - b.line);
 
   const lineStart = new Map<number, number>();
@@ -123,23 +144,31 @@ export function buildTimeline(job: Job): Timeline {
     };
   };
 
-  const profileAt = (t: number, out: Float32Array) => {
-    if (!segments.length) return out.fill(shape.radius);
+  const profileAt = (t: number, out: Float32Array, inner?: Float32Array) => {
+    if (!segments.length) {
+      inner?.fill(0);
+      return out.fill(shape.radius);
+    }
     const state = stateAt(t);
     const i = state.segment;
     out.set(snapshots[i]);
+    inner?.set(holes[i]);
     const segment = segments[i];
     const fp = segment.kind === 'dwell' ? undefined : footprints.get(segment.tool);
     if (fp && snapshots[i + 1] !== snapshots[i]) {
       if (state.done) out.set(snapshots[i + 1]);
       else sweep(out, shape, fp, segment.from, state.pos);
     }
+    if (fp && inner && holes[i + 1] !== holes[i]) {
+      if (state.done) inner.set(holes[i + 1]);
+      else sweepInner(inner, out, shape, fp, segment.from, state.pos);
+    }
     return out;
   };
 
   return {
     job, shape, segments, duration: plan.duration, warnings, home,
-    startWeight, endWeight: weight(final, shape.step, job.material.density), final,
-    stateAt, profileAt, lineStart,
+    startWeight, endWeight: weight(final, shape.step, job.material.density, 0, shape.n, finalBore), final, finalBore,
+    hollow: holes[segments.length] !== holes[0], stateAt, profileAt, lineStart,
   };
 }

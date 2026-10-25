@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Bearing housing",
+  "units": "mm",
+  "material": { "name": "AISI 1045 steel", "density": 7.85 },
+  "stock": { "diameter": 55, "length": 80, "stickout": 45, "faceStock": 1 },
+  "profile": [[0, 0], [0, 48], [-1, 50], [-29, 50], [-30, 48]],
+  "bore": [[0, 36], [-0.5, 35], [-2, 35], [-2, 37], [-3.6, 37], [-3.6, 35], [-14.6, 35], [-14.6, 20], [-30, 20]],
+  "tools": [
+    { "id": 1, "name": "Rougher", "type": "turning", "insert": "CNMG 120408", "noseRadius": 0.8, "angle": 80, "approach": 95 },
+    { "id": 2, "name": "Profiler", "type": "turning", "insert": "VNMG 160404", "noseRadius": 0.4, "angle": 35, "approach": 93 },
+    { "id": 3, "name": "Parting", "type": "parting", "width": 3 },
+    { "id": 4, "name": "Drill", "type": "drill", "diameter": 18 },
+    { "id": 5, "name": "Boring bar", "type": "boring", "insert": "DCMT 070204", "noseRadius": 0.4, "angle": 55, "approach": 93, "minBore": 16 },
+    { "id": 6, "name": "Circlip groove", "type": "internal-grooving", "width": 1.6, "depth": 3, "minBore": 25 }
+  ],
+  "assumptions": [
+    "A seat for a 6202 bearing (Ø35 × 11) with a DIN 472 circlip groove (Ø37 × 1.6) at its mouth",
+    "Ø20 through bore behind the seat, for the shaft",
+    "Ø55 1045 steel bar, 45 mm out of the jaws"
+  ]
+}

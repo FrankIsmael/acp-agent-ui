@@ -1,6 +1,6 @@
 ---
 name: lathe-job
-description: Design a turned part (bar stock, tools and the target profile, with arcs) as a `lathe-job` JSON block for the /lathe simulator, which writes the G-code from the profile. Use for prompts tagged [skill: lathe-job], or when asked to program a turned part for the lathe simulator.
+description: Design a turned part (bar stock, tools, the target profile with arcs, and an optional bore with internal grooves) as a `lathe-job` JSON block for the /lathe simulator, which writes the G-code from the profile. Use for prompts tagged [skill: lathe-job], or when asked to program a turned part for the lathe simulator.
 effort: low
 ---
 
@@ -12,24 +12,29 @@ containing the JSON below. Don't use tools or files: the whole answer is text. D
 questions: pick sensible defaults and list them under `assumptions`. Reply in the user's language,
 but keep the JSON keys in English.
 
-**Leave `gcode` out.** The page generates the program from `profile`, `stock` and `tools` (facing,
-roughing, nose radius compensation, finishing with real arcs, steps the inserts can't reach, part
-off) and checks it in the simulator. Your work is the shape: get the profile right and stop. Write
+**Leave `gcode` out.** The page generates the program from `profile`, `bore`, `stock` and `tools`
+(facing, roughing, nose radius compensation, finishing with real arcs, steps the inserts can't
+reach, drilling, boring, internal grooves, part off) and checks it in the simulator. Your work is the shape: get the profile right and stop. Write
 G-code only when the request asks for hand-written G-code or for a specific machining strategy;
 then read `gcode.md` in this skill's folder first.
 
 ## What the simulator can't make
 
-It only turns the outside of the bar. When the request asks for any of these, make the outside
-shape without them, say so in one sentence, and add an entry to `assumptions`:
+It turns the outside, and drills and bores one hole along the axis from the front face, with
+internal grooves (see **The bore**). When the request asks for any of these, make the part
+without them, say so in one sentence, and add an entry to `assumptions`:
 
-- **Threads** of any kind: turn the plain major diameter for the thread's length. Threads keep
+- **Threads** of any kind, outside or inside: turn the plain major diameter for an outside thread,
+  bore the minor diameter for an inside one (M20 → Ø17.5), for the thread's length. Threads keep
   standard sizes: when the part is scaled, keep the thread (M20 stays Ø20) or move to the nearest
   standard one (M24, M30), never Ø22.2.
-- **Holes, bores, drilling**, anything inside the part.
-- **Knurling, flats, keyways, slots, cross holes** or anything milled (a rook's crenellations, a
-  bishop's mitre cut, a knight's head): leave them out, or hint at them with a groove.
-- **A part longer than the bar allows**: as long as it fits, or a shorter version of it.
+- **Knurling, flats, keyways, slots, cross holes, holes off the axis** or anything milled (a
+  rook's crenellations, a bishop's mitre cut, a knight's head): leave them out, or hint at them
+  with a groove.
+- **Work on the back face** (a second bore from the back, a back chamfer inside the hole): it
+  needs the part turned around in the chuck; leave it out.
+- **A part bigger than the machine takes** (see **The bar**): as big as it allows, or a smaller
+  version of it.
 
 ## Coordinates
 
@@ -43,10 +48,15 @@ shape without them, say so in one sentence, and add an entry to `assumptions`:
 
 - Use the loaded bar (`## The lathe right now`) when the part fits it and its largest diameter is
   at most 6 mm under the bar's. Otherwise pick a standard bar 2–5 mm over the largest diameter (10,
-  12, 16, 20, 25, 30, 32, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100 mm) and say so. A Ø12 pin
-  doesn't come from a Ø60 bar: if you leave the bar too big, the page swaps it for you.
+  12, 16, 20, 25, 30, 32, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+  160 mm) and say so. A Ø12 pin doesn't come from a Ø60 bar: if you leave the bar too big, the
+  page swaps it for you.
+- **The machine's limits** (also in the brief): bars up to **Ø160** (what the chuck grips), at
+  most **400 mm out of the jaws**, at least 10 mm in them. A bar up to Ø52 goes through the spindle
+  and can be up to 1000 mm long; **a thicker bar only fits 40 mm into the chuck**, so its `length`
+  is at most `stickout` + 40. A part over Ø158 doesn't fit: make it Ø158 or less and say so.
 - `stickout` = part length + `faceStock` (1) + parting width (3) + 10; `length` = `stickout` + 30
-  or more. `stickout` can never be more than `length`.
+  (`stickout` + 30 to 40 for a bar over Ø52). `stickout` can never be more than `length`.
 - The brief's "longest part" is for the loaded bar **as it sits**, not a limit of the machine. A
   longer part gets a longer `stickout` (and `length`) from the formula above, on the loaded bar or
   a new one. The simulator has no tailstock: keep `stickout` at most 3 × the bar's diameter, and
@@ -93,6 +103,45 @@ parted off:
 - Keep necks at least 4 mm and about 20% of the largest diameter, and put 0.5–1 mm chamfers on
   outside edges.
 
+## The bore
+
+`bore` is the hole along the axis, the same way as `profile`: `[z, diameter]` points from the
+front face toward the chuck (arcs work the same). Leave it out for a solid part. The page drills
+it, bores it and cuts its internal grooves.
+
+- Start at **Z0** (a chamfer at the mouth: `[0, 22], [-1, 20]`), Z never increasing, every
+  diameter over 0, and keep **at least 1 mm of wall** (per side) to the outside everywhere.
+- **Through bore:** run its last point to the part's back Z (`[-30, 20]` on a part ending at
+  `Z-30`). **Blind bore:** end it where the hole's full diameter stops; the drill's point
+  (118°, 0.3 × its diameter long) is left past it, so end it at least 0.3 × the drill + 1 mm in
+  front of the back.
+- Where the bore **narrows toward the chuck** (a counterbore, a bearing seat's shoulder) any wall
+  works, square included.
+- Where it **widens toward the chuck** (the front wall of an internal groove or a recess) the
+  boring bar only follows walls shallower than its angle in the brief (32° for a 55° DCMT);
+  steeper or square ones are cut with the internal grooving tool, so give the groove at least the
+  tool's width. Internal circlip grooves (DIN 472) are square: bore Ø35 → groove Ø37 × 1.6.
+- **Internal grooves:** square, at least the grooving tool's width, no deeper per side than its
+  `depth` past the bore in front of them, and that bore must be at least its `minBore`.
+- A plain drilled hole is the drill's diameter: Ø20 straight through needs only a Ø20 drill
+  (plus the grooving tool for a groove in it). Anything else needs a boring bar too, with a drill
+  no smaller than the bar's `minBore`.
+
+Tools for a bore, added to the turret (ids after the outside tools):
+
+```json
+{ "id": 4, "name": "Drill", "type": "drill", "diameter": 18 },
+{ "id": 5, "name": "Boring bar", "type": "boring", "insert": "DCMT 070204", "noseRadius": 0.4, "angle": 55, "approach": 93, "minBore": 16 },
+{ "id": 6, "name": "ID groove", "type": "internal-grooving", "width": 1.6, "depth": 3, "minBore": 25 }
+```
+
+Pick the **drill** at most the bore's smallest diameter, 1–3 mm under it when there's a boring
+bar (Ø18 for a Ø20 bore), a standard size (6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 30, 32 mm).
+For a bore under Ø16, use a boring bar with `"minBore"` at most the drill's size (a Ø8 bar for
+Ø10 holes, `"minBore": 8`). An optional `reach` on any inside tool is how deep it goes from the
+front face; the defaults (drill 5 × its diameter, boring bar 4 × `minBore`, grooving tool
+2.5 × `minBore`) are in the brief.
+
 **Detail means shape, not point count.** "As detailed as possible" means good proportions, smooth
 arcs, a bead or a groove where it reads well: about 8–20 points for a whole part. Don't stack
 dozens of tiny features; each one makes the part fragile and harder to cut.
@@ -107,8 +156,9 @@ steeper than 52°, use a neutral 35° insert, `{"insert": "VBMT 160404", "noseRa
 
 Speeds, feeds and depth of cut come from the material. Add `cam` only when the request asks for
 specific values: `{"depthOfCut": 1.5, "finishAllowance": 0.2, "roughSpeed": 200, "finishSpeed":
-260, "partSpeed": 100, "roughFeed": 0.25, "finishFeed": 0.08, "partFeed": 0.06, "maxRpm": 2500}`
-(mm per side, m/min, mm/rev; any subset).
+260, "partSpeed": 100, "roughFeed": 0.25, "finishFeed": 0.08, "partFeed": 0.06, "maxRpm": 2500,
+"drillSpeed": 80, "drillFeed": 0.2, "boreSpeed": 160, "boreFeed": 0.15}` (mm per side, m/min,
+mm/rev; any subset).
 
 ## Job format (v1)
 
@@ -144,6 +194,10 @@ Profiles that pass the simulator; scale them to the request instead of starting 
 - **Knob with a cove** near the back, same 30 mm: `[[0,0],[-8,25,13.77],[-14,25],[-26,25,-8.45],[-29,25],[-30,23]]`
 - **File handle**, 101 long, Ø30 POM bar: `[[0,0],[0,20],[-2,24,2],[-10,25,40],[-60,22,-200],[-90,26,200],[-98,26],[-100,22],[-101,22]]`
 - **Dumbbell handle**: Ø60 steel, 110 long, Ø30 grip with 45° walls: `[[0,0],[0,50],[-12,50],[-22,30],[-88,30],[-98,50],[-110,50]]`
+- **Bearing housing**, Ø50 × 30 steel from Ø55 (stickout 45, length 80), a 6202 seat with a
+  circlip groove and a Ø20 through bore, with the three bore tools above:
+  profile `[[0,0],[0,48],[-1,50],[-29,50],[-30,48]]`,
+  bore `[[0,36],[-0.5,35],[-2,35],[-2,37],[-3.6,37],[-3.6,35],[-14.6,35],[-14.6,20],[-30,20]]`
 
 ## The reply
 
@@ -157,6 +211,9 @@ Profiles that pass the simulator; scale them to the request instead of starting 
 - Every wall falling toward the chuck is at most the profiler's angle, or has a recess of at least
   3 mm behind it. A bead, cove or chamfer right after a steep step down needs that recess too.
 - No V notches (see the profile rules), and every R from a formula is rounded up.
+- With a bore: 1 mm of wall everywhere, each internal groove at least the grooving tool's width
+  and within its depth, the drill no bigger than the bore's smallest diameter, and a blind bore
+  ending clear of the back by the drill's point.
 - `assumptions` and the reply describe the profile you are sending: measure spacing, widths and
   angles from its points ("15 mm apart" says whether it is edge to edge or center to center). A
   cove's depth per side is R − √(R² − (w/2)²); after scaling a part, measure again from the new points.

@@ -15,7 +15,7 @@ const generated = (data) => {
 };
 
 test('the G-code generated from each example profile passes the simulator', () => {
-  for (const name of ['dumbbell', 'pulley', 'pawn', 'queen']) {
+  for (const name of ['dumbbell', 'pulley', 'pawn', 'queen', 'bearing-housing']) {
     const job = generated(withoutGcode(example(name)));
     assert.deepEqual(checkJob(job), [], name);
     assert.deepEqual(job.operations.map((op) => op.name).slice(0, 2), ['Face', 'Rough OD'], name);
@@ -60,4 +60,47 @@ test('profile arcs: geometry and the problems the agent is told about', () => {
   // A dome from the axis: the message names the radius of a smooth spherical top.
   assert.match(arcProblems([[0, 0], [-8, 25, 13]])[0], /use \|R\| ≥ 13\.77; R 13\.77 gives a smooth round top/);
   assert.deepEqual(arcProblems([[0, 0], [-8, 25, 13.77]]), []);
+});
+
+test('a bore is drilled, bored and its internal groove cut with the grooving tool', async () => {
+  const { buildTimeline } = await import('../../app/lathe/sim/timeline.ts');
+  const { partWeight } = await import('../../app/lathe/sim/stock.ts');
+  const job = generated(withoutGcode(example('bearing-housing')));
+  assert.deepEqual(checkJob(job), []);
+  assert.deepEqual(job.operations.map((op) => op.name), ['Face', 'Rough OD', 'Rest rough', 'Finish profile', 'Drill', 'Rough bore', 'Finish bore', 'Internal grooves', 'Part off']);
+  const groove = job.gcode.split('(Internal grooves)')[1].split('(Part off)')[0];
+  assert.match(groove, /T0606/);
+  assert.match(groove, /G1 X37\b/); // out to the groove's diameter
+  assert.match(job.gcode.split('(Drill)')[1], /G97 S\d+ M3\nG0 X0\nG0 Z1\nG1 Z-18 /); // pecks at the center, fixed rpm
+  const timeline = buildTimeline(job);
+  assert.ok(timeline.hollow);
+  // Ø50 × 30 less the bore's volume, about 0.35 kg instead of 0.46 solid.
+  const grams = partWeight(timeline.final, timeline.shape, job.profile, 7.85, timeline.finalBore);
+  assert.ok(grams > 300 && grams < 380, `part weight ${grams}`);
+});
+
+test('a groove in a plain drilled hole needs no boring bar', () => {
+  const data = withoutGcode(example('bearing-housing'));
+  data.tools = data.tools.filter((tool) => tool.type !== 'boring');
+  data.tools.find((tool) => tool.type === 'drill').diameter = 20;
+  data.tools.find((tool) => tool.type === 'internal-grooving').minBore = 18;
+  data.bore = [[0, 20], [-8, 20], [-8, 22], [-9.6, 22], [-9.6, 20], [-30, 20]];
+  const job = generated(data);
+  assert.deepEqual(checkJob(job), []);
+  assert.deepEqual(job.operations.map((op) => op.name).slice(4), ['Drill', 'Internal grooves', 'Part off']);
+});
+
+test('bore problems are worded for the agent', () => {
+  const base = withoutGcode(example('bearing-housing'));
+  const noDrill = parseJob({ ...base, tools: base.tools.filter((tool) => tool.type !== 'drill') });
+  assert.ok(!noDrill.ok);
+  assert.match(noDrill.errors[0], /add a drill to make the bore, at most Ø20/);
+  const blind = parseJob({ ...base, bore: [[0, 20], [-28, 20]] });
+  assert.ok(!blind.ok);
+  assert.match(blind.errors[0], /drill's point goes 5\.41 mm past the end of the bore/);
+  // A groove 4 mm deep per side, past what the grooving tool reaches (3 mm).
+  const deep = generated({ ...base, bore: [[0, 36], [-0.5, 35], [-2, 35], [-2, 43], [-3.6, 43], [-3.6, 35], [-14.6, 35], [-14.6, 20], [-30, 20]] });
+  assert.match(checkJob(deep).join('\n'), /cuts a groove 4 mm deep per side .* reaches only 3 mm/);
+  const thin = generated({ ...base, bore: [[0, 47], [-30, 47]], tools: [...base.tools, { id: 7, name: 'Big drill', type: 'drill', diameter: 40 }] });
+  assert.match(checkJob(thin).join('\n'), /a wall of 0\.5 mm; keep at least 1 mm/);
 });

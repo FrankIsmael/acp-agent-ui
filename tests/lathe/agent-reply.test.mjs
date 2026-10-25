@@ -45,3 +45,15 @@ test('a generated job on a bar far bigger than the part gets a standard bar 2–
   const close = jobFromReply(block({ ...pin, stock: { ...pin.stock, diameter: 16 } }));
   assert.ok(close.ok && close.job.stock.diameter === 16 && close.job.assumptions.length === 0);
 });
+
+test('bars over Ø100 come in standard sizes up to the chuck limit', () => {
+  const tools = [
+    { id: 1, name: 'Rougher', type: 'turning', insert: 'CNMG 120408', noseRadius: 0.8, angle: 80, approach: 95 },
+    { id: 3, name: 'Parting', type: 'parting', width: 3 },
+  ];
+  // A Ø105 flange on a Ø150 bar is swapped to Ø110; the bar is too thick for the spindle, so it stays short.
+  const flange = { version: 1, name: 'Flange', units: 'mm', material: { name: 'steel', density: 7.85 }, stock: { diameter: 150, length: 64, stickout: 34, faceStock: 1 }, profile: [[0, 0], [0, 103], [-1, 105], [-19, 105], [-20, 103]], tools };
+  const result = jobFromReply('```lathe-job\n' + JSON.stringify(flange) + '\n```');
+  assert.ok(result.ok);
+  assert.equal(result.job.stock.diameter, 110);
+});

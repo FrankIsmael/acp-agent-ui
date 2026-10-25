@@ -67,8 +67,8 @@ function smallestTurnableRadius(z0: number, r0: number, z1: number, r1: number, 
   return sign * Math.ceil(hi * 100 - 1e-6) / 100;
 }
 
-/** What is wrong with the profile's arcs, worded for the agent. */
-export function arcProblems(profile: Profile): string[] {
+/** What is wrong with the profile's (or the bore's) arcs, worded for the agent. */
+export function arcProblems(profile: Profile, label = 'profile'): string[] {
   const problems: string[] = [];
   for (let i = 1; i < profile.length; i++) {
     const [z0, d0] = profile[i - 1], [z1, d1, R] = profile[i];
@@ -77,7 +77,7 @@ export function arcProblems(profile: Profile): string[] {
     if (!fault) continue;
     const point = `the arc to point ${i} ([${profile[i].join(', ')}])`;
     if (z0 === z1) {
-      problems.push(`profile: ${point} is a vertical step, which can't be an arc; drop R`);
+      problems.push(`${label}: ${point} is a vertical step, which can't be an arc; drop R`);
       continue;
     }
     const min = smallestTurnableRadius(z0, d0 / 2, z1, d1 / 2, R);
@@ -85,7 +85,7 @@ export function arcProblems(profile: Profile): string[] {
     // From the axis (a dome or a ball end) the smallest radius is the one centered on the axis.
     const dome = min !== undefined && R > 0 && (d0 === 0 || d1 === 0) ? `; R ${min} gives a smooth round top, a larger R a flatter, slightly pointed one` : '';
     const why = { small: 'is too tight for its chord', curl: "would curl back in Z (an overhang a lathe can't cut)", axis: 'goes through the axis' }[fault];
-    problems.push(`profile: ${point} ${why}; ${fix}${dome}`);
+    problems.push(`${label}: ${point} ${why}; ${fix}${dome}`);
   }
   return problems;
 }

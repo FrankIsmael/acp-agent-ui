@@ -9,8 +9,9 @@ import { useI18n } from '~/i18n';
 import { cn } from '~/lib/utils';
 import { Player, SPEEDS } from '../player.ts';
 import { buildTimeline, type Timeline } from '../sim/timeline.ts';
-import { parseJob, type Job } from '../sim/job-schema.ts';
-import { compareToProfile, partWeight, STEP_MM, weight } from '../sim/stock.ts';
+import { parseJob, type Job, type Tool } from '../sim/job-schema.ts';
+import { MACHINE } from '../sim/gcode/plan.ts';
+import { compareToBore, compareToProfile, partWeight, STEP_MM, weight } from '../sim/stock.ts';
 import type { CameraView } from '../scene/LatheScene.tsx';
 import { replyProse } from '../agent-reply.ts';
 
@@ -253,11 +254,12 @@ function JobPanel({ job, timeline, player }: { job: Job; timeline: Timeline; pla
         <Row label={t('Material')} value={job.material.name} />
         <Row label={t('Bar')} value={`Ø${job.stock.diameter} × ${job.stock.length} mm`} />
         <Row label={t('Out of the chuck')} value={`${job.stock.stickout} mm`} />
+        {job.bore.length > 1 && <Row label={t('Bore')} value={`Ø${Math.min(...job.bore.map(([, d]) => d))}–${Math.max(...job.bore.map(([, d]) => d))} × ${-Math.min(...job.bore.map(([z]) => z))} mm`} />}
       </Section>
       <Section title={t('Tools')}>
         {job.tools.map((tool) => (
           <Row key={tool.id} label={`T${String(tool.id).padStart(2, '0')} · ${tool.name}`}
-            value={tool.type === 'parting' ? `${t('parting')} ${tool.width} mm` : `${tool.insert ?? ''} r${tool.noseRadius}`} />
+            value={toolLabel(tool, t)} />
         ))}
       </Section>
       <Section title={t('Operations')}>
@@ -282,6 +284,14 @@ function JobPanel({ job, timeline, player }: { job: Job; timeline: Timeline; pla
       )}
     </>
   );
+}
+
+function toolLabel(tool: Tool, t: (key: string) => string): string {
+  if (tool.type === 'parting') return `${t('parting')} ${tool.width} mm`;
+  if (tool.type === 'drill') return `${t('drill')} Ø${tool.diameter}`;
+  if (tool.type === 'internal-grooving') return `${t('internal grooving')} ${tool.width} mm`;
+  if (tool.type === 'boring') return `${t('boring bar')} ${tool.insert ?? ''} r${tool.noseRadius}`;
+  return `${tool.insert ?? ''} r${tool.noseRadius}`;
 }
 
 function GcodePanel({ job, timeline, player, onChange }: { job: Job; timeline: Timeline; player: Player; onChange: (job: Job) => void }) {
@@ -340,10 +350,12 @@ function ResultsPanel({ timeline, player }: { timeline: Timeline; player: Player
   const { t } = useI18n();
   usePlayer(player);
   const buffer = useMemo(() => new Float32Array(timeline.shape.n), [timeline]);
-  const profile = timeline.profileAt(player.t, buffer);
-  const now = weight(profile, timeline.shape.step, timeline.job.material.density);
+  const hole = useMemo(() => new Float32Array(timeline.shape.n), [timeline]);
+  const profile = timeline.profileAt(player.t, buffer, hole);
+  const now = weight(profile, timeline.shape.step, timeline.job.material.density, 0, timeline.shape.n, hole);
   const target = useMemo(() => compareToProfile(timeline.final, timeline.shape, timeline.job.profile), [timeline]);
-  const part = useMemo(() => partWeight(timeline.final, timeline.shape, timeline.job.profile, timeline.job.material.density), [timeline]);
+  const bore = useMemo(() => compareToBore(timeline.finalBore, timeline.shape, timeline.job.bore, timeline.job.profile), [timeline]);
+  const part = useMemo(() => partWeight(timeline.final, timeline.shape, timeline.job.profile, timeline.job.material.density, timeline.finalBore), [timeline]);
   const kg = (g: number) => `${(g / 1000).toFixed(3)} kg`;
   return (
     <>
@@ -361,6 +373,12 @@ function ResultsPanel({ timeline, player }: { timeline: Timeline; player: Player
         <Section title={t('Against the target profile')}>
           <Row label={t('Most stock left')} value={`${fmt(target.leftover * 2, 2)} mm Ø${Number.isNaN(target.leftoverZ) ? '' : ` @ Z${fmt(target.leftoverZ, 1)}`}`} />
           <Row label={t('Deepest gouge')} value={target.gouge > STEP_MM ? `${fmt(target.gouge * 2, 2)} mm Ø @ Z${fmt(target.gougeZ, 1)}` : t('none')} />
+        </Section>
+      )}
+      {timeline.job.bore.length > 1 && (
+        <Section title={t('Against the target bore')}>
+          <Row label={t('Most stock left')} value={`${fmt(bore.leftover * 2, 2)} mm Ø${Number.isNaN(bore.leftoverZ) ? '' : ` @ Z${fmt(bore.leftoverZ, 1)}`}`} />
+          <Row label={t('Deepest gouge')} value={bore.gouge > STEP_MM ? `${fmt(bore.gouge * 2, 2)} mm Ø @ Z${fmt(bore.gougeZ, 1)}` : t('none')} />
         </Section>
       )}
       <Section title={t('Warnings')}>
@@ -428,7 +446,8 @@ function LoadPanel({ onLoad }: { onLoad: (job: Job) => void }) {
             {(['diameter', 'length', 'stickout'] as const).map((key) => (
               <label key={key} className="flex flex-col gap-1 text-text-secondary">
                 {key === 'diameter' ? t('Bar Ø') : key === 'length' ? t('Length') : t('Out of the chuck')}
-                <input type="number" min={1} value={stock[key]} onChange={(e) => setStock({ ...stock, [key]: Number(e.target.value) })}
+                <input type="number" min={1} max={key === 'diameter' ? MACHINE.maxBarDiameter : key === 'length' ? MACHINE.maxBarLength : MACHINE.maxStickout}
+                  value={stock[key]} onChange={(e) => setStock({ ...stock, [key]: Number(e.target.value) })}
                   className="rounded-md border border-border-primary bg-background-primary px-2 py-1 text-text-primary" />
               </label>
             ))}

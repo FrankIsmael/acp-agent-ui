@@ -27,7 +27,40 @@ const parting = z.object({
   width: z.number().positive().default(3), // the programmed point is the chuck-side corner
 });
 
-export const toolSchema = z.discriminatedUnion('type', [turning, parting]);
+// Tools for the inside of the part. `reach` is how deep from the front face they go (the drill's
+// flutes, the bar's overhang); left out it comes from their size (sim/tool-shapes.ts, toolReach).
+const drill = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  type: z.literal('drill'),
+  diameter: z.number().positive(),
+  pointAngle: z.number().min(60).max(180).default(118), // included angle of the point, degrees
+  reach: z.number().positive().optional(),
+});
+
+const boring = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  type: z.literal('boring'),
+  insert: z.string().optional(),
+  noseRadius: z.number().nonnegative().default(0.4),
+  angle: z.number().min(20).max(90).default(55),
+  approach: z.number().min(45).max(110).default(93),
+  minBore: z.number().positive().default(16), // smallest hole the bar fits in
+  reach: z.number().positive().optional(),
+});
+
+const internalGrooving = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  type: z.literal('internal-grooving'),
+  width: z.number().positive().default(2), // the programmed point is the chuck-side corner
+  depth: z.number().positive().default(3), // deepest groove per side, from the bore it goes in through
+  minBore: z.number().positive().default(20),
+  reach: z.number().positive().optional(),
+});
+
+export const toolSchema = z.discriminatedUnion('type', [turning, parting, drill, boring, internalGrooving]);
 
 const materialSchema = z.object({ name: z.string(), density: z.number().positive() }); // g/cm³
 
@@ -42,6 +75,7 @@ const stockSchema = z.object({
 export const setupSchema = z
   .object({ material: materialSchema, stock: stockSchema, tools: z.array(toolSchema).min(1).max(12) })
   .refine((setup) => setup.stock.stickout <= setup.stock.length);
+// The machine's limits on the bar (MACHINE) are checked in sim/check.ts, worded for the agent.
 export type Setup = z.output<typeof setupSchema>;
 
 // Settings for the generated program; anything left out comes from the material (gcode/generate.ts).
@@ -58,6 +92,13 @@ const camSchema = z.object({
   roughTool: z.number().int().optional(),
   finishTool: z.number().int().optional(),
   partTool: z.number().int().optional(),
+  drillSpeed: z.number().positive().optional(), // m/min
+  drillFeed: z.number().positive().optional(), // mm/rev
+  boreSpeed: z.number().positive().optional(),
+  boreFeed: z.number().positive().optional(),
+  drillTool: z.number().int().optional(),
+  boreTool: z.number().int().optional(),
+  grooveTool: z.number().int().optional(),
 });
 
 export const jobSchema = z
@@ -68,6 +109,7 @@ export const jobSchema = z
     material: materialSchema,
     stock: stockSchema,
     profile: z.array(point).default([]), // finished part: [z, diameter]
+    bore: z.array(point).default([]), // the hole in it, the same way from the front face; none when empty
     tools: z.array(toolSchema).min(1),
     operations: z
       .array(
@@ -107,7 +149,7 @@ export function parseJob(input: unknown): { ok: true; job: Job } | { ok: false; 
     let job: Job;
     if (gcode) job = { ...data, gcode };
     else {
-      const problems = arcProblems(data.profile);
+      const problems = [...arcProblems(data.profile), ...arcProblems(data.bore, 'bore')];
       if (problems.length) return { ok: false, errors: problems };
       try {
         job = { ...data, gcode: generateGcode(data), generated: true };

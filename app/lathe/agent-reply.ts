@@ -1,5 +1,6 @@
 /** Pulls the ```lathe-job block out of the agent's reply and checks it. */
 import { parseJob, type Job } from './sim/job-schema.ts';
+import { MACHINE } from './sim/gcode/plan.ts';
 import { profilePolyline } from './sim/profile.ts';
 
 const BLOCK = /```lathe-job[^\n]*\n([\s\S]*?)```/g;
@@ -19,7 +20,9 @@ export function jobFromReply(text: string): ReplyResult {
   return fitBar(parseJob(data), data as Record<string, any>);
 }
 
-const STANDARD_BARS = [10, 12, 16, 20, 25, 30, 32, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100];
+// Standard round bar, up to what the chuck grips.
+export const STANDARD_BARS = [10, 12, 16, 20, 25, 30, 32, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160]
+  .filter((d) => d <= MACHINE.maxBarDiameter);
 const MAX_OVERSIZE_MM = 6;
 
 /**

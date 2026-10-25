@@ -69,6 +69,21 @@ test('a step toward the chuck cut with the parting tool passes', () => {
   ])), []);
 });
 
+test('bars past the machine limits are reported', () => {
+  const job = dumbbell();
+  job.stock = { diameter: 170, length: 300, stickout: 120, faceStock: 1 };
+  const problems = check(job).join('\n');
+  assert.match(problems, /Ø170 bar is too big for the chuck, which grips up to Ø160/);
+  assert.match(problems, /only 40 mm of it fits in the chuck; make length at most stickout \+ 40 \(160\)/);
+  job.stock = { diameter: 40, length: 1200, stickout: 450, faceStock: 1 };
+  const long = check(job).join('\n');
+  assert.match(long, /450 mm out of the jaws is past the carriage's travel \(400 mm\)/);
+  assert.match(long, /1200 mm bar is longer than the machine takes \(1000 mm\)/);
+  // Ø110: past the old largest standard bar, well inside the chuck.
+  const { gcode, operations, ...profileOnly } = dumbbell();
+  assert.deepEqual(check({ ...profileOnly, stock: { diameter: 110, length: 150, stickout: 120, faceStock: 1 } }), []);
+});
+
 test('a program that never touches the bar is reported', () => {
   const job = dumbbell();
   job.gcode = 'G21 G99\nT0101\nG97 S800 M3\nG0 X100 Z10\nG1 X90 F0.2\nM30';
@@ -86,5 +101,6 @@ test('the setup brief gives the agent the bar, jaws, home and tools as numbers',
   assert.match(brief, /Home.*X110 Z51/);
   assert.match(brief, /T1 "Rougher" \(T0101\).*shallower than 5°/);
   assert.match(brief, /`G1 X-1.6`/);
+  assert.match(brief, /Bars it takes: up to Ø160 \(the chuck\)/);
   console.log(brief);
 });

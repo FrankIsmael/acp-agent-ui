@@ -3,16 +3,17 @@
  * wrote it: the geometry against the bar and the jaws, the simulator's warnings, and where the
  * cut part differs from the target profile.
  */
-import type { Segment } from './gcode/plan.ts';
+import { MACHINE, type Segment } from './gcode/plan.ts';
 import type { Job, Tool } from './job-schema.ts';
-import { arcProblems } from './profile.ts';
+import { arcProblems, profileRangeAt } from './profile.ts';
 import { buildTimeline } from './timeline.ts';
-import { compareToProfile } from './stock.ts';
-import { endEdgeAngle, INSERT_EDGE_MM } from './tool-shapes.ts';
+import { compareToBore, compareToProfile } from './stock.ts';
+import { endEdgeAngle, INSERT_EDGE_MM, isInside, toolReach } from './tool-shapes.ts';
 
 const LEFTOVER_MM = 0.3; // radius; more than this left over the profile is a missed cut
 const GOUGE_MM = 0.1;
 const JAW_CLEARANCE_MM = 2;
+const MIN_WALL_MM = 1; // per side, between the bore and the outside
 
 const mm = (value: number) => Number(value.toFixed(2));
 
@@ -20,6 +21,8 @@ export function checkJob(job: Job): string[] {
   const problems: string[] = [];
   const { stock, profile } = job;
   const jawZ = stock.faceStock - stock.stickout; // where the jaws start holding the bar
+
+  problems.push(...machineProblems(job));
 
   // The target profile, against the bar.
   if (profile.length < 2) problems.push('profile: needs at least two [z, diameter] points');
@@ -37,11 +40,16 @@ export function checkJob(job: Job): string[] {
       problems.push(`profile: it reaches Z${mm(back)}, but the jaws hold the bar from Z${mm(jawZ)}; increase stock.stickout (and stock.length) or shorten the part`);
   }
 
+  problems.push(...boreProblems(job));
+
   const timeline = buildTimeline(job);
   for (const warning of timeline.warnings) problems.push(`line ${warning.line}: ${warning.message}`);
+  problems.push(...insideToolProblems(job, timeline.segments));
 
-  // Moves that hit the chuck: below the bar's surface and behind the start of the jaws.
-  const hit = timeline.segments.find((s) => s.kind !== 'dwell' && Math.min(s.from.z, s.to.z) < jawZ + JAW_CLEARANCE_MM && Math.min(s.from.x, s.to.x) < stock.diameter + 10);
+  // Moves that hit the chuck: below the bar's surface and behind the start of the jaws. An inside
+  // tool in the hole is inside the bar, not against the jaws; its reach is checked instead.
+  const inside = new Set(job.tools.filter(isInside).map((tool) => tool.id));
+  const hit = timeline.segments.find((s) => s.kind !== 'dwell' && !inside.has(s.tool) && Math.min(s.from.z, s.to.z) < jawZ + JAW_CLEARANCE_MM && Math.min(s.from.x, s.to.x) < stock.diameter + 10);
   if (hit) problems.push(`line ${hit.line}: the tool goes to Z${mm(Math.min(hit.from.z, hit.to.z))}, into the chuck jaws (they start at Z${mm(jawZ)})`);
 
   if (timeline.startWeight - timeline.endWeight < 1e-3) problems.push('the program removes no material: check the X and Z values against the bar');
@@ -59,8 +67,110 @@ export function checkJob(job: Job): string[] {
         `the cut part is ${mm(gouge * 2)} mm under the profile's diameter at Z${mm(gougeZ)}: ` +
           (wallTooSteep(job, timeline.segments, gougeZ) ?? "a move cuts too deep (nose radius not compensated, or the tool's width or angle)"),
       );
+    if (job.bore.length >= 2) {
+      const bore = compareToBore(timeline.finalBore, timeline.shape, job.bore, profile);
+      if (bore.leftover > LEFTOVER_MM)
+        problems.push(
+          `the bore is ${mm(bore.leftover * 2)} mm under its diameter at Z${mm(bore.leftoverZ)}: ` +
+            (job.generated ? boreHint(job) : 'a pass is missing there, or the tool can\'t reach that wall'),
+        );
+      if (bore.gouge > GOUGE_MM)
+        problems.push(`the bore is cut ${mm(bore.gouge * 2)} mm over its diameter at Z${mm(bore.gougeZ)}: a move inside goes too far out (the tool's width, nose or angle)`);
+    }
   }
   return problems;
+}
+
+/** The bar against the machine's limits (MACHINE): the chuck, the spindle bore and the carriage. */
+function machineProblems({ stock }: Job): string[] {
+  const problems: string[] = [];
+  const grip = stock.length - stock.stickout;
+  if (stock.diameter > MACHINE.maxBarDiameter)
+    problems.push(`stock: a Ø${mm(stock.diameter)} bar is too big for the chuck, which grips up to Ø${MACHINE.maxBarDiameter}; make the part smaller or split it`);
+  if (stock.stickout > MACHINE.maxStickout)
+    problems.push(`stock: ${mm(stock.stickout)} mm out of the jaws is past the carriage's travel (${MACHINE.maxStickout} mm); shorten the part`);
+  if (stock.length > MACHINE.maxBarLength)
+    problems.push(`stock: a ${mm(stock.length)} mm bar is longer than the machine takes (${MACHINE.maxBarLength} mm); a shorter bar does, with the same stickout`);
+  if (grip < MACHINE.minGrip)
+    problems.push(`stock: only ${mm(grip)} mm of the bar is in the jaws; make length at least stickout + ${MACHINE.minGrip}`);
+  else if (stock.diameter > MACHINE.spindleBore && grip > MACHINE.chuckDepth)
+    problems.push(
+      `stock: a Ø${mm(stock.diameter)} bar doesn't go through the spindle (Ø${MACHINE.spindleBore} bore), so only ${MACHINE.chuckDepth} mm of it fits in the chuck; ` +
+        `make length at most stickout + ${MACHINE.chuckDepth} (${mm(stock.stickout + MACHINE.chuckDepth)})`,
+    );
+  return problems;
+}
+
+/** The bore against itself and the outside of the part. */
+function boreProblems({ bore, profile }: Job): string[] {
+  if (!bore.length) return [];
+  if (bore.length < 2) return ['bore: needs at least two [z, diameter] points, or leave it out for a solid part'];
+  const problems: string[] = [];
+  if (bore[0][0] !== 0) problems.push(`bore: must start at the finished front face, Z0 (it starts at Z${bore[0][0]}); a hole is drilled from the front`);
+  if (bore.some(([z], i) => i > 0 && z > bore[i - 1][0])) problems.push('bore: Z must never increase from one point to the next (front face first, toward the chuck)');
+  if (bore.some(([, d]) => d <= 0)) problems.push('bore: every diameter must be over 0; it ends at its last point (a blind bore ends in the drill\'s point)');
+  if (problems.length || profile.length < 2) return problems;
+  // The wall between the bore and the outside, every 0.5 mm along the bore.
+  const zEnd = Math.max(bore[bore.length - 1][0], Math.min(...profile.map(([z]) => z)));
+  for (let z = 0; z >= zEnd; z -= 0.5) {
+    const hole = profileRangeAt(bore, z).lo, outer = profileRangeAt(profile, z).hi;
+    if (Number.isNaN(hole) || Number.isNaN(outer) || outer - hole >= MIN_WALL_MM - 1e-6) continue;
+    problems.push(
+      `bore: at Z${mm(z)} it is Ø${mm(2 * hole)} inside Ø${mm(2 * outer)}, a wall of ${mm(outer - hole)} mm; ` +
+        `keep at least ${MIN_WALL_MM} mm of wall (a smaller bore or a larger outside there)`,
+    );
+    break;
+  }
+  return problems;
+}
+
+/** Inside tools: how deep they go, whether they fit the hole they go into, and groove depths. */
+function insideToolProblems({ tools, bore }: Job, segments: Segment[]): string[] {
+  const problems: string[] = [];
+  const narrowest = (from: number, to: number) => {
+    let d = Infinity;
+    for (let z = from; z >= to; z -= 0.25) {
+      const lo = profileRangeAt(bore, z).lo;
+      if (!Number.isNaN(lo)) d = Math.min(d, 2 * lo);
+    }
+    return d;
+  };
+  for (const tool of tools.filter(isInside)) {
+    const own = segments.filter((s) => s.tool === tool.id && s.kind !== 'dwell');
+    if (!own.length) continue;
+    const deepest = Math.min(...own.map((s) => Math.min(s.from.z, s.to.z)));
+    if (-deepest > toolReach(tool) + 1e-6)
+      problems.push(`T${tool.id} (${tool.name}) goes to Z${mm(deepest)}, but it only reaches ${mm(toolReach(tool))} mm into the part; make the bore shallower or give the tool a longer reach`);
+    if (tool.type === 'drill' || bore.length < 2) continue;
+    const hole = narrowest(0, Math.max(deepest, bore[bore.length - 1][0]));
+    if (hole < tool.minBore - 1e-6)
+      problems.push(`T${tool.id} (${tool.name}) needs a hole of at least Ø${mm(tool.minBore)}, and the bore is Ø${mm(hole)} where it goes in; make the bore larger there or use a smaller tool`);
+    if (tool.type === 'internal-grooving') {
+      // The tool reaches `depth` past the hole it comes in through: the narrowest one in front of the groove.
+      for (const s of own.filter((s) => s.kind === 'feed')) {
+        const z = Math.min(s.from.z, s.to.z), r = Math.max(s.from.x, s.to.x) / 2;
+        const entry = narrowest(0, z + tool.width) / 2;
+        if (r - entry > tool.depth + 0.05) {
+          problems.push(
+            `T${tool.id} (${tool.name}) cuts a groove ${mm(r - entry)} mm deep per side at Z${mm(z)}, past the Ø${mm(2 * entry)} bore it goes in through, and reaches only ${mm(tool.depth)} mm; ` +
+              'make the groove shallower or the bore in front of it larger',
+          );
+          break;
+        }
+      }
+    }
+  }
+  return problems;
+}
+
+/** What the generated program leaves inside the bore, and which tool cuts it. */
+function boreHint({ tools }: Job): string {
+  const borer = tools.find((tool) => tool.type === 'boring');
+  const groover = tools.find((tool) => tool.type === 'internal-grooving');
+  if (!borer && !groover) return 'the drill only makes a straight hole of its own diameter; add a boring bar (and an internal grooving tool for grooves)';
+  if (!groover)
+    return `the boring bar (T${borer!.id}) can't reach that wall: a wall where the bore grows toward the chuck (the front of an internal groove) needs an internal grooving tool, or a slope under ${mm(endEdgeAngle(borer as Extract<Tool, { type: 'boring' }>))}°`;
+  return `no inside tool reaches into that corner; give a groove at least the grooving tool's width (${mm((groover as Extract<Tool, { type: 'internal-grooving' }>).width)} mm), or a square bottom instead of a V`;
 }
 
 /** How to open up a corner that the generated program can't reach, with the turret's numbers. */
