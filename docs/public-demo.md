@@ -29,6 +29,7 @@ Use a **separate demo agent/VM containing only public material**, with a provide
 - WhatsApp disconnect/logout remains available after quota exhaustion. The limit invitation is sent at most once per group per running process to avoid replying to every message after exhaustion. After a server restart a guest must open WhatsApp in the web app to resume their connection.
 - The agent still runs one active conversation at a time. A different guest cannot interrupt a running reply; they get a busy response and can retry when it finishes. This is intended for a small shared demo.
 - Recetas, Apps, and Agenda are unavailable in demo mode. Habilidades and Extensions remain available as catalogs of the skills and tools guests can ask the agent to use; shared configuration stays owner-managed. The unfinished sections are otherwise unchanged. Model switching is disabled in the demo so visitors use the server's configured model.
+- The lathe simulator (`/lathe`) is open to every guest, but only invited guests (see below) can prompt the lathe agent: `DEMO=true` replaces its owner key check. Lathe jobs run on the separate `CNC_*` agent box, don't use the guest's chat allowance, and are capped at 20 per hour in total.
 
 ## What “tokens” means here
 

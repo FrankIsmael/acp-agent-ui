@@ -381,6 +381,7 @@
   "Describe the part": "Describe the part",
   "Ask for a change": "Ask for a change",
   "The lathe agent is not set up on the server. You can still load or paste a job.": "The lathe agent is not set up on the server. You can still load or paste a job.",
+  "The lathe agent is only for invited guests. You can still load or paste a job.": "The lathe agent is only for invited guests. You can still load or paste a job.",
   "Visit /lathe?key=<key> once to use the lathe agent from this browser. You can still load or paste a job.": "Visit /lathe?key=<key> once to use the lathe agent from this browser. You can still load or paste a job.",
   "Waking the agent…": "Waking the agent…",
   "Writing the job…": "Writing the job…",

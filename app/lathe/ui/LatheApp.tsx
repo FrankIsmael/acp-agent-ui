@@ -24,7 +24,7 @@ export const EXAMPLES: { id: string; job: unknown }[] = [
 ];
 
 type Tab = 'describe' | 'job' | 'gcode' | 'results' | 'load';
-export type AgentAccess = 'ready' | 'locked' | 'unconfigured';
+export type AgentAccess = 'ready' | 'locked' | 'invite' | 'unconfigured';
 
 function usePlayer(player: Player) {
   useSyncExternalStore(player.subscribe, player.getVersion, () => 0);
@@ -488,6 +488,8 @@ function DescribePanel({ agent, job, onJob }: { agent: AgentAccess; job: Job; on
         <p className="text-sm text-text-secondary">
           {agent === 'unconfigured'
             ? t('The lathe agent is not set up on the server. You can still load or paste a job.')
+            : agent === 'invite'
+            ? t('The lathe agent is only for invited guests. You can still load or paste a job.')
             : t('Visit /lathe?key=<key> once to use the lathe agent from this browser. You can still load or paste a job.')}
         </p>
       </Section>

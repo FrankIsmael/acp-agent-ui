@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "name": "Chess pawn",
+  "units": "mm",
+  "material": {
+    "name": "AISI 1045 steel",
+    "density": 7.85
+  },
+  "stock": {
+    "diameter": 60,
+    "length": 160,
+    "stickout": 120,
+    "faceStock": 1
+  },
+  "profile": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      6
+    ],
+    [
+      -1.5,
+      12
+    ],
+    [
+      -3.5,
+      16
+    ],
+    [
+      -6,
+      18
+    ],
+    [
+      -9,
+      18
+    ],
+    [
+      -11,
+      16
+    ],
+    [
+      -13,
+      12
+    ],
+    [
+      -14,
+      11
+    ],
+    [
+      -16,
+      11
+    ],
+    [
+      -16,
+      22
+    ],
+    [
+      -18,
+      22
+    ],
+    [
+      -21,
+      16
+    ],
+    [
+      -45,
+      30
+    ],
+    [
+      -49,
+      34
+    ],
+    [
+      -51,
+      38
+    ],
+    [
+      -54,
+      38
+    ],
+    [
+      -55,
+      36
+    ]
+  ],
+  "tools": [
+    {
+      "id": 1,
+      "name": "Rougher",
+      "type": "turning",
+      "insert": "CNMG 120408",
+      "noseRadius": 0.8,
+      "angle": 80,
+      "approach": 95
+    },
+    {
+      "id": 2,
+      "name": "Profiler",
+      "type": "turning",
+      "insert": "VNMG 160404",
+      "noseRadius": 0.4,
+      "angle": 35,
+      "approach": 93
+    },
+    {
+      "id": 3,
+      "name": "Parting",
+      "type": "parting",
+      "width": 3
+    }
+  ],
+  "gcode": "%\nO1008 (CHESS PAWN)\nG21 G18 G40 G99\nG50 S2500\n(Face)\nT0101\nG96 S200 M3\nM8\nG0 X64 Z3\nG0 Z0\nG1 X-1.6 F0.2\nG0 Z3\n(Rough OD)\nG0 X54\nG1 Z-56.75 F0.25\nG0 U2\nG0 Z3\nG0 X48\nG1 Z-56.75 F0.25\nG0 U2\nG0 Z3\nG0 X42\nG1 Z-56.75 F0.25\nG0 U2\nG0 Z3\nG0 X38.5\nG1 Z-56.75 F0.25\nG0 U2\nG0 Z3\nG0 X34.5\nG1 Z-48.75 F0.25\nG0 U2\nG0 Z3\nG0 X32\nG1 Z-46.25 F0.25\nG0 U2\nG0 Z3\nG0 X29.5\nG1 Z-43.05 F0.25\nG0 U2\nG0 Z3\nG0 X27\nG1 Z-38.75 F0.25\nG0 U2\nG0 Z3\nG0 X24.5\nG1 Z-34.45 F0.25\nG0 U2\nG0 Z3\nG0 X22.5\nG1 Z-31.05 F0.25\nG0 U2\nG0 Z3\nG0 X18.5\nG1 Z-15.5 F0.25\nG0 U2\nG0 Z3\nG0 X17\nG1 Z-3.85 F0.25\nG0 U2\nG0 Z3\nG0 X14.5\nG1 Z-2.25 F0.25\nG0 U2\nG0 Z3\nG0 X11.5\nG1 Z-1 F0.25\nG0 U2\nG0 Z3\nG0 X8.5\nG1 Z-0.25 F0.25\nG0 U2\nG0 Z3\n(Rough neck)\nG28 U0 W0\nT0202\nG96 S200 M3\nG0 X64 Z-7.35\nG0 X25\nG1 X15.5 Z-12.1 F0.15\nG1 Z-15.75\nG1 X25 Z-15 F0.2\nG0 Z-7.3\nG1 X13 Z-13.3 F0.15\nG1 Z-15.75\nG1 X25 Z-15 F0.2\nG0 Z-7.5\nG1 X11.5 Z-14.25 F0.15\nG1 Z-15.75\nG1 X25 Z-15 F0.2\n(Rough waist)\nG0 Z-17.35\nG1 X19.5 Z-20.1 F0.15\nG1 Z-26.8\nG1 X25 Z-25.5 F0.2\nG0 Z-17.35\nG1 X17.5 Z-21.1 F0.15\nG1 Z-23.4\nG1 X25 Z-22.5 F0.2\nG0 X64\n(Finish profile)\nG96 S260\nG0 Z1\nG0 X6\nG1 Z0 F0.1\nG1 X12 Z-1.67\nG1 X16 Z-3.734\nG1 X18 Z-6.32\nG1 Z-9.49\nG1 X16 Z-11.49\nG1 X12 Z-13.566\nG1 X11 Z-14.49\nG1 Z-16\nG1 X22\nG1 Z-18.566\nG1 X16 Z-21.566\nG1 X30 Z-45.34\nG1 X34 Z-49.3\nG1 X38 Z-51.234\nG1 Z-54.566\nG1 X36 Z-55.566\nG1 Z-56.5\nG0 X64\n(Part off)\nG28 U0 W0\nT0303\nG96 S100 M3\nG0 X64 Z3\nG0 Z-58\nG1 X0 F0.06\nG0 X64\nM9\nG28 U0 W0\nM5\nM30\n%",
+  "assumptions": [
+    "Part length 55 mm, parted at Z-58 (3 mm blade); head Ø18, collar Ø22, base Ø38 x 3 mm with a 1 x 45° back chamfer",
+    "Ball head approximated by facets (63°, 45° and 22° on the front, 27° and 45° under the head); no true spherical arcs",
+    "Bar stock as loaded: Ø60 x 160, 120 mm out of the jaws",
+    "Neck and waist pockets roughed with the VNMG in two passes each (finish allowance 0.25 mm); all falling walls are 45° or shallower, within the VNMG 52° limit",
+    "Rough stair-steps stay 0.5 mm over the profile; sloped finish points shifted toward the chuck per the nose-radius table (rn 0.4)",
+    "Plain base, no bore or felt recess underneath"
+  ]
+}

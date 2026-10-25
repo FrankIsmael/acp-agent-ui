@@ -381,6 +381,7 @@
   "Describe the part": "Describe la pieza",
   "Ask for a change": "Pide un cambio",
   "The lathe agent is not set up on the server. You can still load or paste a job.": "El agente del torno no está configurado en el servidor. Aún puedes cargar o pegar un trabajo.",
+  "The lathe agent is only for invited guests. You can still load or paste a job.": "El agente del torno es solo para invitados. Aún puedes cargar o pegar un trabajo.",
   "Visit /lathe?key=<key> once to use the lathe agent from this browser. You can still load or paste a job.": "Visita /lathe?key=<key> una vez para usar el agente del torno desde este navegador. Aún puedes cargar o pegar un trabajo.",
   "Waking the agent…": "Despertando al agente…",
   "Writing the job…": "Escribiendo el trabajo…",

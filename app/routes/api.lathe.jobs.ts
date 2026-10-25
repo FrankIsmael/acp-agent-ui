@@ -7,6 +7,7 @@
  */
 import type { Route } from './+types/api.lathe.jobs';
 import { requireAdmin } from '~/.server/admin-gate';
+import { demoEnabled, demoUser, isFullAccess } from '~/.server/demo';
 import { AgentError } from '~/.server/errors';
 import { requestJob, type LatheEvent } from '~/.server/lathe-agent';
 import { setupSchema } from '~/lathe/sim/job-schema';
@@ -14,7 +15,10 @@ import { setupSchema } from '~/lathe/sim/job-schema';
 const MAX_PROMPT = 4000;
 
 export async function action({ request }: Route.ActionArgs) {
-  requireAdmin(request);
+  // In the demo, only invited guests (identified by the middleware) prompt the agent.
+  if (!demoEnabled()) requireAdmin(request);
+  else if (!isFullAccess(demoUser(request)!))
+    return Response.json({ error: 'The lathe agent is only for invited guests.' }, { status: 403 });
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   const body = await request.json().catch(() => null);
   const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';

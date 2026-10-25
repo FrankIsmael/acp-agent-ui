@@ -175,12 +175,18 @@ export async function requestJob(
   }
   emit({ type: 'session', sessionId });
 
-  const turn = async (text: string) => {
+  const turn = async (kind: 'job' | 'fix', text: string) => {
     let reply = '';
+    let outcome = 'failed';
+    const started = Date.now();
+    let firstText = 0;
     emit({ type: 'status', status: 'thinking' });
     listeners.set(sessionId!, (update) => {
       if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
-        if (!reply) emit({ type: 'status', status: 'writing' });
+        if (!reply) {
+          firstText = Date.now();
+          emit({ type: 'status', status: 'writing' });
+        }
         reply += update.content.text;
         emit({ type: 'text', text: update.content.text });
       }
@@ -198,9 +204,21 @@ export async function requestJob(
         onAbort(); // stops the agent's turn; a late answer is ignored
         throw error;
       });
-      if (result?.stopReason === 'cancelled' || signal.aborted) throw new AgentError('Cancelled.');
+      if (result?.stopReason === 'cancelled' || signal.aborted) {
+        outcome = 'cancelled';
+        throw new AgentError('Cancelled.');
+      }
+      outcome = result?.stopReason ?? 'done';
       return reply;
     } finally {
+      // Thinking runs until the first text chunk; the rest of the turn is writing.
+      const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+      const end = Date.now();
+      console.info(
+        `[lathe] ${kind} turn ${outcome} in ${seconds(end - started)}` +
+          (firstText ? ` (thinking ${seconds(firstText - started)}, writing ${seconds(end - firstText)})` : '') +
+          `, session ${sessionId}`,
+      );
       signal.removeEventListener('abort', onAbort);
       listeners.delete(sessionId!);
       activeTurns.delete(sessionId!);
@@ -210,7 +228,7 @@ export async function requestJob(
 
   // The skill is installed on the box; the first turn adds the machine as the page has it.
   const instructions = firstTurn && input.setup ? `${setupBrief(input.setup)}\n\n---\n\n` : '';
-  let reply = await turn(`[skill: lathe-job]\n${instructions}${input.prompt}`);
+  let reply = await turn('job', `[skill: lathe-job]\n${instructions}${input.prompt}`);
   // Check the format, then run the job through the simulator; send what's wrong back to the agent.
   let job: Job | undefined;
   let problems: string[] = [];
@@ -224,6 +242,7 @@ export async function requestJob(
     emit({ type: 'text', text: '\n\n' });
     try {
       reply = await turn(
+        'fix',
         `[skill: lathe-job]\n${result.ok ? 'I ran your job in the simulator. It' : 'The lathe-job block'} has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\n\nFix every one of them (change the values they name, and anything that depends on them), check the rules of the skill again, then send the whole corrected job as one \`\`\`lathe-job block.`,
       );
     } catch (error) {
