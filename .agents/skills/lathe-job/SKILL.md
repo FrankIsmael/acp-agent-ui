@@ -23,7 +23,9 @@ then read `gcode.md` in this skill's folder first.
 It only turns the outside of the bar. When the request asks for any of these, make the outside
 shape without them, say so in one sentence, and add an entry to `assumptions`:
 
-- **Threads** of any kind: turn the plain major diameter for the thread's length.
+- **Threads** of any kind: turn the plain major diameter for the thread's length. Threads keep
+  standard sizes: when the part is scaled, keep the thread (M20 stays Ø20) or move to the nearest
+  standard one (M24, M30), never Ø22.2.
 - **Holes, bores, drilling**, anything inside the part.
 - **Knurling, flats, keyways, slots, cross holes** or anything milled (a rook's crenellations, a
   bishop's mitre cut, a knight's head): leave them out, or hint at them with a groove.
@@ -45,6 +47,10 @@ shape without them, say so in one sentence, and add an entry to `assumptions`:
   doesn't come from a Ø60 bar: if you leave the bar too big, the page swaps it for you.
 - `stickout` = part length + `faceStock` (1) + parting width (3) + 10; `length` = `stickout` + 30
   or more. `stickout` can never be more than `length`.
+- The brief's "longest part" is for the loaded bar **as it sits**, not a limit of the machine. A
+  longer part gets a longer `stickout` (and `length`) from the formula above, on the loaded bar or
+  a new one. The simulator has no tailstock: keep `stickout` at most 3 × the bar's diameter, and
+  only shorten the part when a bar that thick would be absurd for it, saying so.
 - Materials and `density` in g/cm³: steel 7.85, aluminum 2.70, brass 8.50, stainless 7.95, POM 1.41.
   For a demo part with no material given, aluminum 6061 is a good default.
 
@@ -61,7 +67,8 @@ parted off:
 - **A dome** from the center of the front face, `[0, 0]` to `[-h, D, R]`: use
   **R = (h² + (D/2)²) / (2h)** for a smooth round top (8 tall on Ø25: (64 + 156.25) / 16 = 13.77).
   A larger R makes it flatter with a slight point; a smaller one is an overhang. A half ball is
-  h = D/2, R = D/2.
+  h = D/2, R = D/2. **Round R up**, never down (20.833 → 20.84): a hair under it is an overhang
+  the page rejects.
 - **A cove** (a concave groove) into a body of diameter D, `w` wide and `d` deep per side: one arc,
   `[z, D]` to `[z - w, D, -R]`, with **R = ((w/2)² + d²) / (2d)**. Its walls meet the body at
   **asin(w / 2R)**; keep that under the profiler's angle in the brief (make the cove shallower or
@@ -141,12 +148,22 @@ Profiles that pass the simulator; scale them to the request instead of starting 
 2. One or two sentences on what you left out or changed (bar, features the lathe can't make).
 3. The `lathe-job` block.
 
+**Before you send it**, walk the profile once:
+
+- Every wall falling toward the chuck is at most the profiler's angle, or has a recess of at least
+  3 mm behind it. A bead, cove or chamfer right after a steep step down needs that recess too.
+- No V notches (see the profile rules), and every R from a formula is rounded up.
+- `assumptions` and the reply describe the profile you are sending: measure spacing, widths and
+  angles from its points ("15 mm apart" says whether it is edge to edge or center to center).
+
 ## When the request changes the last job
 
 A follow-up ("add a groove", "make the dome taller") edits the job you sent last: keep its length,
 diameters, bar and tools, and change only what was asked. Fit a new feature into the existing
 shape (a cove goes into a straight stretch of the body); make the part longer only when the
-request says so or the feature can't fit, and then say so.
+request says so or the feature can't fit, and then say so. To make room at the same length, take
+it from plain straight stretches (the gap between grooves, a long grip) before shrinking a feature
+the user named or sized (a collar, a neck, a thread).
 
 ## When the page sends problems back
 

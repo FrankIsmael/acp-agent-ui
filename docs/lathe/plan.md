@@ -145,16 +145,23 @@ If `LATHE_ACP_WS_URL` is missing, the page still works for load/paste, and the D
 
 ### Installing it on the lathe box
 
-Skills reach a box when it clones this repo (`docs/agent-box.md`, step 4). Point the script at the lathe box with `--box`:
+The lathe box is a plain instabox box, so `bootstrap-memory.mjs` (EasyBits only) can't reach it. Its own `update-skills.sh` does the same job: it clones or fast-forwards this repo into `data/repo` and links each skill into `data/agent/skills`, which ghosty-lite merges into every conversation. Commit and push first (only pushed commits reach the box), then:
 
 ```sh
-node --env-file=.env scripts/bootstrap-memory.mjs --box "$LATHE_AGENT_BOX_ID"            # prints the script
-node --env-file=.env scripts/bootstrap-memory.mjs --box "$LATHE_AGENT_BOX_ID" --apply
+instabox exec "$CNC_AGENT_BOX_ID" -- 'cd /data/workspace/ghosty-lite && sudo ./update-skills.sh'
+# skills @ aff12dd: lathe-job react-router trip-planner
 ```
 
-Commit and push before running it: only pushed commits reach the box. Then open a new session.
+Then open a new session. The script skips a skill whose entry in `data/agent/skills` is a real folder rather than a link; delete that folder first.
 
-**The chat agent gets the skill too.** Both boxes clone the same repo, so the chat agent will also list `lathe-job`. That's harmless, because the skill only runs for prompts tagged `[skill: lathe-job]`. To keep it off the chat box anyway, install the lathe box from its own branch with `--branch lathe` (`SKILLS_REPO_BRANCH`).
+The links point at container paths (`/data/repo/...`), so they only resolve inside the container. To read what the agent gets:
+
+```sh
+instabox exec "$CNC_AGENT_BOX_ID" -- 'sudo docker exec gl cat /data/agent/skills/lathe-job/SKILL.md'
+# on the box itself: /data/workspace/ghosty-lite/data/repo/.agents/skills/lathe-job/SKILL.md
+```
+
+**The chat agent gets the skill too.** Both boxes clone the same repo, so the chat agent will also list `lathe-job`. That's harmless, because the skill only runs for prompts tagged `[skill: lathe-job]`. To keep it off the chat box anyway, install the lathe box from its own branch: `sudo SKILLS_REPO_BRANCH=lathe ./update-skills.sh`.
 
 ### The lathe box's system prompt (optional)
 
@@ -308,7 +315,7 @@ Each milestone ends with something you can run.
 | **M2** | Motion | G-code parser and planner, playback controls, coordinates readout, G-code with the current line highlighted | A hand-written program plays with correct moves and cycle time (`npm run test:lathe`) |
 | **M3** | Cutting | Radius profile, tool shapes, live material removal, weight, leftover stock against the target profile, scrubbing | The dumbbell example cuts correctly and the weight matches the expected value within 1 % |
 | **M4** | Jobs | zod schema, load/paste, example jobs, job and operations panels | A pasted job JSON runs from start to end |
-| **M5** | Agent | `lathe-agent.ts`, `api/lathe/*` routes behind `requireAdmin`, Describe panel, `lathe-job` skill installed with `--box`, automatic fix-up turn | "Steel dumbbell handle, 30 mm grip" gives a job that simulates without errors, end to end against the live lathe box, and the chat still works |
+| **M5** | Agent | `lathe-agent.ts`, `api/lathe/*` routes behind `requireAdmin`, Describe panel, `lathe-job` skill installed with `update-skills.sh`, automatic fix-up turn | "Steel dumbbell handle, 30 mm grip" gives a job that simulates without errors, end to end against the live lathe box, and the chat still works |
 | **M6** | Polish | Chips (particles from the tool tip, sized by feed), coolant, collision warnings, camera presets, 2D profile view | — |
 | **M7** | Later | `G71`/`G70`/`G75`/`G76`, threading, saving jobs, `--env-out`/`--prompt` options for `new-ghosty-agent.mjs`, a job limit per hour | — |
 
@@ -324,7 +331,7 @@ M0 to M4 don't touch any agent. M5 is the only step that needs the lathe box. No
 | The lathe's secret ends up replacing the chat's | Only `LATHE_*` names, and never run `new-ghosty-agent.mjs` for the lathe box until it has `--env-out`. |
 | The lathe model's parts are unnamed and might not separate cleanly into moving parts | Use procedural moving parts placed at the matched positions, and keep the model for the fixed body only. |
 | The agent writes G-code that doesn't fit the job (out of the stock, crashes into the chuck) | Checks in the skill, plus zod and the simulator's warnings, plus one automatic fix-up turn. |
-| The lathe box sleeps, or gets recreated and loses the skill | Show a wake-up status, and keep load/paste so the page works anyway. Recreating the box means running `bootstrap-memory.mjs --box … --apply` again. |
+| The lathe box sleeps, or gets recreated and loses the skill | Show a wake-up status, and keep load/paste so the page works anyway. Recreating the box means running `update-skills.sh` again (section 5). |
 | Token cost | `requireAdmin` plus a per-hour job limit. Real login replaces the gate later. |
 | Speed with fine resolution | Rebuild only the changed part of the geometry, take snapshots every N moves, and cap the visual spindle speed. |
 | Agent API names marked `_unstable` change | Use only stable methods (`initialize`, `session/new`, `session/prompt`, `session/cancel`). |

@@ -82,7 +82,7 @@ test('the setup brief gives the agent the bar, jaws, home and tools as numbers',
   const brief = setupBrief(setupSchema.parse({ material, stock, tools }));
   assert.match(brief, /Ø60 × 160 mm, 120 mm out of the jaws/);
   assert.match(brief, /jaws hold the bar from Z-119: keep every move at Z-114/);
-  assert.match(brief, /Longest part that fits, parting off included: 111 mm/);
+  assert.match(brief, /Longest part with this bar as it sits, parting off included: 111 mm/);
   assert.match(brief, /Home.*X110 Z51/);
   assert.match(brief, /T1 "Rougher" \(T0101\).*shallower than 5°/);
   assert.match(brief, /`G1 X-1.6`/);

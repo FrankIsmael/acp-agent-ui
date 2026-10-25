@@ -29,7 +29,7 @@ export function setupBrief({ material, stock, tools }: Setup): string {
     'This is what is on the machine. Keep these tools unless the part needs another one. Keep this bar when the part fits it and its largest diameter is at most 6 mm under the bar; otherwise pick a standard bar 2–5 mm over the part. Say so in the reply if you change either.',
     `- Bar: ${material.name} (${n(material.density)} g/cm³), Ø${n(stock.diameter)} × ${n(stock.length)} mm, ${n(stock.stickout)} mm out of the jaws.`,
     `- Raw front face at Z${n(stock.faceStock)}; finished front face at Z0. The jaws hold the bar from Z${n(jawZ)}: keep every move at Z${n(lastZ)} or in front of it.`,
-    `- Longest part that fits${parting ? ', parting off included' : ''}: ${n(Math.max(0, longest))} mm.`,
+    `- Longest part with this bar as it sits${parting ? ', parting off included' : ''}: ${n(Math.max(0, longest))} mm. A longer part needs more stickout (this bar pulled out further, or a new bar), not a smaller part.`,
     `- Home, where the program starts and \`G28 U0 W0\` returns: X${n(stock.diameter + 50)} Z${n(stock.faceStock + 50)}.`,
     '- Tools in the turret:',
     ...toolLines,
