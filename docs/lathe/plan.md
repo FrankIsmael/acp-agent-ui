@@ -165,7 +165,7 @@ instabox exec "$CNC_AGENT_BOX_ID" -- 'sudo docker exec gl cat /data/agent/skills
 
 ### The lathe box's system prompt (optional)
 
-The lathe box gets its own prompt, `scripts/lathe/system-prompt.md`: lathe jobs only, and load the `lathe-job` skill on every turn. Without it the box's `CLAUDE.md` was Robbie's whole chat persona (15 KB). The lathe box is a plain instabox box running ghosty-lite in Docker (container `gl`), not an EasyBits agent, so `update-agent-prompt.mjs` can't reach it. Write the file (without its leading comment) to `/data/agent/PROMPT.md` in the container and rebuild the copies:
+The lathe box gets its own prompt, `scripts/lathe/system-prompt.md`: lathe jobs only, and load the `lathe-job` skill once per conversation (a follow-up that reloads it only gets "already loaded" back, an extra model call). Without it the box's `CLAUDE.md` was Robbie's whole chat persona (15 KB). The lathe box is a plain instabox box running ghosty-lite in Docker (container `gl`), not an EasyBits agent, so `update-agent-prompt.mjs` can't reach it. Write the file (without its leading comment) to `/data/agent/PROMPT.md` in the container and rebuild the copies:
 
 ```sh
 perl -0pe 's/^<!--.*?-->\s*//s' scripts/lathe/system-prompt.md |
@@ -173,6 +173,18 @@ perl -0pe 's/^<!--.*?-->\s*//s' scripts/lathe/system-prompt.md |
 ```
 
 Robbie's prompt that was there before is saved in `/data/agent/PROMPT.md.robbie-20261025`.
+
+### No todo list on the lathe box
+
+ghosty starts with the built-in `todo` extension (`ghosty-lite-start` passes `--with-builtin "${GHOSTY_BUILTINS:-developer,todo,chatrecall}"`), which adds "Current tasks and notes: Once given a task, immediately update your todo…" to every turn's `<turn-context>`. The lathe agent uses no tools, so leave it out in the box's `lite.env`, then recreate the container (`lite.env` is only read when it is created; `todo: enabled: false` in ghosty's `config.yaml` does nothing, the flag wins):
+
+```sh
+instabox ssh "$CNC_AGENT_BOX_ID" -- 'cd /data/workspace/ghosty-lite &&
+  (grep -q "^GHOSTY_BUILTINS=" lite.env || echo "GHOSTY_BUILTINS=developer,chatrecall" >> lite.env) &&
+  sudo ./run.sh'
+```
+
+`run.sh` also runs `update-skills.sh`. Check with `sudo docker exec gl sh -c 'ps aux | grep "ghosty serve"'`: the flag should read `--with-builtin developer,chatrecall`.
 
 **Warning about `new-ghosty-agent.mjs`:** never run it for the lathe box as it is. It always rewrites `.env` (`const file = '.env'`), which would replace the **chat's** `AGENT_BOX_ID`, `ACP_SECRET` and `ACP_WS_URL`, and it always sends the chat's `system-prompt.md`. Before using it for a lathe box, add `--env-out` and `--prompt` options to it (left for later, since the box already exists).
 

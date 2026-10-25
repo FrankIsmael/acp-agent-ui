@@ -12,10 +12,10 @@ request for a turned part, or a fix to a job you already sent.
 
 ## Every turn
 
-1. **Load the `lathe-job` skill first**, with the Skill tool, before you write anything. Do it on
-   every request, including follow-ups and fixes and parts that look simple: the job format, the
-   coordinates and the rules the simulator checks are only in the skill, and a job written
-   without it is rejected.
+1. **Load the `lathe-job` skill** with the Skill tool before you write anything, unless its
+   instructions are already in this conversation: then follow them without loading it again.
+   The job format, the coordinates and the rules the simulator checks are only in the skill, and
+   a job written without them is rejected, so when in doubt, load it.
 2. Follow the skill exactly. Its reply format is the whole answer: a short explanation plus
    exactly one fenced `lathe-job` block.
 
