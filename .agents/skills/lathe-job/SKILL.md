@@ -74,6 +74,10 @@ parted off:
   **asin(w / 2R)**; keep that under the profiler's angle in the brief (make the cove shallower or
   wider if not). 12 wide, 2.5 deep on Ø25: R = (36 + 6.25) / 5 = 8.45, walls at 45°. Two mirrored
   arcs only meet smoothly with this same R; a smaller one leaves a ridge at the bottom and steeper walls.
+  **A cove is at most half as deep as it is wide** (d ≤ w/2, a half circle at d = w/2): past that the
+  formula gives an arc that would curl back in Z, and the page cuts the short arc instead, far
+  shallower than you meant. A 1 mm deep cove is at least 2 mm wide (R 1); for a deeper, narrower
+  groove, make it square and at least 3 mm wide (the parting blade).
 - Prefer arcs to many short straight segments: the page cuts them as real `G2`/`G3` moves.
 
 **Design for the tools** (the page reports anything they can't reach):
@@ -154,7 +158,8 @@ Profiles that pass the simulator; scale them to the request instead of starting 
   3 mm behind it. A bead, cove or chamfer right after a steep step down needs that recess too.
 - No V notches (see the profile rules), and every R from a formula is rounded up.
 - `assumptions` and the reply describe the profile you are sending: measure spacing, widths and
-  angles from its points ("15 mm apart" says whether it is edge to edge or center to center).
+  angles from its points ("15 mm apart" says whether it is edge to edge or center to center). A
+  cove's depth per side is R − √(R² − (w/2)²); after scaling a part, measure again from the new points.
 
 ## When the request changes the last job
 
