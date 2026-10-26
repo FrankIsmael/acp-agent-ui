@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { GenerateError, generateGcode } from './gcode/generate.ts';
 import { arcProblems } from './profile.ts';
+import { faceGrooveProblems } from './face-groove.ts';
 
 // [z, diameter], or [z, diameter, R] when the segment ending there is an arc (sim/profile.ts).
 const point = z.union([z.tuple([z.number(), z.number().nonnegative()]), z.tuple([z.number(), z.number().nonnegative(), z.number()])]);
@@ -60,7 +61,17 @@ const internalGrooving = z.object({
   reach: z.number().positive().optional(),
 });
 
-export const toolSchema = z.discriminatedUnion('type', [turning, parting, drill, boring, internalGrooving]);
+// A blade that plunges along Z into the front face and cuts a ring around the axis (a face groove).
+const faceGrooving = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  type: z.literal('face-grooving'),
+  width: z.number().positive().default(3), // radial; the programmed point is the inner corner (toward the axis)
+  depth: z.number().positive().default(10), // deepest groove, from the material in front of it
+  minDiameter: z.number().positive().default(16), // smallest inner wall the blade's curve fits
+});
+
+export const toolSchema = z.discriminatedUnion('type', [turning, parting, drill, boring, internalGrooving, faceGrooving]);
 
 const materialSchema = z.object({ name: z.string(), density: z.number().positive() }); // g/cm³
 
@@ -99,6 +110,7 @@ const camSchema = z.object({
   drillTool: z.number().int().optional(),
   boreTool: z.number().int().optional(),
   grooveTool: z.number().int().optional(),
+  faceGrooveTool: z.number().int().optional(),
 });
 
 export const jobSchema = z
@@ -110,6 +122,7 @@ export const jobSchema = z
     stock: stockSchema,
     profile: z.array(point).default([]), // finished part: [z, diameter]
     bore: z.array(point).default([]), // the hole in it, the same way from the front face; none when empty
+    faceGroove: z.array(point).default([]), // a ring cut into the front: its bottom, inner wall out (sim/face-groove.ts)
     tools: z.array(toolSchema).min(1),
     operations: z
       .array(
@@ -149,7 +162,7 @@ export function parseJob(input: unknown): { ok: true; job: Job } | { ok: false; 
     let job: Job;
     if (gcode) job = { ...data, gcode };
     else {
-      const problems = [...arcProblems(data.profile), ...arcProblems(data.bore, 'bore')];
+      const problems = [...arcProblems(data.profile), ...arcProblems(data.bore, 'bore'), ...faceGrooveProblems(data.faceGroove, data.profile, data.bore)];
       if (problems.length) return { ok: false, errors: problems };
       try {
         job = { ...data, gcode: generateGcode(data), generated: true };

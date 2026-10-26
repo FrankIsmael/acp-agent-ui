@@ -12,6 +12,7 @@ import type { Player } from '../player.ts';
 import type { Timeline } from '../sim/timeline.ts';
 import type { Tool } from '../sim/job-schema.ts';
 import { profilePolyline } from '../sim/profile.ts';
+import { faceGroovePolyline } from '../sim/face-groove.ts';
 import { endEdgeAngle, toolReach } from '../sim/tool-shapes.ts';
 import { JAW_FACE_X, JAW_GRIP_RADIUS, PARTS, SPINDLE_Y, SPINDLE_Z, TIP_HOME, worldX, worldZ } from './calibration.ts';
 import { Workpiece } from './Workpiece.tsx';
@@ -212,6 +213,10 @@ function ToolShape({ tool }: { tool: Tool }) {
     } else if (tool.type === 'internal-grooving') {
       const depth = (tool.depth + 1) * mm;
       outline.moveTo(0, 0).lineTo(tool.width * mm, 0).lineTo(tool.width * mm, -depth).lineTo(0, -depth).closePath();
+    } else if (tool.type === 'face-grooving') {
+      // The blade along +X (toward the front), from the inner corner out by its width.
+      const depth = (tool.depth + 1) * mm;
+      outline.moveTo(0, 0).lineTo(0, tool.width * mm).lineTo(depth, tool.width * mm).lineTo(depth, 0).closePath();
     } else {
       const kr = (tool.approach * Math.PI) / 180;
       const e = (endEdgeAngle(tool) * Math.PI) / 180;
@@ -250,6 +255,20 @@ function ToolShape({ tool }: { tool: Tool }) {
       </>
     );
   }
+  if (tool.type === 'face-grooving') {
+    const depth = (tool.depth + 1) * mm;
+    return (
+      <>
+        <mesh geometry={insert} castShadow>
+          <meshStandardMaterial color="#d9b44a" metalness={0.6} roughness={0.35} />
+        </mesh>
+        <mesh position={[depth + 0.008, -0.002, 0.012]} castShadow>
+          <boxGeometry args={[0.016, 0.016, 0.03]} />
+          <meshStandardMaterial color="#3b4048" metalness={0.5} roughness={0.5} />
+        </mesh>
+      </>
+    );
+  }
   const parting = tool.type === 'parting';
   return (
     <>
@@ -266,15 +285,14 @@ function ToolShape({ tool }: { tool: Tool }) {
 
 /** The finished shape as a ghost outline on the bar's silhouette. */
 function TargetProfile({ timeline }: { timeline: Timeline }) {
-  const { profile, bore, stock } = timeline.job;
+  const { profile, bore, faceGroove, stock } = timeline.job;
   const lines = useMemo(() => {
-    const outlines = [profile, bore].filter((shape) => shape.length >= 2);
-    return outlines.flatMap((shape) =>
-      [1, -1].map((side) =>
-        profilePolyline(shape).map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002)),
-      ),
+    const outlines = [profile, bore].filter((shape) => shape.length >= 2).map((shape) => profilePolyline(shape));
+    if (faceGroove.length >= 2) outlines.push(faceGroovePolyline(faceGroove));
+    return outlines.flatMap((points) =>
+      [1, -1].map((side) => points.map(([z, d]) => new THREE.Vector3(worldX(z, stock), SPINDLE_Y + side * (d / 2000), SPINDLE_Z + 0.0002))),
     );
-  }, [profile, bore, stock]);
+  }, [profile, bore, faceGroove, stock]);
   return (
     <>
       {lines.map((points, i) => (

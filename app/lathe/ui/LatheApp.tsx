@@ -11,7 +11,8 @@ import { Player, SPEEDS } from '../player.ts';
 import { buildTimeline, type Timeline } from '../sim/timeline.ts';
 import { parseJob, type Job, type Tool } from '../sim/job-schema.ts';
 import { MACHINE } from '../sim/gcode/plan.ts';
-import { compareToBore, compareToProfile, partWeight, STEP_MM, weight } from '../sim/stock.ts';
+import { compareToBore, compareToProfile, freshGap, partWeight, STEP_MM, weight } from '../sim/stock.ts';
+import { compareToFaceGroove } from '../sim/face-groove.ts';
 import type { CameraView } from '../scene/LatheScene.tsx';
 import { replyProse } from '../agent-reply.ts';
 
@@ -254,6 +255,12 @@ function JobPanel({ job, timeline, player }: { job: Job; timeline: Timeline; pla
         <Row label={t('Material')} value={job.material.name} />
         <Row label={t('Bar')} value={`Ø${job.stock.diameter} × ${job.stock.length} mm`} />
         <Row label={t('Out of the chuck')} value={`${job.stock.stickout} mm`} />
+        {job.faceGroove.length > 1 && (
+          <Row
+            label={t('Face groove')}
+            value={`Ø${job.faceGroove[0][1]}–${job.faceGroove[job.faceGroove.length - 1][1]} × ${-Math.min(...job.faceGroove.map(([z]) => z))} mm`}
+          />
+        )}
         {job.bore.length > 1 && <Row label={t('Bore')} value={`Ø${Math.min(...job.bore.map(([, d]) => d))}–${Math.max(...job.bore.map(([, d]) => d))} × ${-Math.min(...job.bore.map(([z]) => z))} mm`} />}
       </Section>
       <Section title={t('Tools')}>
@@ -290,6 +297,7 @@ function toolLabel(tool: Tool, t: (key: string) => string): string {
   if (tool.type === 'parting') return `${t('parting')} ${tool.width} mm`;
   if (tool.type === 'drill') return `${t('drill')} Ø${tool.diameter}`;
   if (tool.type === 'internal-grooving') return `${t('internal grooving')} ${tool.width} mm`;
+  if (tool.type === 'face-grooving') return `${t('face grooving')} ${tool.width} mm`;
   if (tool.type === 'boring') return `${t('boring bar')} ${tool.insert ?? ''} r${tool.noseRadius}`;
   return `${tool.insert ?? ''} r${tool.noseRadius}`;
 }
@@ -351,11 +359,19 @@ function ResultsPanel({ timeline, player }: { timeline: Timeline; player: Player
   usePlayer(player);
   const buffer = useMemo(() => new Float32Array(timeline.shape.n), [timeline]);
   const hole = useMemo(() => new Float32Array(timeline.shape.n), [timeline]);
-  const profile = timeline.profileAt(player.t, buffer, hole);
-  const now = weight(profile, timeline.shape.step, timeline.job.material.density, 0, timeline.shape.n, hole);
+  const gap = useMemo(() => freshGap(timeline.shape), [timeline]);
+  const profile = timeline.profileAt(player.t, buffer, hole, gap);
+  const now = weight(profile, timeline.shape.step, timeline.job.material.density, 0, timeline.shape.n, hole, gap);
   const target = useMemo(() => compareToProfile(timeline.final, timeline.shape, timeline.job.profile), [timeline]);
   const bore = useMemo(() => compareToBore(timeline.finalBore, timeline.shape, timeline.job.bore, timeline.job.profile), [timeline]);
-  const part = useMemo(() => partWeight(timeline.final, timeline.shape, timeline.job.profile, timeline.job.material.density, timeline.finalBore), [timeline]);
+  const groove = useMemo(
+    () => compareToFaceGroove(timeline.final, timeline.finalBore, timeline.finalGap, timeline.shape, timeline.job.faceGroove, timeline.job.profile),
+    [timeline],
+  );
+  const part = useMemo(
+    () => partWeight(timeline.final, timeline.shape, timeline.job.profile, timeline.job.material.density, timeline.finalBore, timeline.finalGap),
+    [timeline],
+  );
   const kg = (g: number) => `${(g / 1000).toFixed(3)} kg`;
   return (
     <>
@@ -379,6 +395,12 @@ function ResultsPanel({ timeline, player }: { timeline: Timeline; player: Player
         <Section title={t('Against the target bore')}>
           <Row label={t('Most stock left')} value={`${fmt(bore.leftover * 2, 2)} mm Ø${Number.isNaN(bore.leftoverZ) ? '' : ` @ Z${fmt(bore.leftoverZ, 1)}`}`} />
           <Row label={t('Deepest gouge')} value={bore.gouge > STEP_MM ? `${fmt(bore.gouge * 2, 2)} mm Ø @ Z${fmt(bore.gougeZ, 1)}` : t('none')} />
+        </Section>
+      )}
+      {timeline.job.faceGroove.length > 1 && (
+        <Section title={t('Against the target face groove')}>
+          <Row label={t('Most stock left')} value={`${fmt(groove.leftover, 2)} mm${Number.isNaN(groove.leftoverZ) ? '' : ` @ Ø${fmt(groove.leftoverD, 1)} Z${fmt(groove.leftoverZ, 1)}`}`} />
+          <Row label={t('Deepest gouge')} value={groove.gouge > STEP_MM ? `${fmt(groove.gouge, 2)} mm @ Ø${fmt(groove.gougeD, 1)} Z${fmt(groove.gougeZ, 1)}` : t('none')} />
         </Section>
       )}
       <Section title={t('Warnings')}>

@@ -12,16 +12,17 @@ containing the JSON below. Don't use tools or files: the whole answer is text. D
 questions: pick sensible defaults and list them under `assumptions`. Reply in the user's language,
 but keep the JSON keys in English.
 
-**Leave `gcode` out.** The page generates the program from `profile`, `bore`, `stock` and `tools`
+**Leave `gcode` out.** The page generates the program from `profile`, `bore`, `faceGroove`, `stock` and `tools`
 (facing, roughing, nose radius compensation, finishing with real arcs, steps the inserts can't
-reach, drilling, boring, internal grooves, part off) and checks it in the simulator. Your work is the shape: get the profile right and stop. Write
+reach, drilling, boring, internal grooves, face grooves, part off) and checks it in the simulator. Your work is the shape: get the profile right and stop. Write
 G-code only when the request asks for hand-written G-code or for a specific machining strategy;
 then read `gcode.md` in this skill's folder first.
 
 ## What the simulator can't make
 
-It turns the outside, and drills and bores one hole along the axis from the front face, with
-internal grooves (see **The bore**). When the request asks for any of these, make the part
+It turns the outside, drills and bores one hole along the axis from the front face, with
+internal grooves (see **The bore**), and cuts one ring-shaped groove into the front face around
+whatever stands in the middle (see **The face groove**). When the request asks for any of these, make the part
 without them, say so in one sentence, and add an entry to `assumptions`:
 
 - **Threads** of any kind, outside or inside: turn the plain major diameter for an outside thread,
@@ -142,6 +143,36 @@ For a bore under Ø16, use a boring bar with `"minBore"` at most the drill's siz
 front face; the defaults (drill 5 × its diameter, boring bar 4 × `minBore`, grooving tool
 2.5 × `minBore`) are in the brief.
 
+## The face groove
+
+`faceGroove` is a ring cut **into the front of the part, along Z**, with material left on both
+sides: the bowl between a queen's dome and the rim of her crown, a seal groove in a flange face,
+the hollow of a cup with a post in the middle. A hole with nothing standing in the middle is the
+`bore`, not a face groove.
+
+- Make `profile` the part **with the groove filled in**: in the crown, the dome comes down to the
+  rim's height and a flat shoulder runs out to the rim's edge. The groove is then cut into that
+  shoulder.
+- `faceGroove` is its **bottom**, as `[z, diameter]` points from the **inner wall out to the outer
+  wall**: the diameter never falls, Z goes down from the inner wall and back up once (one low
+  point, no ridge in the middle). Everything in front of that bottom, between the first and the
+  last diameter, is cut away, so the walls run straight to the front from the first and the last
+  point. Start and end it at the shoulder's Z.
+- **Arcs:** `[z, diameter, R]` makes the segment ending there an arc of radius |R|; **R < 0 dips
+  toward the chuck** (a hollow, the usual one), R > 0 rises toward the front. A wall that is vertical
+  at the top and flat at the bottom is a quarter circle: Δdiameter = 2|R| and ΔZ = |R|. A larger
+  |R| than the points allow is flatter; a smaller one curls back (the page says which |R| works).
+- The blade cuts the bottom with its corners, so a V or a round narrower than the blade leaves
+  material: give the bottom a flat or a round **at least the blade's width**.
+- Keep **at least 1 mm of wall** to the outside and to the bore, the inner wall at least the
+  tool's `minDiameter`, and the groove no deeper than its `depth` from the shoulder.
+
+Tool for it, added to the turret: the programmed point is the inner corner of the blade's tip.
+
+```json
+{ "id": 4, "name": "Face groove", "type": "face-grooving", "width": 2, "depth": 8, "minDiameter": 10 }
+```
+
 **Detail means shape, not point count.** "As detailed as possible" means good proportions, smooth
 arcs, a bead or a groove where it reads well: about 8–20 points for a whole part. Don't stack
 dozens of tiny features; each one makes the part fragile and harder to cut.
@@ -194,6 +225,10 @@ Profiles that pass the simulator; scale them to the request instead of starting 
 - **Knob with a cove** near the back, same 30 mm: `[[0,0],[-8,25,13.77],[-14,25],[-26,25,-8.45],[-29,25],[-30,23]]`
 - **File handle**, 101 long, Ø30 POM bar: `[[0,0],[0,20],[-2,24,2],[-10,25,40],[-60,22,-200],[-90,26,200],[-98,26],[-100,22],[-101,22]]`
 - **Dumbbell handle**: Ø60 steel, 110 long, Ø30 grip with 45° walls: `[[0,0],[0,50],[-12,50],[-22,30],[-88,30],[-98,50],[-110,50]]`
+- **Queen's crown** with the bowl around her dome, Ø28 rim, Ø32 bar, with the face groove tool
+  above: profile `[[0,0],[-3,6,3],[-4,6],[-5,4],[-6,4],[-10,12,5],[-10,28],[-11,28],[-24,18,-30]]`
+  (the body carries on from there), faceGroove `[[-10,12],[-13.5,19,-3.5],[-13.5,20],[-10,24.5,-4]]`:
+  a knob, a dome down to the rim's height at Z-10, and a 3.5 mm bowl around it.
 - **Bearing housing**, Ø50 × 30 steel from Ø55 (stickout 45, length 80), a 6202 seat with a
   circlip groove and a Ø20 through bore, with the three bore tools above:
   profile `[[0,0],[0,48],[-1,50],[-29,50],[-30,48]]`,

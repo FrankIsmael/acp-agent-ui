@@ -21,6 +21,11 @@ export type InsideTool = Extract<Tool, { type: 'drill' | 'boring' | 'internal-gr
 
 export const isInside = (tool: Tool): tool is InsideTool => tool.type === 'drill' || tool.type === 'boring' || tool.type === 'internal-grooving';
 
+export type FaceTool = Extract<Tool, { type: 'face-grooving' }>;
+
+/** A face grooving tool cuts a ring along Z (sim/stock.ts, sweepFace), not with a footprint. */
+export const isFace = (tool: Tool): tool is FaceTool => tool.type === 'face-grooving';
+
 /** How deep from the front face an inside tool can go: its own `reach`, or a usual one for its size. */
 export const toolReach = (tool: InsideTool) =>
   tool.reach ?? (tool.type === 'drill' ? 5 * tool.diameter : tool.type === 'boring' ? 4 * tool.minBore : 2.5 * tool.minBore);
@@ -40,6 +45,7 @@ export function footprint(tool: Tool, step: number): Footprint {
     for (let k = 0; k < n; k++) dr[k] = -Math.min(radius, k * step * slope);
     return { step, dr };
   }
+  if (tool.type === 'face-grooving') return { step, dr: new Float32Array(1) }; // unused, see isFace
   if (tool.type === 'parting' || tool.type === 'internal-grooving') {
     const n = Math.max(1, Math.round(tool.width / step) + 1);
     return { step, dr: new Float32Array(n) }; // flat bottom, square corners

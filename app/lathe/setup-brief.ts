@@ -24,6 +24,8 @@ export function setupBrief({ material, stock, tools }: Setup): string {
     if (tool.type === 'drill') return `${head} drill Ø${n(tool.diameter)}, ${n(tool.pointAngle)}° point, ${n(toolReach(tool))} mm deep at most.`;
     if (tool.type === 'internal-grooving')
       return `${head} internal grooving tool ${n(tool.width)} mm wide, for bores of Ø${n(tool.minBore)} or more, grooves up to ${n(tool.depth)} mm deep per side and ${n(toolReach(tool))} mm into the part.`;
+    if (tool.type === 'face-grooving')
+      return `${head} face grooving tool ${n(tool.width)} mm wide, for rings cut into the front face (\`faceGroove\`) with an inner wall of Ø${n(tool.minDiameter)} or more, up to ${n(tool.depth)} mm deep; the programmed point is the inner corner of its tip.`;
     if (tool.type === 'boring')
       return `${head} boring bar${tool.insert ? `, ${tool.insert}` : ''}, nose radius ${n(tool.noseRadius)}, for bores of Ø${n(tool.minBore)} or more, ${n(toolReach(tool))} mm deep at most; inside it can go out along walls where the bore grows toward the chuck only if they are shallower than ${n(endEdgeAngle(tool))}°.`;
     return `${head} turning${tool.insert ? `, ${tool.insert}` : ''}, nose radius ${n(tool.noseRadius)}, ${n(tool.angle)}° insert, ${n(tool.approach)}° approach; it can go down walls facing the chuck only if they are shallower than ${n(endEdgeAngle(tool))}°.`;

@@ -73,6 +73,10 @@ G90 G91`, `U`/`W` incremental, `G50 S` (rpm limit), `G96 G97`, `G98`/`G94` (mm/m
    its chuck-side corner, like the parting tool: enter at the bore diameter, `G1 X(groove)`, back
    to `G0 X(bore − 1)`, then out along Z. Leave every inside tool with `G0 Z2` in front of the face
    before `G28 U0 W0`.
+   The face grooving tool plunges along Z into the front face; its point is the inner corner of
+   the blade's tip, so `X` is the groove's inner wall diameter and the blade cuts out to
+   `X + 2 × width`. Plunge with `G1 Z`, back out with `G0` in front of the face, step `X` out by less
+   than twice the width, and leave with `G0 Z2` before `G28 U0 W0`.
 
 ## Patterns that pass the simulator
 

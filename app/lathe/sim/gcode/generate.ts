@@ -15,7 +15,9 @@
  *    allows), plunged and then contoured with the parting tool.
  * 6. With a bore: drill (pecking), rough bore and finish bore with the boring bar, then internal
  *    grooves, what the bar can't reach, with the internal grooving tool, the way 2–5 do outside.
- * 7. Part off.
+ * 7. With a face groove: plunges along Z side by side, then one pass along its bottom, with the
+ *    face grooving tool.
+ * 8. Part off.
  *
  * An envelope is the lowest radius the tool's programmed point can be at, at each z, without its
  * footprint cutting into the target: max over the footprint of (target − edge height). Following
@@ -27,7 +29,8 @@
  */
 import type { Job, Tool } from '../job-schema.ts';
 import { profileSegments, segmentsRangeAt, type Profile } from '../profile.ts';
-import { freshBore, freshProfile, stockShape, sweep, sweepInner } from '../stock.ts';
+import { freshBore, freshGap, freshProfile, stockShape, sweep, sweepFace, sweepInner } from '../stock.ts';
+import { sampleFloor } from '../face-groove.ts';
 import { endEdgeAngle, footprint, isInside, toolReach, type Footprint } from '../tool-shapes.ts';
 
 export class GenerateError extends Error {}
@@ -37,6 +40,7 @@ type Parting = Extract<Tool, { type: 'parting' }>;
 type Drill = Extract<Tool, { type: 'drill' }>;
 type Boring = Extract<Tool, { type: 'boring' }>;
 type Grooving = Extract<Tool, { type: 'internal-grooving' }>;
+type FaceGrooving = Extract<Tool, { type: 'face-grooving' }>;
 
 export type Cam = Partial<{
   depthOfCut: number; // mm per side, roughing
@@ -47,10 +51,10 @@ export type Cam = Partial<{
   roughTool: number; finishTool: number; partTool: number;
   drillSpeed: number; drillFeed: number; // m/min, mm/rev (for a Ø10 drill; it scales with the size)
   boreSpeed: number; boreFeed: number;
-  drillTool: number; boreTool: number; grooveTool: number;
+  drillTool: number; boreTool: number; grooveTool: number; faceGrooveTool: number;
 }>;
 
-type GenerateInput = Pick<Job, 'name' | 'material' | 'stock' | 'tools'> & { profile: Profile; bore?: Profile; cam?: Cam };
+type GenerateInput = Pick<Job, 'name' | 'material' | 'stock' | 'tools'> & { profile: Profile; bore?: Profile; faceGroove?: Profile; cam?: Cam };
 
 /** Starting cutting data per material family: speeds in m/min, feeds in mm/rev, depth per side. */
 const CUTTING = {
@@ -88,6 +92,7 @@ const fmt2 = (v: number) => String(Number(v.toFixed(2))); // for messages
 export function generateGcode(job: GenerateInput): string {
   const { stock, profile, tools } = job;
   const bore = job.bore ?? [];
+  const faceGroove = job.faceGroove ?? [];
   const cutting = CUTTING[materialFamily(job.material)];
   const cam = { ...cutting, finishAllowance: 0.25, ...stripUndefined(job.cam ?? {}) };
   if (profile.length < 2) throw new GenerateError('profile: needs at least two [z, diameter] points to generate the G-code');
@@ -106,6 +111,7 @@ export function generateGcode(job: GenerateInput): string {
   const drills = tools.filter((t): t is Drill => t.type === 'drill');
   const borer = pick<Boring>(cam.boreTool, 'boring') ?? tools.filter((t): t is Boring => t.type === 'boring').sort((a, b) => a.minBore - b.minBore)[0];
   const groover = pick<Grooving>(cam.grooveTool, 'internal-grooving') ?? tools.find((t): t is Grooving => t.type === 'internal-grooving');
+  const faceGroover = pick<FaceGrooving>(cam.faceGrooveTool, 'face-grooving') ?? tools.find((t): t is FaceGrooving => t.type === 'face-grooving');
 
   // --- The model ---------------------------------------------------------------------------
   const shape = stockShape(stock);
@@ -160,6 +166,7 @@ export function generateGcode(job: GenerateInput): string {
 
   const stockR = freshProfile(shape);
   const hole = freshBore(shape); // the hole's radius, as the simulator keeps it
+  const gap = freshGap(shape); // the face groove, likewise
   const holeS = new Float64Array(n); // the same in an inside tool's space; no material, -1e9
   let S: Float32Array | Float64Array = stockR; // the material the current tool sees, in its space
   let inside = false;
@@ -170,8 +177,9 @@ export function generateGcode(job: GenerateInput): string {
   };
   let fp = fps.get(rougher.id)!;
   const cut = (a: { x: number; z: number }, b: { x: number; z: number }) => {
-    if (!inside) return void sweep(stockR, shape, fp, a, b);
-    sweepInner(hole, stockR, shape, fp, { x: D - a.x, z: a.z }, { x: D - b.x, z: b.z });
+    if (tool?.type === 'face-grooving') return void sweepFace(stockR, hole, gap, shape, tool.width, a, b);
+    if (!inside) return void sweep(stockR, shape, fp, a, b, gap);
+    sweepInner(hole, stockR, shape, fp, { x: D - a.x, z: a.z }, { x: D - b.x, z: b.z }, gap);
     syncHole(Math.min(idx(a.z), idx(b.z)) - fp.dr.length, Math.max(idx(a.z), idx(b.z)));
   };
 
@@ -505,6 +513,68 @@ export function generateGcode(job: GenerateInput): string {
     if (groover) plungeSteps('Internal grooves', groover, tInHi, tIn, iBoreZone);
   }
 
+  // --- The face groove: plunges along Z, then the bottom -----------------------------------
+  if (faceGroove.length >= 2) {
+    if (!faceGroover) throw new GenerateError('tools: add a face grooving tool ("type": "face-grooving") to cut the face groove');
+    const w = faceGroover.width;
+    const floor = sampleFloor(faceGroove, step);
+    const fs = floor.step;
+    if (floor.r1 - floor.r0 < w - 1e-6)
+      throw new GenerateError(
+        `faceGroove: it is ${fmt2(floor.r1 - floor.r0)} mm wide (Ø${fmt2(2 * floor.r0)} to Ø${fmt2(2 * floor.r1)}) and the face grooving tool's blade is ${fmt(w)} mm; ` +
+          'make the groove at least as wide as the blade, or use a narrower blade',
+      );
+    if (2 * floor.r0 < faceGroover.minDiameter - 1e-6)
+      throw new GenerateError(
+        `faceGroove: its inner wall is Ø${fmt2(2 * floor.r0)} and the face grooving tool (T${faceGroover.id}) fits inner walls of Ø${fmt(faceGroover.minDiameter)} or more; ` +
+          'make the inner wall larger, or give the tool a smaller minDiameter',
+      );
+    // The tip, by the blade's inner corner: as deep as it goes without cutting into the bottom
+    // anywhere under the blade.
+    const jw = Math.round(w / fs);
+    const count = floor.z.length - jw;
+    const tip = new Float64Array(count);
+    for (let j = 0; j < count; j++) {
+      let m = -Infinity;
+      for (let k = j; k <= j + jw; k++) m = Math.max(m, floor.z[k]);
+      tip[j] = m;
+    }
+    // In front of the material over the whole ring, moving across it doesn't cut.
+    let iFront = 0;
+    while (iFront < n && stockR[iFront] <= floor.r0 + 1e-9) iFront++;
+    const zSafe = zAt(iFront) + MARGIN;
+    const deepest = Math.min(...tip);
+    if (zAt(iFront) - deepest > faceGroover.depth + 1e-6)
+      throw new GenerateError(
+        `faceGroove: it goes ${fmt2(zAt(iFront) - deepest)} mm deep from the face in front of it (Z${fmt2(zAt(iFront))}) and the face grooving tool (T${faceGroover.id}) reaches ${fmt(faceGroover.depth)} mm; ` +
+          'make it shallower, or give the tool a larger depth',
+      );
+    const at = (j: number) => 2 * (floor.r0 + j * fs);
+
+    section('Face groove', faceGroover, cam.partSpeed);
+    // Roughing: plunges side by side, leaving the allowance on the walls and the bottom.
+    const margin = Math.round(allowance / fs);
+    const first = Math.min(margin, (count - 1) >> 1), last = Math.max(first, count - 1 - margin);
+    const stride = Math.max(1, Math.floor(jw * 0.8));
+    const plunges: number[] = [];
+    for (let j = first; j < last; j += stride) plunges.push(j);
+    plunges.push(last);
+    travel(at(plunges[0]), zSafe);
+    for (const j of plunges) {
+      const goal = tip[j] + allowance;
+      if (goal >= zSafe - MARGIN) continue;
+      rapid(at(j));
+      feed(cam.partFeed, undefined, goal);
+      rapid(undefined, zSafe);
+    }
+    // Finish: down the inner wall, along the bottom and up the outer wall, by the inner corner.
+    rapid(at(0));
+    feed(cam.partFeed, undefined, tip[0]);
+    const path = fit(Array.from(tip, (z, j) => ({ z: floor.r0 + j * fs, r: z })), false);
+    for (const p of path) feed(cam.partFeed, 2 * p.z, p.r);
+    rapid(undefined, zSafe);
+  }
+
   if (parting) {
     section('Part off', parting, cam.partSpeed);
     const zPart = zLast - width;
@@ -525,7 +595,7 @@ function stripUndefined<T extends object>(value: T): T {
 type P = { z: number; r: number };
 type Fitted = P & { arc?: { cu: number; cv: number; radius: number; ccw: boolean } };
 
-function fit(points: P[]): Fitted[] {
+function fit(points: P[], arcs = true): Fitted[] {
   const out: Fitted[] = [];
   let s = 0;
   const last = points.length - 1;
@@ -534,7 +604,7 @@ function fit(points: P[]): Fitted[] {
     let good = s + 1, bad = 0;
     for (let len = 2; good < last; len *= 2) {
       const next = Math.min(last, s + len);
-      if (!fitSpan(points, s, next)) {
+      if (!fitSpan(points, s, next, arcs)) {
         bad = next;
         break;
       }
@@ -543,11 +613,11 @@ function fit(points: P[]): Fitted[] {
     let lo = good, hi = bad || good;
     while (hi - lo > 1) {
       const mid = (lo + hi) >> 1;
-      if (fitSpan(points, s, mid)) lo = mid;
+      if (fitSpan(points, s, mid, arcs)) lo = mid;
       else hi = mid;
     }
     const e = lo;
-    const shape = fitSpan(points, s, e) || undefined;
+    const shape = fitSpan(points, s, e, arcs) || undefined;
     out.push(shape && shape !== true ? { ...points[e], arc: shape } : { ...points[e] });
     s = e;
   }
@@ -555,7 +625,7 @@ function fit(points: P[]): Fitted[] {
 }
 
 /** True when a line fits points s…e, an arc when only an arc does, false when neither. */
-function fitSpan(points: P[], s: number, e: number): true | NonNullable<Fitted['arc']> | false {
+function fitSpan(points: P[], s: number, e: number, arcs = true): true | NonNullable<Fitted['arc']> | false {
   const a = points[s], b = points[e];
   const within = (value: (z: number) => number) => {
     for (let j = s + 1; j < e; j++) {
@@ -565,7 +635,7 @@ function fitSpan(points: P[], s: number, e: number): true | NonNullable<Fitted['
     return true;
   };
   if (b.z !== a.z && within((z) => a.r + ((b.r - a.r) * (z - a.z)) / (b.z - a.z))) return true;
-  if (e - s < 2) return false;
+  if (e - s < 2 || !arcs) return false;
   const m = points[(s + e) >> 1];
   // Circle through a, m, b in the (z, r) plane.
   const d = 2 * (a.z * (m.r - b.r) + m.z * (b.r - a.r) + b.z * (a.r - m.r));

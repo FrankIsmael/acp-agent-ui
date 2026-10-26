@@ -8,6 +8,7 @@ import type { Job, Tool } from './job-schema.ts';
 import { arcProblems, profileRangeAt } from './profile.ts';
 import { buildTimeline } from './timeline.ts';
 import { compareToBore, compareToProfile } from './stock.ts';
+import { compareToFaceGroove, faceGrooveProblems } from './face-groove.ts';
 import { endEdgeAngle, INSERT_EDGE_MM, isInside, toolReach } from './tool-shapes.ts';
 
 const LEFTOVER_MM = 0.3; // radius; more than this left over the profile is a missed cut
@@ -41,10 +42,12 @@ export function checkJob(job: Job): string[] {
   }
 
   problems.push(...boreProblems(job));
+  problems.push(...faceGrooveProblems(job.faceGroove, profile, job.bore));
 
   const timeline = buildTimeline(job);
   for (const warning of timeline.warnings) problems.push(`line ${warning.line}: ${warning.message}`);
   problems.push(...insideToolProblems(job, timeline.segments));
+  problems.push(...faceToolProblems(job, timeline.segments));
 
   // Moves that hit the chuck: below the bar's surface and behind the start of the jaws. An inside
   // tool in the hole is inside the bar, not against the jaws; its reach is checked instead.
@@ -76,6 +79,16 @@ export function checkJob(job: Job): string[] {
         );
       if (bore.gouge > GOUGE_MM)
         problems.push(`the bore is cut ${mm(bore.gouge * 2)} mm over its diameter at Z${mm(bore.gougeZ)}: a move inside goes too far out (the tool's width, nose or angle)`);
+    }
+    if (job.faceGroove.length >= 2) {
+      const groove = compareToFaceGroove(timeline.final, timeline.finalBore, timeline.finalGap, timeline.shape, job.faceGroove, profile);
+      if (groove.leftover > LEFTOVER_MM)
+        problems.push(
+          `the face groove has ${mm(groove.leftover)} mm of material left at Ø${mm(groove.leftoverD)} Z${mm(groove.leftoverZ)}: ` +
+            (job.generated ? faceGrooveHint(job) : 'a pass is missing there, or the blade is too wide for that corner'),
+        );
+      if (groove.gouge > GOUGE_MM)
+        problems.push(`the face groove is cut ${mm(groove.gouge)} mm past its shape at Ø${mm(groove.gougeD)} Z${mm(groove.gougeZ)}: a move goes too deep or too far to the side (the blade's width)`);
     }
   }
   return problems;
@@ -161,6 +174,27 @@ function insideToolProblems({ tools, bore }: Job, segments: Segment[]): string[]
     }
   }
   return problems;
+}
+
+/** Face grooving tools: the smallest inner wall their blade fits. */
+function faceToolProblems({ tools }: Job, segments: Segment[]): string[] {
+  const problems: string[] = [];
+  for (const tool of tools) {
+    if (tool.type !== 'face-grooving') continue;
+    const cuts = segments.filter((s) => s.tool === tool.id && s.kind === 'feed');
+    if (!cuts.length) continue;
+    const smallest = Math.min(...cuts.map((s) => Math.min(s.from.x, s.to.x)));
+    if (smallest < tool.minDiameter - 1e-6)
+      problems.push(`T${tool.id} (${tool.name}) cuts at Ø${mm(smallest)}, but its blade only fits inner walls of Ø${mm(tool.minDiameter)} or more; make the groove's inner wall larger or use a blade for smaller diameters`);
+  }
+  return problems;
+}
+
+/** What the generated program leaves in a face groove. */
+function faceGrooveHint({ tools }: Job): string {
+  const blade = tools.find((tool) => tool.type === 'face-grooving');
+  if (!blade) return 'add a face grooving tool to cut it';
+  return `the ${mm(blade.width)} mm blade can't reach into that corner; give the groove's bottom a flat or a round at least ${mm(blade.width)} mm wide instead of a sharp V`;
 }
 
 /** What the generated program leaves inside the bore, and which tool cuts it. */
