@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "name": "Chess queen (crown bowl)",
+  "units": "mm",
+  "material": {
+    "name": "6061-T6 aluminum",
+    "density": 2.7
+  },
+  "stock": {
+    "diameter": 45,
+    "length": 134,
+    "stickout": 104,
+    "faceStock": 1
+  },
+  "profile": [
+    [
+      0,
+      0
+    ],
+    [
+      -4,
+      8,
+      4
+    ],
+    [
+      -6,
+      5
+    ],
+    [
+      -8,
+      5
+    ],
+    [
+      -11,
+      14,
+      6
+    ],
+    [
+      -11,
+      28
+    ],
+    [
+      -15,
+      28
+    ],
+    [
+      -24,
+      18,
+      -40
+    ],
+    [
+      -25.6,
+      18
+    ],
+    [
+      -26.6,
+      22
+    ],
+    [
+      -28.6,
+      22
+    ],
+    [
+      -33.6,
+      12
+    ],
+    [
+      -70,
+      12
+    ],
+    [
+      -88,
+      40,
+      30
+    ],
+    [
+      -89,
+      40
+    ],
+    [
+      -90,
+      38
+    ]
+  ],
+  "faceGroove": [
+    [
+      -11,
+      14
+    ],
+    [
+      -14,
+      20,
+      -3
+    ],
+    [
+      -14,
+      24
+    ],
+    [
+      -11,
+      25,
+      15
+    ]
+  ],
+  "tools": [
+    {
+      "id": 1,
+      "name": "Rougher",
+      "type": "turning",
+      "insert": "CNMG 120408",
+      "noseRadius": 0.8,
+      "angle": 80,
+      "approach": 95
+    },
+    {
+      "id": 2,
+      "name": "Profiler",
+      "type": "turning",
+      "insert": "VNMG 160404",
+      "noseRadius": 0.4,
+      "angle": 35,
+      "approach": 93
+    },
+    {
+      "id": 3,
+      "name": "Parting",
+      "type": "parting",
+      "width": 3
+    },
+    {
+      "id": 4,
+      "name": "Face groove",
+      "type": "face-grooving",
+      "width": 2,
+      "depth": 8,
+      "minDiameter": 10
+    }
+  ],
+  "assumptions": [
+    "The crown's points are left out: they need milling, so the crown is a smooth dome-and-bowl shape instead",
+    "Keeping the given Ø45 x 134 bar, 104 mm stickout, as supplied",
+    "The dome is filled flat at the rim's top edge (Z-11, Ø14) for the profile, with the 3 mm bowl then cut into that shoulder by the face-grooving tool, per the skill's face-groove convention",
+    "Rim wall kept at Ø28 down to Z-15 (1 mm past the bowl's deepest point) so the bowl keeps at least 1 mm of outside wall, before the crown narrows to Ø18",
+    "Bowl: 3 mm deep, from Ø14 at the dome to Ø25 at the rim's inner wall, leaving about 1.5 mm of rim wall at the top (rim OD Ø28)",
+    "Added a 1.6 mm flat at the bottom of the crown's narrowing curve (Z-24 to Z-25.6, Ø18) to avoid a sharp notch before the collar",
+    "The bowl's rise back to the rim's inner wall uses a flatter arc (R15) so it doesn't curl into an undercut",
+    "No keyway, engraving or thread requested, so none added"
+  ]
+}

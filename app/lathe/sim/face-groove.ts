@@ -99,8 +99,17 @@ export function faceGrooveProblems(groove: Profile, profile: Profile, bore: Prof
     }
     const arc = arcThrough(-d0 / 2, z0, -d1 / 2, z1, R);
     if (!arc) problems.push(`faceGroove: ${at} is too tight for its chord; use |R| ≥ ${Math.ceil((Math.hypot((d1 - d0) / 2, z1 - z0) / 2) * 100) / 100}`);
-    else if ([z0, z1].some((z) => arc.up * (z - arc.cv) < -1e-6))
-      problems.push(`faceGroove: ${at} would curl back over itself (an undercut a face grooving tool can't reach); use a larger |R| or split it at its deepest point`);
+    else if ([z0, z1].some((z) => arc.up * (z - arc.cv) < -1e-6)) {
+      // The usual cause: a round corner squeezed into less diameter than a quarter circle needs.
+      const dz = Math.abs(z1 - z0);
+      const room = z1 > z0 ? `start it at Ø${mm(d1 - 2 * dz)}` : `end it at Ø${mm(d0 + 2 * dz)}`;
+      problems.push(
+        `faceGroove: ${at} would curl back over itself (an undercut a face grooving tool can't reach). ` +
+          `A round corner between a wall and the bottom is a quarter circle, R ${mm(-dz)} with the diameter changing by 2 × ΔZ: ${room}, ` +
+          `or round less of it (a straight wall point first); a larger |R| makes it a slanted wall instead` +
+          (R > 0 ? '. R > 0 bulges toward the front; the bowl\'s round corners, going down or coming back up, are R < 0' : ''),
+      );
+    }
   }
   if (problems.length) return problems;
 

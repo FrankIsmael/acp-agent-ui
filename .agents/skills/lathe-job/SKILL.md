@@ -158,14 +158,21 @@ the hollow of a cup with a post in the middle. A hole with nothing standing in t
   point, no ridge in the middle). Everything in front of that bottom, between the first and the
   last diameter, is cut away, so the walls run straight to the front from the first and the last
   point. Start and end it at the shoulder's Z.
-- **Arcs:** `[z, diameter, R]` makes the segment ending there an arc of radius |R|; **R < 0 dips
-  toward the chuck** (a hollow, the usual one), R > 0 rises toward the front. A wall that is vertical
-  at the top and flat at the bottom is a quarter circle: Δdiameter = 2|R| and ΔZ = |R|. A larger
-  |R| than the points allow is flatter; a smaller one curls back (the page says which |R| works).
+- **Arcs:** `[z, diameter, R]` makes the segment ending there an arc of radius |R|. The sign says
+  which way it bulges, not whether Z goes up or down: **a bowl's round corners are both R < 0**,
+  the one going down from the inner wall and the one coming back up to the outer wall (R > 0
+  bulges toward the front: a mound in the bottom).
+- **Leave room for each round.** A round from a wall to the flat bottom is a quarter circle:
+  ΔZ = |R| and **Δdiameter = 2|R|**. A 3 mm deep round to the outer wall at Ø25 starts at Ø19;
+  from Ø24 it curls back. A round smaller than the depth goes under a straight wall:
+  shoulder at Z-11, bottom at Z-14, R 2, walls at Ø14 and Ø25 →
+  `[[-11,14],[-12,14],[-14,18,-2],[-14,21],[-12,25,-2],[-11,25]]`.
 - The blade cuts the bottom with its corners, so a V or a round narrower than the blade leaves
   material: give the bottom a flat or a round **at least the blade's width**.
 - Keep **at least 1 mm of wall** to the outside and to the bore, the inner wall at least the
-  tool's `minDiameter`, and the groove no deeper than its `depth` from the shoulder.
+  tool's `minDiameter`, and the groove no deeper than its `depth` from the shoulder. The wall to
+  the outside counts **all the way down to the groove's bottom**: keep the rim's outside straight
+  to 1 mm past the bottom's Z before the part narrows below it.
 
 Tool for it, added to the turret: the programmed point is the inner corner of the blade's tip.
 

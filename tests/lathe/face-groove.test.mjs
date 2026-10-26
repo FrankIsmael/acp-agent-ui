@@ -85,6 +85,10 @@ test('the problems the agent is told about a face groove', () => {
   assert.match(errors(short), /reaches 2 mm/);
   assert.match(errors({ ...head, faceGroove: [[-10, 12], [-13.5, 19, -2]] }), /too tight for its chord; use \|R\| ≥ 2.48/);
   assert.match(errors({ ...head, faceGroove: [[-10, 12], [-13.5, 19, -2.6], [-10, 24.5]] }), /curl back over itself/);
+  // The agent's first queen: a 3 mm deep round to the outer wall in 1 mm of diameter, and R > 0.
+  const squeezed = errors({ ...head, faceGroove: [[-10, 12], [-13, 18, -3], [-13, 22], [-10, 23, 4]] });
+  assert.match(squeezed, /R -3 .*start it at Ø17/);
+  assert.match(squeezed, /are R < 0/);
 });
 
 test('a V bottom narrower than the blade is reported as material left', () => {
