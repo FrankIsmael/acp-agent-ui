@@ -14,6 +14,7 @@ import { arcRadiusAt, arcThrough, profileRangeAt, type Arc, type Profile } from 
 import type { Gap, StockShape } from './stock.ts';
 
 export const MIN_WALL_MM = 1; // per side, between the groove and the outside or the hole
+const MAX_SAMPLES = 4001; // a groove of any size samples coarser, not longer (the job comes from outside)
 
 type Segment = { r0: number; z0: number; r1: number; z1: number; arc?: Arc };
 
@@ -51,7 +52,7 @@ export type Floor = { r0: number; r1: number; step: number; z: Float64Array };
 export function sampleFloor(groove: Profile, step: number): Floor {
   const list = segments(groove);
   const r0 = groove[0][1] / 2, r1 = groove[groove.length - 1][1] / 2;
-  const n = Math.max(1, Math.round((r1 - r0) / step)) + 1;
+  const n = Math.min(MAX_SAMPLES, Math.max(1, Math.round((r1 - r0) / step)) + 1);
   const z = new Float64Array(n);
   for (let j = 0; j < n; j++) z[j] = floorOf(list, Math.min(r1, r0 + j * step));
   return { r0, r1, step: (r1 - r0) / (n - 1 || 1), z };
@@ -120,7 +121,8 @@ export function faceGrooveProblems(groove: Profile, profile: Profile, bore: Prof
 
   // The walls left on each side, from the bottom to the front.
   const deepest = Math.min(...floor.z);
-  for (let z = deepest + 0.05; z <= 0; z += 0.25) {
+  const dz = Math.max(0.25, -deepest / 400);
+  for (let k = 0, z = deepest + 0.05; k <= 400 && z <= 0; k++, z = deepest + 0.05 + k * dz) {
     const gap = gapAt(floor, z);
     if (!gap) continue;
     const outer = profileRangeAt(profile, z).hi;

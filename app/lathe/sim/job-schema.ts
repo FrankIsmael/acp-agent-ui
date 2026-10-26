@@ -66,7 +66,7 @@ const faceGrooving = z.object({
   id: z.number().int().positive(),
   name: z.string(),
   type: z.literal('face-grooving'),
-  width: z.number().positive().default(3), // radial; the programmed point is the inner corner (toward the axis)
+  width: z.number().positive().max(25).default(3), // radial; the programmed point is the inner corner (toward the axis)
   depth: z.number().positive().default(10), // deepest groove, from the material in front of it
   minDiameter: z.number().positive().default(16), // smallest inner wall the blade's curve fits
 });
@@ -122,7 +122,7 @@ export const jobSchema = z
     stock: stockSchema,
     profile: z.array(point).default([]), // finished part: [z, diameter]
     bore: z.array(point).default([]), // the hole in it, the same way from the front face; none when empty
-    faceGroove: z.array(point).default([]), // a ring cut into the front: its bottom, inner wall out (sim/face-groove.ts)
+    faceGroove: z.array(point).max(64).default([]), // a ring cut into the front: its bottom, inner wall out (sim/face-groove.ts)
     tools: z.array(toolSchema).min(1),
     operations: z
       .array(
