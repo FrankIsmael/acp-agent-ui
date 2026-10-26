@@ -17,3 +17,5 @@ scripts
 tests
 *.md
 test.js
+# The lathe guide route serves this file (app/routes/lathe.guide.ts)
+!docs/lathe/lathe-job-guide.md
