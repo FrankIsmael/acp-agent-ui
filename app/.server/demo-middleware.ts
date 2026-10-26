@@ -10,7 +10,7 @@ export const demoMiddleware: MiddlewareFunction<Response> = async ({ request, pa
     if (!["GET", "HEAD"].includes(request.method)) assertSameOrigin(request);
     const path = new URL(request.url).pathname.replace(/\.data$/, "").replace(/\/$/, "") || "/";
     // Default-deny future endpoints until they explicitly join the demo surface.
-    const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/embed(?:\/c\/[^/]+)?|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/lathe|\/api\/lathe\/jobs|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|uploads|cancel|close|permissions))?)$/;
+    const allowed = /^(?:\/|\/_root|\/c\/(?:nuevo|[^/]+)|\/embed(?:\/c\/[^/]+)?|\/skills|\/extensions|\/artifacts|\/sessions|\/settings|\/whatsapp|\/lathe(?:\/guide\.md)?|\/api\/lathe\/jobs|\/api\/demo|\/api\/whatsapp(?:\/events)?|\/api\/conversations(?:\/[^/]+\/(?:events|messages|uploads|cancel|close|permissions))?)$/;
     if (!allowed.test(path)) return Response.json({ error: "This section is unavailable in the demo." }, { status: 403 });
     const invite = redeemInvite(request);
     if (invite) return new Response(null, { status: 302, headers: { Location: invite.location, "Set-Cookie": invite.cookie, "Cache-Control": "private, no-store" } });

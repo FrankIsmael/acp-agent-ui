@@ -534,6 +534,12 @@ function DescribePanel({ agent, job, onJob }: { agent: AgentAccess; job: Job; on
             ? t('The lathe agent is only for invited guests. You can still load or paste a job.')
             : t('Visit /lathe?key=<key> once to use the lathe agent from this browser. You can still load or paste a job.')}
         </p>
+        <p className="mt-2 text-sm text-text-secondary">
+          <a href="/lathe/guide.md" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-text-primary">
+            {t('Get the guide for your own AI')}
+          </a>{' '}
+          {t('and paste the job it writes here.')}
+        </p>
       </Section>
     );
 

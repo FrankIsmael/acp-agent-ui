@@ -63,5 +63,6 @@ export default [
   ]),
   // Lathe simulator: full screen, outside the shell (docs/lathe/plan.md).
   route('lathe', 'routes/lathe.tsx'),
+  route('lathe/guide.md', 'routes/lathe.guide.ts'),
   route('test', 'routes/test.tsx'),
 ] satisfies RouteConfig;
