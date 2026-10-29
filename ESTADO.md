@@ -12,7 +12,7 @@ responds in markdown and reports tokens and cost. Verified August 31 with
 | Piece | Where | Status |
 |---|---|---|
 | Interface | repo root | ✅ SSR, 9 routes |
-| ACP engine | `app/.server/acp.ts` | ✅ one connection per conversation |
+| ACP engine | `app/.server/acp.ts` | ✅ one connection per box, pool of `ACP_MAX_SESSIONS` open sessions each (parallel users); several boxes with `ACP_BOXES`: new threads go to the roomiest reachable box, app conversation ids that hide the box (`conversation-ids.ts`), merged history (`tests/boxes.integration.mjs`) |
 | SSE | `app/routes/api.conversations.$id.events.ts` | ✅ with heartbeat every 25 s |
 | Agent | `mi-agente-claude` (`sb_76f0708e-…`), ghosty-lite 1.48.0, `claude-acp`/sonnet, `GOOSE_MODE=approve` | ✅ `ghosty-lite-runtime` |
 | Extensions | `/extensions`, SQLite at `.data/extensions.db` | ✅ http and stdio, in `session/new` and hot-reloaded |

@@ -90,7 +90,7 @@ mock.on("connection", ws => {
 let log = "";
 function startApp() {
 const app = spawn(process.execPath, ["server.js"], { env: {
-  ...process.env, PORT: "5398", ACP_WS_URL: `ws://127.0.0.1:${mock.address().port}`,
+  ...process.env, ACP_CONVERSATIONS_DB: ":memory:", PORT: "5398", ACP_WS_URL: `ws://127.0.0.1:${mock.address().port}`,
   ACP_TOKEN: "", ACP_SECRET: "", AGENT_BOX_ID: "", EASYBITS_API_KEY: "", NODE_ENV: "production",
   ACP_EXTENSIONS_DB: databasePath,
 }, stdio: ["ignore", "pipe", "pipe"] });
@@ -157,13 +157,15 @@ try {
   assert.ok(page.includes("Fixture extension"));
   assert.ok(!page.includes("fixture-secret"));
   const { conversationId: id } = await (await post("/api/conversations", {})).json();
-  assert.equal(sessions.get(id).length, 1);
+  // The app gives out its own conversation id; the fixture knows the agent's, the newest session.
+  const agentSession = [...sessions.keys()].at(-1);
+  assert.equal(sessions.get(agentSession).length, 1);
   assert.equal((await changeExtension({ intent: "session-remove", sessionId: id, configKey: key })).status, 200);
-  assert.equal(sessions.get(id).length, 0);
+  assert.equal(sessions.get(agentSession).length, 0);
   assert.equal(extensions.size, 1, "removing from session preserves global configuration");
   assert.equal((await changeExtension({ intent: "session-add", sessionId: "wrong", configKey: key })).status, 409);
   assert.equal((await changeExtension({ intent: "session-add", sessionId: id, configKey: key })).status, 200);
-  assert.equal(sessions.get(id).length, 1);
+  assert.equal(sessions.get(agentSession).length, 1);
   assert.ok((await (await fetch(`${base}/extensions`)).text()).includes("Retirar del hilo"));
   firstStream = await stream(id);
   assert.equal((await post(`/api/conversations/${id}/messages`, { text: "Use the extension" })).status, 200);

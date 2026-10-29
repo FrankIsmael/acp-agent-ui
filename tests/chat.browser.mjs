@@ -45,7 +45,7 @@ mock.on('connection', ws => {
   });
   ws.on('close', () => active?.());
 });
-const server = spawn(process.execPath, ['server.js'], { cwd: root, env: { ...process.env, PORT: '5198', ACP_WS_URL: 'ws://127.0.0.1:5197', ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['server.js'], { cwd: root, env: { ...process.env, ACP_CONVERSATIONS_DB: ':memory:', PORT: '5198', ACP_WS_URL: 'ws://127.0.0.1:5197', ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = ''; server.stdout.on('data', d => serverLog += d); server.stderr.on('data', d => serverLog += d);
 const browser = spawn(browserPath, ['--headless=new', '--disable-gpu', '--remote-debugging-port=5199', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-background-networking', 'about:blank'], { stdio: ['ignore','pipe','pipe'] });
 let browserLog = ''; browser.stderr.on('data', d => browserLog += d);

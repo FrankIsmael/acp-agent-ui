@@ -4,6 +4,28 @@ How Robbie's agent runs on the instabox box `robbie-agent` (`m_agqupf2nhgt5exp4t
 the `ghosty-lite` Docker image, pulled from GHCR, runs as one container inside the box.
 The image is built elsewhere; the box only pulls and runs it.
 
+Two boxes run this setup. The rest of this doc uses `robbie-agent`; on `robbie-chat` swap the
+id, URL and Linux user.
+
+| Box | id | Linux user | Prompt | Use |
+|---|---|---|---|---|
+| `robbie-agent` | `m_agqupf2nhgt5exp4trttq2fdme` | `user` | lathe job writer | `/lathe` experiment |
+| `robbie-chat` | `m_agqyh42q2louic5pzo7sfvijka` | `ifrank` | `scripts/system-prompt.md` | Robbie chat (since Oct 28, 2026) |
+
+`robbie-chat` has its own `ACP_AGENT_TOKEN` and `ACP_MAX_SESSIONS=4` (the relay's default,
+`/opt/goose/dist/relay.js`). It is on the free plan, so its idle pause is fixed at 30 min and
+`instabox auto-suspend` / `ACP_IDLE_MS` cannot change it.
+
+The app can be configured with several boxes running the same agent (`ACP_BOXES`, see
+`.env.example` and `app/.server/box-config.ts`). New conversations go to the reachable box
+with the most free slots; a conversation reopens only on its own box. Both boxes number their
+sessions alike (`20261028_1` exists on both), so every new conversation gets an app id
+(`/c/k7f3q9`) and `.data/conversations.db` remembers its box; older links with an agent id open
+on the first box (`app/.server/conversation-ids.ts`). History merges
+`session/list` from every box; a box that is down keeps its last known rows, and they open
+again once it is back. Every box must run the same prompt, skills and model, or Robbie
+changes depending on where a user lands.
+
 ```
 app ──wss + token──▶ https://3100-agqupf2nhgt5exp4trttq2fdme.instabox.tech/acp
     (instabox port) ──▶ box 127.0.0.1:3100 ──▶ container `gl` :3000 (front) ──▶ ghosty serve ──▶ Claude Code
@@ -145,4 +167,5 @@ answers `ghosty-lite 1.51.0`.
 
 - `instabox exec --stdin` caps input at 1 MB; send files with `instabox ssh <box> -- 'cat > file' < file`.
 - Recreating the container keeps conversations because they live in `data/`. A container started without that mount keeps them inside itself, and `docker rm` deletes them.
+- `localhost:3100` on the box is not loopback to the front (Docker's port mapping is in between), so `/message` answers 401 without the token and `say` prints nothing. Pass `-H "authorization: Bearer $ACP_AGENT_TOKEN"`.
 - Not set up here (EasyBits had them): the `translate-skills.mjs` English descriptions.

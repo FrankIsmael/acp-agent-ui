@@ -3,8 +3,12 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 const titlesDb = join(mkdtempSync(join(tmpdir(), 'acp-titles-')), 'titles.db');
+const idsDb = join(dirname(titlesDb), 'conversations.db');
+// The agent's session id behind an app conversation id.
+const agentId = (id) => { const db = new DatabaseSync(idsDb); try { return db.prepare('SELECT session FROM conversations WHERE id = ?').get(id)?.session; } finally { db.close(); } };
 import { WebSocketServer } from 'ws';
 
 // The fixture owns history independently of the app process. No real agent,
@@ -81,7 +85,7 @@ mock.on('connection', ws => {
 });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function start() {
-  app = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), ACP_WS_URL: `ws://127.0.0.1:${agentPort}`, ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', ACP_CONNECT_TIMEOUT_MS: '2000', ACP_TITLES_DB: titlesDb, NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  app = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), ACP_BOXES: 'solo', ACP_SOLO_WS_URL: `ws://127.0.0.1:${agentPort}`, ACP_SOLO_TOKEN: '', ACP_SOLO_BOX_ID: '', ACP_WS_URL: '', ACP_TOKEN: '', ACP_SECRET: '', AGENT_BOX_ID: '', EASYBITS_API_KEY: '', ACP_CONNECT_TIMEOUT_MS: '2000', ACP_TITLES_DB: titlesDb, ACP_CONVERSATIONS_DB: idsDb, NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'] });
   app.stdout.on('data', d => log += d); app.stderr.on('data', d => log += d);
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(`${base}/`)).ok) return; } catch {}
@@ -121,8 +125,8 @@ try {
   assert.equal(calls.find(c => c.method === 'session/load').params.cwd, '/data/project-a');
   await open('saved-b');
   assert.equal(connections, 1, 'thread switching reuses initialized connection');
-  assert.equal(maxLive, 1);
-  assert.ok(calls.findIndex(c => c.method === 'session/close') < calls.findIndex(c => c.method === 'session/load' && c.params.sessionId === 'saved-b'));
+  assert.equal(maxLive, 2, 'opening another thread keeps the first one open');
+  assert.equal(calls.some(c => c.method === 'session/close'), false);
   const beforeDraft = calls.filter(c => c.method === 'session/new').length;
   const draft = await fetch(`${base}/api/model-preference`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'two' }) });
   assert.equal(draft.status, 200);
@@ -132,7 +136,8 @@ try {
   await open('saved-a');
   assert.equal(calls.filter(c => c.method === 'session/load').at(-1).params._meta, undefined, 'full history removes replay limit');
   const created = await (await post('')).json();
-  assert.match(created.conversationId, /^new-/);
+  assert.match(created.conversationId, /^[a-z2-9]{8}$/, 'the app gives out its own id');
+  assert.match(agentId(created.conversationId), /^new-/);
   const id = created.conversationId;
   assert.equal((await post(`/${id}/messages`, { text: 'Persist after restart' })).status, 200);
   await delay(100);
@@ -163,8 +168,16 @@ try {
   assert.equal((await post(`/${id}/messages`, { text: 'Continue' })).status, 200);
   await delay(50);
   await open('saved-a');
-  assert.equal(cancellations, 1, 'switching cancels active prompt before closing');
-  assert.equal(maxLive, 1);
+  assert.equal(cancellations, 0, 'opening another thread leaves the running prompt alone');
+  assert.equal((await snapshot(id)).busy, true);
+  // Pool full (4 = ACP_MAX_SESSIONS default): a fifth thread evicts the least recently used idle one, never the busy one.
+  await open('saved-b');
+  assert.equal(live.size, 4);
+  await post('');
+  assert.equal(calls.filter(c => c.method === 'session/close').at(-1).params.sessionId, agentId(silent));
+  assert.ok(live.has(agentId(id)) && !live.has(agentId(silent)));
+  assert.equal(maxLive, 4);
+  assert.equal(cancellations, 0);
   const cached = await (await fetch(`${base}/api/conversations`)).json();
   listFail = true;
   // A completed/cancelled prompt invalidates the short cache.

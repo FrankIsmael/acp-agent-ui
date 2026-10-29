@@ -1,15 +1,11 @@
 /**
  * Agent box lifecycle (app-owned): the box wakes up when spoken to and sleeps when idle.
- * Two providers, chosen by key: instabox (`INSTABOX_API_KEY`) or EasyBits (`EASYBITS_API_KEY`).
+ * Two providers, chosen by the box id: instabox (`m_…`, with `INSTABOX_API_KEY`) or EasyBits
+ * (`EASYBITS_API_KEY`). Each box of ACP_BOXES gets its own `boxLifecycle`.
  */
 import { readFileSync } from 'node:fs';
 import { AgentError } from './errors';
 
-// Optional, with no fallback for the same reason as ACP_WS_URL: they pointed to a specific box and snapshot,
-// so a partially filled .env could operate other people's resources. Without them, this is a normal ACP client
-// and the lifecycle logic simply doesn't run.
-export const AGENT_BOX = process.env.AGENT_BOX_ID ?? '';
-const AGENT_SNAPSHOT = process.env.AGENT_SNAPSHOT_ID ?? '';
 const EB_KEY =
   process.env.EASYBITS_API_KEY ??
   (() => {
@@ -36,6 +32,7 @@ type InstaboxMachine = {
 };
 
 async function instabox(
+  box: string,
   path: string,
   method = 'GET',
   body?: object,
@@ -45,7 +42,7 @@ async function instabox(
   if (method !== 'GET') headers['Idempotency-Key'] = crypto.randomUUID();
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(
-    `${INSTABOX_API}/v1/machines/${encodeURIComponent(AGENT_BOX)}${path}`,
+    `${INSTABOX_API}/v1/machines/${encodeURIComponent(box)}${path}`,
     { method, headers, body: body && JSON.stringify(body) },
   );
   if (!res.ok)
@@ -56,14 +53,14 @@ async function instabox(
 const isAwake = (box: InstaboxMachine) =>
   box.state === 'running' && box.runtime?.ready === true;
 
-async function ensureInstabox(idleMs: number) {
-  let box = await instabox('');
+async function ensureInstabox(id: string, idleMs: number) {
+  let box = await instabox(id, '');
   console.log(`[lifecycle] instabox state=${box.state}`);
   if (!isAwake(box)) {
     if (box.state !== 'running') {
       // `wake` only resumes a box that paused itself; `resume` also covers one paused by hand.
       const action = box.state === 'stopped' ? '/start' : '/resume';
-      await instabox(action, 'POST');
+      await instabox(id, action, 'POST');
     }
     const deadline = Date.now() + 90_000;
     while (!isAwake(box)) {
@@ -72,13 +69,13 @@ async function ensureInstabox(idleMs: number) {
           'The agent box did not wake up in time. Please try again in a moment.',
         );
       await new Promise((r) => setTimeout(r, 2000));
-      box = await instabox('');
+      box = await instabox(id, '');
     }
     console.log('[lifecycle] instabox is now awake');
   }
   const idle = Math.round(idleMs / 1000);
   if (idle > 0 && box.autoSuspendAfterSeconds !== idle)
-    await instabox('', 'PATCH', { autoSuspendAfterSeconds: idle }).catch(
+    await instabox(id, '', 'PATCH', { autoSuspendAfterSeconds: idle }).catch(
       (e: Error) => console.warn('[lifecycle] idle pause not set:', e.message),
     );
   return box;
@@ -100,21 +97,36 @@ async function getEbClient() {
   return ebClient;
 }
 
+const isInstabox = (box: string) => box.startsWith('m_');
+
 /**
- * Wakes up the agent box BEFORE connecting. OPTIONAL: without `AGENT_BOX_ID` and a key
- * (`INSTABOX_API_KEY`, else `EASYBITS_API_KEY`) this does not run and the client works the same
- * with any ACP agent — only without waking it up (the agent must already be up).
- * `idleMs` is the app's idle time (ACP_IDLE_MS); instabox gets it as the box's own idle pause.
+ * Wakes up the agent box BEFORE connecting. OPTIONAL: without a box id and its provider's key
+ * this does not run and the client works the same with any ACP agent — only without waking it
+ * up (the agent must already be up). The ids have no fallback for the same reason as the URL:
+ * they point to a specific box and snapshot, so a half-filled .env could operate other people's
+ * resources. `idleMs` is the app's idle time (ACP_IDLE_MS); instabox gets it as the box's own
+ * idle pause.
  */
-export async function ensureAgentBox(idleMs: number) {
-  if (!AGENT_BOX) return null;
-  if (INSTABOX_KEY) return ensureInstabox(idleMs);
+export function boxLifecycle(box: string, snapshot: string) {
+  return {
+    ensure: (idleMs: number) => ensureAgentBox(box, snapshot, idleMs),
+    suspend: () => suspendAgentBox(box),
+  };
+}
+
+async function ensureAgentBox(box: string, snapshot: string, idleMs: number) {
+  if (!box) return null;
+  if (isInstabox(box)) {
+    if (INSTABOX_KEY) return ensureInstabox(box, idleMs);
+    console.warn('[lifecycle] no INSTABOX_API_KEY — not managing agent box lifecycle');
+    return null;
+  }
   const eb = await getEbClient();
   if (!eb) {
     console.warn('[lifecycle] no SDK — not managing agent box lifecycle');
     return null;
   }
-  const sb = await eb.sandboxes.get(AGENT_BOX);
+  const sb = await eb.sandboxes.get(box);
   await sb.refresh();
   console.log(`[lifecycle] agent box status=${sb.status}`);
   if (sb.status === 'running') {
@@ -137,13 +149,13 @@ export async function ensureAgentBox(idleMs: number) {
   // to the old ACP_WS_URL, so it never actually worked: a recovery that lies is worse than none.
   // This is only attempted if a snapshot is configured, and a warning is given that the URL
   // must be updated manually.
-  if (!AGENT_SNAPSHOT) {
+  if (!snapshot) {
     throw new AgentError(
       'Agent did not wake up and there is no AGENT_SNAPSHOT_ID to recreate it. Please start it again and update ACP_WS_URL.',
     );
   }
   console.warn('[lifecycle] lost box; self-healing from snapshot');
-  const [child] = await eb.sandboxes.forkFromSnapshot(AGENT_SNAPSHOT, {});
+  const [child] = await eb.sandboxes.forkFromSnapshot(snapshot, {});
   await child.waitUntilReady(90_000);
   console.warn(
     `[lifecycle] box recreated (${child.id}) — ⚠️ its URL is different: update ACP_WS_URL or you will keep connecting to the previous one`,
@@ -152,14 +164,14 @@ export async function ensureAgentBox(idleMs: number) {
 }
 
 /** Suspends an idle EasyBits box. */
-export async function suspendAgentBox() {
-  if (!AGENT_BOX) return;
+async function suspendAgentBox(box: string) {
+  if (!box) return;
   // instabox pauses the box itself once idle (see ensureInstabox).
-  if (INSTABOX_KEY) return;
+  if (isInstabox(box)) return;
   const eb = await getEbClient();
   if (!eb) return;
   try {
-    const sb = await eb.sandboxes.get(AGENT_BOX);
+    const sb = await eb.sandboxes.get(box);
     await sb.refresh();
     if (sb.status === 'running') {
       await sb.suspend();

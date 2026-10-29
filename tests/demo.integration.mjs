@@ -103,6 +103,7 @@ const env = {
   DEMO_TRUSTED_PROXIES: '',
   NODE_ENV: 'production',
   PORT: '5401',
+  ACP_BOXES: '',
   ACP_WS_URL: `ws://127.0.0.1:${mock.address().port}`,
   ACP_TOKEN: '',
   ACP_SECRET: '',
@@ -110,6 +111,7 @@ const env = {
   EASYBITS_API_KEY: '',
   ACP_EXTENSIONS_DB: join(directory, 'extensions.db'),
   ACP_TITLES_DB: join(directory, 'titles.db'),
+  ACP_CONVERSATIONS_DB: join(directory, 'conversations.db'),
   WHATSAPP_ADMIN_KEY: 'private-owner-key',
 };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -233,11 +235,14 @@ try {
   );
   for (let i = 0; i < 50 && !held; i++) await sleep(20);
   assert.ok(held);
+  const parallel = await post('/api/conversations', b);
   assert.equal(
-    (await post('/api/conversations', b)).status,
-    409,
-    'another guest must not interrupt the active reply',
+    parallel.status,
+    200,
+    'another guest gets a session of their own during the active reply',
   );
+  assert.notEqual((await parallel.json()).conversationId, id);
+  // The held reply was not cancelled: it still finishes and the thread takes the next turn.
   held();
   held = undefined;
   await sleep(100);

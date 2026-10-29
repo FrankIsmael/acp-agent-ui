@@ -147,6 +147,13 @@ El resultado es que **el Cliente deja de ser el registro**:
 
 ## Una sola sesión viva
 
+> **Reemplazado (28 oct 2026).** La app dejó de ser "un alumno": varias personas hablan con el
+> agente a la vez. Ahora hay un pool de hasta `ACP_MAX_SESSIONS` sesiones sobre la misma conexión
+> (ver [`memory.md`](memory.md)). Los problemas que se anticipan abajo se resolvieron así: el tope
+> fijo es el tamaño del pool; el desalojo sólo cierra hilos inactivos, primero los que nadie tiene
+> en pantalla; y la caja sigue durmiendo porque el apagado por ocio cierra todas las sesiones. Lo
+> que sigue queda como historia de la decisión original.
+
 Esta app es un alumno, una caja, un hilo a la vez. Nadie conversa en paralelo. Conviene construirla
 así desde el principio, porque el diseño alternativo —varias conversaciones vivas, cada una con su
 conexión— arrastra un problema en cadena: la caja atiende un número fijo de sesiones, leer el

@@ -4,7 +4,7 @@ History and Chats fetch `session/list`, including pagination. The server keeps a
 
 `/c/nuevo` uses the latest known model catalog. Changing the model stores a preference cookie without opening a session or waking the box. The agent confirms that selection when creating the thread. If there is still no catalog, the previous selection is kept until opening a conversation.
 
-URLs use the agent's `sessionId`. `session/load` reconstructs messages, images, thought, tools, and usage. The snapshot SSE covers reloads and reconnects. Titles come from the agent. There is one connection and one active session: switching threads cancels, waits, closes, and loads the next.
+URLs use an id the app gives each conversation (`.data/conversations.db`, `ACP_CONVERSATIONS_DB`), the same on every box of `ACP_BOXES`, because boxes number their sessions alike. Links from before keep the agent's `sessionId` and open on the first box. `session/load` reconstructs messages, images, thought, tools, and usage. The snapshot SSE covers reloads and reconnects. Titles come from the agent. There is one connection and a pool of up to `ACP_MAX_SESSIONS` open sessions (default 4, the box relay's own limit), so several people can talk to the agent at once. Opening a thread that is already open reuses it; opening another one when the pool is full closes the least recently used idle thread: first one nobody has on screen, then one idle for 5 minutes. A thread that is answering is never closed; if every thread is busy, opening returns 409.
 
 Without `session/list`, only live sessions are shown; without `loadSession`, reopening is disabled; without `session/close`, the connection is recycled.
 

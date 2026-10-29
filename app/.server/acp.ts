@@ -20,7 +20,9 @@ import { createWebSocketStream } from '@agentclientprotocol/sdk/experimental/ws-
 import { WebSocket } from 'ws';
 import type { ConnectPhase } from '~/hooks/useAcpStream';
 import { parseSkills, replayMetadata } from './goose-adapter';
-import { AGENT_BOX, ensureAgentBox, suspendAgentBox } from './agent-box';
+import { boxLifecycle } from './agent-box';
+import { readBoxConfigs, type BoxConfig } from './box-config';
+import { conversationIds } from './conversation-ids';
 import { AgentError } from './errors';
 import {
   CHANNEL_MARKER,
@@ -42,11 +44,7 @@ import {
   type AttachedFile,
 } from '~/lib/attachments';
 
-// ACP WebSocket URL; must be set or connection won't work
-const WS_URL = process.env.ACP_WS_URL ?? '';
-
-// Agent token, from ACP_TOKEN or ACP_SECRET
-const TOKEN = process.env.ACP_TOKEN ?? process.env.ACP_SECRET ?? '';
+// Which boxes (URL, token, box id, session limit): see box-config.ts.
 
 // Default working directory
 const CWD = process.env.ACP_CWD ?? '/data/work';
@@ -161,6 +159,8 @@ const CONNECT_TIMEOUT_MS = Number(process.env.ACP_CONNECT_TIMEOUT_MS ?? 60_000);
 // session/new and session/load wait for MCP extensions of the session to start:
 // a server that does not respond (bad URL, wrong credential) would leave the request hanging forever, blocking any attempt to open a conversation.
 const SESSION_TIMEOUT_MS = Number(process.env.ACP_SESSION_TIMEOUT_MS ?? 60_000);
+// An idle thread someone still has on screen is evicted only after this long without a turn.
+const VIEWED_GRACE_MS = 5 * 60 * 1000;
 
 // Routes import it from here.
 export { AgentError };
@@ -223,131 +223,303 @@ interface Capabilities {
   promptCapabilities?: { image?: boolean };
 }
 
-let connection: ClientConnection | undefined;
-let connecting: Promise<ClientConnection> | undefined;
-let agentCapabilities: Capabilities = {};
-let agentName = '';
-let active: GooseSession | undefined;
+/**
+ * One agent box: its connection, what its agent can do and the sessions open on it. Every box of
+ * ACP_BOXES has its own; a session lives and dies with its box's connection.
+ */
+class AgentBox {
+  readonly name: string;
+  readonly url: string;
+  readonly token: string;
+  readonly boxId: string;
+  readonly maxSessions: number;
+  private readonly lifecycle: ReturnType<typeof boxLifecycle>;
+  connection: ClientConnection | undefined;
+  private connecting: Promise<ClientConnection> | undefined;
+  capabilities: Capabilities = {};
+  agentName = '';
+  // Open sessions by sessionId. A thread opening with session/new joins once the agent names it.
+  readonly sessions = new Map<string, GooseSession>();
+  private opening = 0;
+  private transition = Promise.resolve();
+  // Last failed connection: new conversations skip this box for BOX_RETRY_MS.
+  failedAt = 0;
+
+  constructor(
+    config: BoxConfig,
+    readonly primary: boolean,
+  ) {
+    this.name = config.name;
+    this.url = config.url;
+    this.token = config.token;
+    this.boxId = config.boxId;
+    this.maxSessions = config.maxSessions;
+    this.lifecycle = boxLifecycle(config.boxId, config.snapshotId);
+  }
+
+  // Serializes thread changes on this box, without blocking session/cancel behind a prompt.
+  exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.transition.then(operation);
+    this.transition = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
+  }
+
+  busy() {
+    return [...this.sessions.values()].some((s) => s.busy);
+  }
+
+  /**
+   * The id the app uses for one of this box's sessions (see conversation-ids.ts). A first-box
+   * session from before app ids keeps the agent's id, so its old links still work.
+   */
+  globalId(sessionId: string) {
+    const ids = conversationIds();
+    return (
+      ids.find(this.name, sessionId) ??
+      (this.primary ? sessionId : ids.assign(this.name, sessionId))
+    );
+  }
+
+  private capacity() {
+    return this.capabilities.sessionCapabilities?.close != null || !this.connection
+      ? this.maxSessions
+      : 1;
+  }
+
+  /** Slots open without evicting anyone. */
+  free() {
+    return this.capacity() - this.sessions.size - this.opening;
+  }
+
+  reachable() {
+    return Date.now() - this.failedAt > BOX_RETRY_MS;
+  }
+
+  /**
+   * Frees a slot for one more session. Never evicts a thread mid-turn. First goes a thread nobody
+   * is watching, then one on screen but idle for VIEWED_GRACE_MS; the least recently used of each.
+   * Without session/close, a session can only be freed by dropping the connection, so there is one.
+   */
+  async makeRoom() {
+    while (this.free() <= 0) {
+      const idle = [...this.sessions.values()]
+        .filter((s) => !s.busy && !s.configuringExtensions)
+        .sort((a, b) => a.usedAt - b.usedAt);
+      const victim =
+        idle.find((s) => s.listenerCount('event') === 0) ??
+        idle.find((s) => Date.now() - s.usedAt > VIEWED_GRACE_MS);
+      if (!victim)
+        throw new Response(
+          'The agent is busy with other conversations. Please try again in a moment.',
+          { status: 409 },
+        );
+      // ask() refuses from here on: a prompt can't slip in while session/close is in flight.
+      victim.ready = false;
+      await victim.close();
+    }
+  }
+
+  /** Opens a session on this box: one slot is taken while the agent creates or replays it. */
+  async open(session: GooseSession, load: boolean, replayTail?: number) {
+    await this.makeRoom();
+    // A loaded thread joins before session/load: the agent replays it as session/update
+    // notifications. A new one has no id until the agent names it, so it holds a slot meanwhile.
+    if (load) this.sessions.set(session.sessionId, session);
+    else this.opening++;
+    try {
+      await session.initialize(load, replayTail);
+      this.sessions.set(session.sessionId, session);
+    } catch (error) {
+      session.disconnected();
+      this.abandonConnection();
+      throw error;
+    } finally {
+      if (!load) this.opening--;
+    }
+  }
+
+  // A failed session/new or session/load may have taken a relay slot. Dropping the connection
+  // frees it, but also cuts every other open thread, so only when nobody else is using it.
+  private abandonConnection() {
+    if ([...this.sessions.values()].some((s) => !s.closed)) return;
+    this.disconnect();
+  }
+
+  disconnect() {
+    const conn = this.connection;
+    this.connection = undefined;
+    conn?.close();
+  }
+
+  /** Closes every thread and the connection, then lets the box sleep. */
+  async sleep() {
+    for (const s of [...this.sessions.values()]) await s.close();
+    this.disconnect();
+    await this.lifecycle.suspend();
+  }
+
+  connect(): Promise<ClientConnection> {
+    if (this.connection && !this.connection.signal.aborted)
+      return Promise.resolve(this.connection);
+    if (this.connecting) return this.connecting;
+    this.connecting = (async () => {
+      if (!this.url)
+        throw new AgentError(
+          this.name === 'main'
+            ? 'Missing ACP_WS_URL on the server.'
+            : `Missing ACP_${this.name.toUpperCase()}_WS_URL on the server.`,
+        );
+      await this.lifecycle.ensure(IDLE_MS);
+      const target = new URL(this.url);
+      const token = this.token;
+      if (token && !target.searchParams.has('token'))
+        target.searchParams.set('token', token);
+      const app = client({ name: 'acp-web3' } as any);
+      app.onNotification('session/update', ({ params }: any) => {
+        this.sessions.get(params.sessionId)?.update(params.update);
+      });
+      app.onRequest('session/request_permission', ({ params }: any) => {
+        const s = this.sessions.get(params.sessionId);
+        if (!s || s.closed || !s.busy || s.cancelling) {
+          return { outcome: { outcome: 'cancelled' } };
+        }
+        s.update({
+          ...params.toolCall,
+          sessionUpdate: 'tool_call_update',
+          status: 'pending',
+        });
+        return s.permissions.request(params.toolCall, params.options ?? []);
+      });
+      // The box may reject the connection (conversation quota reached, bad token) with a JSON-RPC error having `id: null` and close the socket. The SDK discards it ("response to unknown request null") and `initialize` would hang until timeout without indicating the reason.
+      // The reason is captured from the raw socket and the wait is cut as soon as it closes.
+      let rejection = '';
+      let socketClosed!: Promise<never>;
+      class ObservedWebSocket extends WebSocket {
+        constructor(...args: ConstructorParameters<typeof WebSocket>) {
+          super(...args);
+          socketClosed = new Promise((_, reject) => {
+            this.on('message', (data) => {
+              try {
+                const msg = JSON.parse(data.toString());
+                if (msg.id === null && msg.error?.message)
+                  rejection = msg.error.message;
+              } catch {}
+            });
+            this.on('close', () =>
+              reject(
+                new AgentError(
+                  rejection ||
+                    'The agent closed the connection before responding.',
+                ),
+              ),
+            );
+          });
+          socketClosed.catch(() => {});
+        }
+      }
+      const conn = app.connect(
+        createWebSocketStream(target.toString(), {
+          WebSocket: ObservedWebSocket,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        } as any),
+      );
+      try {
+        const init: any = await withTimeout(
+          Promise.race([
+            conn.agent.request('initialize', {
+              protocolVersion: 1,
+              clientCapabilities: {
+                fs: { readTextFile: false, writeTextFile: false },
+                terminal: false,
+                session: { configOptions: { boolean: {} } },
+              },
+            }),
+            socketClosed,
+          ]),
+          CONNECT_TIMEOUT_MS,
+          'The agent did not respond in time.',
+        );
+        this.capabilities = init.agentCapabilities ?? {};
+        this.agentName = init.agentInfo?.name ?? '';
+        this.connection = conn;
+        conn.closed
+          .then(() => {
+            if (this.connection !== conn) return;
+            this.connection = undefined;
+            for (const s of [...this.sessions.values()]) s.disconnected();
+          })
+          .catch(() => {});
+        this.failedAt = 0;
+        return conn;
+      } catch (error) {
+        conn.close();
+        throw error instanceof AgentError
+          ? error
+          : new AgentError(
+              'Could not connect to the agent. Check your connection and server configuration.',
+            );
+      }
+    })()
+      .catch((error) => {
+        this.failedAt = Date.now();
+        throw error;
+      })
+      .finally(() => {
+        this.connecting = undefined;
+      });
+    return this.connecting;
+  }
+}
+
+const boxes = readBoxConfigs().map(
+  (config, i) => new AgentBox(config, i === 0),
+);
+// Ids the app never gave out (links from before app ids) belong to it; also what settings show.
+const primary = boxes[0];
+// A box that could not be reached is skipped by new conversations this long.
+const BOX_RETRY_MS = 60_000;
+// With several boxes, one asleep or down must not hold the merged history for long.
+const LIST_TIMEOUT_MS = 30_000;
+
+/** Which box holds a conversation, and the agent's own id for it there. None: its box was removed. */
+function locate(id: string) {
+  const place = conversationIds().place(id);
+  if (!place) return { box: primary, local: id };
+  const box = boxes.find((b) => b.name === place.box);
+  return box ? { box, local: place.session } : undefined;
+}
+
+// Roomiest reachable box first; config order breaks ties.
+function boxesByRoom() {
+  return [...boxes].sort(
+    (a, b) =>
+      Number(b.reachable()) - Number(a.reachable()) || b.free() - a.free(),
+  );
+}
+
 let lastConfigOptions: ConfigOption[] = [];
 let history: ConversationSummary[] = [];
 let historyAt = 0;
 let historyError: string | null = null;
 let refreshing: Promise<void> | undefined;
-let transition = Promise.resolve();
 
-// Serializes thread changes, without blocking session/cancel behind a prompt.
-function exclusive<T>(operation: () => Promise<T>): Promise<T> {
-  const result = transition.then(operation);
-  transition = result.then(
-    () => {},
-    () => {},
-  );
-  return result;
+function liveSession(id: string) {
+  const place = locate(id);
+  const s = place?.box.sessions.get(place.local);
+  return s && !s.closed ? s : undefined;
 }
 
-async function connectAgent(): Promise<ClientConnection> {
-  if (connection && !connection.signal.aborted) return connection;
-  if (connecting) return connecting;
-  connecting = (async () => {
-    if (!WS_URL) throw new AgentError('Missing ACP_WS_URL on the server.');
-    await ensureAgentBox(IDLE_MS);
-    const target = new URL(WS_URL);
-    if (TOKEN && !target.searchParams.has('token'))
-      target.searchParams.set('token', TOKEN);
-    const app = client({ name: 'acp-web3' } as any);
-    app.onNotification('session/update', ({ params }: any) => {
-      if (active && params.sessionId === active.sessionId)
-        active.update(params.update);
-    });
-    app.onRequest('session/request_permission', ({ params }: any) => {
-      if (
-        !active ||
-        active.closed ||
-        !active.busy ||
-        active.cancelling ||
-        params.sessionId !== active.sessionId
-      ) {
-        return { outcome: { outcome: 'cancelled' } };
-      }
-      active.update({
-        ...params.toolCall,
-        sessionUpdate: 'tool_call_update',
-        status: 'pending',
-      });
-      return active.permissions.request(params.toolCall, params.options ?? []);
-    });
-    // The box may reject the connection (conversation quota reached, bad token) with a JSON-RPC error having `id: null` and close the socket. The SDK discards it ("response to unknown request null") and `initialize` would hang until timeout without indicating the reason.
-    // The reason is captured from the raw socket and the wait is cut as soon as it closes.
-    let rejection = '';
-    let socketClosed!: Promise<never>;
-    class ObservedWebSocket extends WebSocket {
-      constructor(...args: ConstructorParameters<typeof WebSocket>) {
-        super(...args);
-        socketClosed = new Promise((_, reject) => {
-          this.on('message', (data) => {
-            try {
-              const msg = JSON.parse(data.toString());
-              if (msg.id === null && msg.error?.message)
-                rejection = msg.error.message;
-            } catch {}
-          });
-          this.on('close', () =>
-            reject(
-              new AgentError(
-                rejection ||
-                  'The agent closed the connection before responding.',
-              ),
-            ),
-          );
-        });
-        socketClosed.catch(() => {});
-      }
-    }
-    const conn = app.connect(
-      createWebSocketStream(target.toString(), {
-        WebSocket: ObservedWebSocket,
-        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-      } as any),
-    );
-    try {
-      const init: any = await withTimeout(
-        Promise.race([
-          conn.agent.request('initialize', {
-            protocolVersion: 1,
-            clientCapabilities: {
-              fs: { readTextFile: false, writeTextFile: false },
-              terminal: false,
-              session: { configOptions: { boolean: {} } },
-            },
-          }),
-          socketClosed,
-        ]),
-        CONNECT_TIMEOUT_MS,
-        'The agent did not respond in time.',
-      );
-      agentCapabilities = init.agentCapabilities ?? {};
-      agentName = init.agentInfo?.name ?? '';
-      connection = conn;
-      conn.closed
-        .then(() => {
-          if (connection !== conn) return;
-          connection = undefined;
-          if (active && !active.closed) active.disconnected();
-        })
-        .catch(() => {});
-      return conn;
-    } catch (error) {
-      conn.close();
-      throw error instanceof AgentError
-        ? error
-        : new AgentError(
-            'Could not connect to the agent. Check your connection and server configuration.',
-          );
-    }
-  })().finally(() => {
-    connecting = undefined;
-  });
-  return connecting;
+// The thread used most recently: where an owner's WhatsApp turn and the extensions page land.
+function latestSession() {
+  let latest: GooseSession | undefined;
+  for (const box of boxes)
+    for (const s of box.sessions.values())
+      if (!s.closed && s.ready && (!latest || s.usedAt > latest.usedAt))
+        latest = s;
+  return latest;
 }
 
 class GooseSession extends EventEmitter {
@@ -378,11 +550,25 @@ class GooseSession extends EventEmitter {
   private demoOwner: string | undefined;
   private demoStopped = false;
   replayTail: number | undefined;
+  // Last open, turn or subscription: decides which idle thread makeRoom evicts first.
+  usedAt = Date.now();
 
-  constructor(id: string, cwd: string) {
+  constructor(
+    readonly box: AgentBox,
+    id: string,
+    cwd: string,
+  ) {
     super();
     this.sessionId = id;
     this.cwd = cwd;
+  }
+
+  // Set when known: on load, the id asked for; on session/new, the one given out then.
+  private appId: string | undefined;
+
+  /** The conversation id outside: in URLs, the browser and the app's stores. `sessionId` is the agent's. */
+  get id() {
+    return this.appId ?? this.box.globalId(this.sessionId);
   }
 
   private setConfigOptions(list: ConfigOption[] | undefined | null) {
@@ -427,11 +613,11 @@ class GooseSession extends EventEmitter {
   }
 
   async initialize(load: boolean, replayTail?: number) {
-    const conn = await connectAgent();
-    this.imageSupport = agentCapabilities.promptCapabilities?.image === true;
+    const conn = await this.box.connect();
+    this.imageSupport = this.box.capabilities.promptCapabilities?.image === true;
     this.replaying = load;
     this.replayTail =
-      load && replayMetadata(agentName, replayTail)._meta
+      load && replayMetadata(this.box.agentName, replayTail)._meta
         ? replayTail
         : undefined;
     try {
@@ -445,19 +631,22 @@ class GooseSession extends EventEmitter {
               sessionId: this.sessionId,
               cwd: this.cwd,
               mcpServers,
-              ...replayMetadata(agentName, replayTail),
+              ...replayMetadata(this.box.agentName, replayTail),
             })
           : conn.agent.request('session/new', { cwd: this.cwd, mcpServers }),
         SESSION_TIMEOUT_MS,
         `The agent did not open the session in time${mcpServers.length ? ` (check the active extensions: ${mcpServers.map((s) => s.name).join(', ')})` : ''}.`,
       );
-      if (!load) this.sessionId = response.sessionId;
+      if (!load) {
+        this.sessionId = response.sessionId;
+        this.appId = conversationIds().assign(this.box.name, this.sessionId);
+      }
       this.setConfigOptions(response.configOptions);
       await this.forceMode(conn, response.modes);
       this.ready = true;
       if (load)
         this.entitle(this.messages.find((m) => m.role === 'user')?.text ?? '');
-      this.emit('event', { type: 'started', sessionId: this.sessionId });
+      this.emit('event', { type: 'started', sessionId: this.id });
       this.emitConfig();
       remember(this);
     } finally {
@@ -497,10 +686,10 @@ class GooseSession extends EventEmitter {
   // A true title from the agent (`session_info_update`) always overwrites it.
   private entitle(text: string) {
     if (!isGenericTitle(this.title)) return;
-    const title = titleStore().get(this.sessionId) || titleFromPrompt(text);
+    const title = titleStore().get(this.id) || titleFromPrompt(text);
     if (!title) return;
     this.title = title;
-    titleStore().set(this.sessionId, title);
+    titleStore().set(this.id, title);
     if (!this.replaying) this.emit('event', { type: 'title', title });
   }
 
@@ -682,7 +871,7 @@ class GooseSession extends EventEmitter {
       throw new Error(
         'The session is not available to change the configuration.',
       );
-    const response: any = await connection!.agent.request(
+    const response: any = await this.box.connection!.agent.request(
       'session/set_config_option',
       {
         sessionId: this.sessionId,
@@ -716,7 +905,7 @@ class GooseSession extends EventEmitter {
   ) {
     if (!this.ready || this.closed || this.busy || this.configuringExtensions)
       return false;
-    this.demoOwner = conversationOwner(this.sessionId);
+    this.demoOwner = conversationOwner(this.id);
     this.demoStopped = false;
     if (demoEnabled() && !this.demoOwner)
       throw new Error('Demo conversation has no owner');
@@ -735,6 +924,7 @@ class GooseSession extends EventEmitter {
       );
     }
     this.busy = true;
+    this.usedAt = Date.now();
     this.cancelling = false;
     this.assistant = undefined;
     const message: StoredMessage = {
@@ -774,10 +964,10 @@ class GooseSession extends EventEmitter {
         // Only the channel varies per turn: web, WhatsApp and Slack share the thread. A thread
         // opened from the portfolio widget always carries its marker, and its first turn
         // (or the next one, if the portfolio did not answer) Ismael's profile.
-        const embed = channel ? null : embedConversation(this.sessionId);
+        const embed = channel ? null : embedConversation(this.id);
         const profile =
           embed && !embed.profiled ? await portfolioProfile() : null;
-        const result: any = await connection!.agent.request('session/prompt', {
+        const result: any = await this.box.connection!.agent.request('session/prompt', {
           sessionId: this.sessionId,
           prompt: [
             ...(channel
@@ -811,7 +1001,7 @@ class GooseSession extends EventEmitter {
             })),
           ],
         });
-        if (profile) markProfiled(this.sessionId);
+        if (profile) markProfiled(this.id);
         this.emit('event', {
           type: 'done',
           stopReason: result.stopReason,
@@ -837,6 +1027,7 @@ class GooseSession extends EventEmitter {
         } catch {}
         this.permissions.cancel();
         this.busy = false;
+        this.usedAt = Date.now();
         this.assistant = undefined;
         this.updatedAt = Date.now();
         remember(this);
@@ -850,8 +1041,9 @@ class GooseSession extends EventEmitter {
   async cancel() {
     this.cancelling = true;
     this.permissions.cancel();
-    if (this.busy && connection)
-      await connection.agent.notify('session/cancel', {
+    const conn = this.box.connection;
+    if (this.busy && conn)
+      await conn.agent.notify('session/cancel', {
         sessionId: this.sessionId,
       });
   }
@@ -861,6 +1053,8 @@ class GooseSession extends EventEmitter {
     this.closed = true;
     this.ready = false;
     this.busy = false;
+    if (this.box.sessions.get(this.sessionId) === this)
+      this.box.sessions.delete(this.sessionId);
     this.emit('event', { type: 'closed' });
   }
 
@@ -888,14 +1082,13 @@ class GooseSession extends EventEmitter {
         clearTimeout(timer);
       }
     }
-    if (agentCapabilities.sessionCapabilities?.close != null && connection) {
-      await connection.agent.request('session/close', {
+    const conn = this.box.connection;
+    if (this.box.capabilities.sessionCapabilities?.close != null && conn) {
+      await conn.agent.request('session/close', {
         sessionId: this.sessionId,
       });
     } else {
-      const conn = connection;
-      connection = undefined;
-      conn?.close();
+      this.box.disconnect();
     }
     remember(this);
     this.disconnected();
@@ -919,7 +1112,7 @@ export interface ConversationSummary {
 
 function summarize(s: GooseSession): ConversationSummary {
   return {
-    id: s.sessionId,
+    id: s.id,
     title: s.title,
     cwd: s.cwd,
     createdAt: s.createdAt,
@@ -930,7 +1123,7 @@ function summarize(s: GooseSession): ConversationSummary {
     cost: s.cost,
     busy: s.busy,
     closed: s.closed,
-    canOpen: !s.closed || !!agentCapabilities.loadSession,
+    canOpen: !s.closed || !!s.box.capabilities.loadSession,
   };
 }
 function remember(s: GooseSession) {
@@ -945,83 +1138,96 @@ function isEmpty(c: ConversationSummary) {
   return (
     c.messageCount === 0 &&
     c.title === DEFAULT_TITLE &&
-    !(active?.sessionId === c.id && !active.closed)
+    !liveSession(c.id)
   );
 }
 
 export function getHistorySnapshot() {
   const conversations = history.filter((c) => !isEmpty(c)).map((c) => ({
     ...c,
-    busy: active?.sessionId === c.id && !active.closed ? active.busy : false,
-    canOpen:
-      !!agentCapabilities.loadSession ||
-      (active?.sessionId === c.id && !active.closed),
+    busy: liveSession(c.id)?.busy ?? false,
+    canOpen: !!locate(c.id)?.box.capabilities.loadSession || !!liveSession(c.id),
   }));
   return {
     conversations,
     error: historyError,
     loaded: historyAt > 0,
-    persistent: !!agentCapabilities.sessionCapabilities?.list,
+    persistent: boxes.some((b) => b.capabilities.sessionCapabilities?.list != null),
   };
+}
+
+// One box's threads, with the app's ids. Without session/list, only the ones open now.
+async function listBox(box: AgentBox) {
+  const conn = await box.connect();
+  if (box.capabilities.sessionCapabilities?.list == null)
+    return [...box.sessions.values()].map(summarize);
+  const rows: ConversationSummary[] = [];
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page: any = await conn.agent.request('session/list', {
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const session of page.sessions ?? []) {
+      const id = box.globalId(session.sessionId);
+      const old = history.find((c) => c.id === id);
+      const updatedAt = Date.parse(session.updatedAt) || old?.updatedAt || 0;
+      const title =
+        [session.title, titleStore().get(id), old?.title].find(
+          (t) => !isGenericTitle(t),
+        ) || DEFAULT_TITLE;
+      rows.push({
+        id,
+        title,
+        cwd: session.cwd || CWD,
+        createdAt: old?.createdAt ?? updatedAt,
+        updatedAt,
+        messageCount: session._meta?.messageCount ?? old?.messageCount ?? 0,
+        tokens: old?.tokens ?? 0,
+        contextSize: old?.contextSize ?? 0,
+        cost: old?.cost ?? 0,
+        busy: false,
+        closed: true,
+        canOpen: !!box.capabilities.loadSession,
+      });
+    }
+    cursor = page.nextCursor || undefined;
+    if (cursor && seen.has(cursor))
+      throw new Error('Repeated session list cursor');
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return [...new Map(rows.map((row) => [row.id, row])).values()];
 }
 
 export async function listConversations() {
   if (Date.now() - historyAt < 10_000) return getHistorySnapshot();
   if (!refreshing)
     refreshing = (async () => {
-      try {
-        const conn = await connectAgent();
-        if (agentCapabilities.sessionCapabilities?.list == null) {
-          history = active && !active.closed ? [summarize(active)] : [];
-        } else {
-          const rows: ConversationSummary[] = [];
-          let cursor: string | undefined;
-          const seen = new Set<string>();
-          do {
-            const page: any = await conn.agent.request('session/list', {
-              ...(cursor ? { cursor } : {}),
-            });
-            for (const session of page.sessions ?? []) {
-              const old = history.find((c) => c.id === session.sessionId);
-              const updatedAt =
-                Date.parse(session.updatedAt) || old?.updatedAt || 0;
-              const title =
-                [
-                  session.title,
-                  titleStore().get(session.sessionId),
-                  old?.title,
-                ].find((t) => !isGenericTitle(t)) || DEFAULT_TITLE;
-              rows.push({
-                id: session.sessionId,
-                title,
-                cwd: session.cwd || CWD,
-                createdAt: old?.createdAt ?? updatedAt,
-                updatedAt,
-                messageCount:
-                  session._meta?.messageCount ?? old?.messageCount ?? 0,
-                tokens: old?.tokens ?? 0,
-                contextSize: old?.contextSize ?? 0,
-                cost: old?.cost ?? 0,
-                busy: false,
-                closed: true,
-                canOpen: !!agentCapabilities.loadSession,
-              });
-            }
-            cursor = page.nextCursor || undefined;
-            if (cursor && seen.has(cursor))
-              throw new Error('Repeated session list cursor');
-            if (cursor) seen.add(cursor);
-          } while (cursor);
-          history = [...new Map(rows.map((row) => [row.id, row])).values()];
-          if (active && !active.closed) remember(active);
-        }
-        history.sort((a, b) => b.updatedAt - a.updatedAt);
-        historyError = null;
-        historyAt = Date.now();
-      } catch {
+      const results = await Promise.allSettled(
+        boxes.map((box) =>
+          boxes.length > 1
+            ? withTimeout(listBox(box), LIST_TIMEOUT_MS, 'slow box')
+            : listBox(box),
+        ),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed === boxes.length) {
         historyError =
           'Could not update the history. The last available list is shown.';
+        return;
       }
+      // A box that did not answer keeps its last known threads; they open again once it is back.
+      history = results.flatMap((result, i) =>
+        result.status === 'fulfilled'
+          ? result.value
+          : history.filter((c) => locate(c.id)?.box === boxes[i]),
+      );
+      for (const box of boxes) for (const s of box.sessions.values()) remember(s);
+      history.sort((a, b) => b.updatedAt - a.updatedAt);
+      historyError = failed
+        ? 'Part of the history could not be updated. The last available list is shown.'
+        : null;
+      historyAt = Date.now();
     })().finally(() => {
       refreshing = undefined;
     });
@@ -1029,93 +1235,93 @@ export async function listConversations() {
   return getHistorySnapshot();
 }
 
-export function createConversation(model?: string | null) {
-  return exclusive(async () => {
-    if (demoEnabled() && active?.busy)
-      throw new Response(
-        'The agent is attending another demo. Please try again in a moment.',
-
-        { status: 409 },
-      );
-    await active?.close();
-    await connectAgent();
-    const session = new GooseSession('nuevo', CWD);
-    active = session;
+/**
+ * Opens a thread on the reachable box with the most room. A box that is full of busy threads or
+ * cannot be reached passes it to the next one; the last error is the answer when none can.
+ */
+export async function createConversation(model?: string | null) {
+  let failure: unknown;
+  for (const box of boxesByRoom()) {
     try {
-      await session.initialize(false);
+      return await box.exclusive(() => createOn(box, model));
     } catch (error) {
-      const conn = connection;
-      connection = undefined;
-      conn?.close();
-      session.disconnected();
-      throw error;
+      if (error instanceof Response && error.status !== 409) throw error;
+      failure = error;
     }
-    if (model) {
-      const option = session.configOptions.find(
-        (option) => option.category === 'model' || option.id === 'model',
-      );
-      if (option) {
-        try {
-          await session.setConfigOption(option.id, model);
-        } catch {
-          /* Catalog changed: keep the model confirmed by the agent. */
-        }
+  }
+  throw failure;
+}
+
+async function createOn(box: AgentBox, model?: string | null) {
+  await box.connect();
+  const session = new GooseSession(box, 'nuevo', CWD);
+  await box.open(session, false);
+  if (model) {
+    const option = session.configOptions.find(
+      (option) => option.category === 'model' || option.id === 'model',
+    );
+    if (option) {
+      try {
+        await session.setConfigOption(option.id, model);
+      } catch {
+        /* Catalog changed: keep the model confirmed by the agent. */
       }
     }
-    historyAt = 0;
-    markActivity();
-    return session.sessionId;
-  });
+  }
+  historyAt = 0;
+  markActivity();
+  return session.id;
 }
 
 export function loadConversation(
   id: string,
   options: { replayTail?: number; reload?: boolean } = {},
 ) {
-  return exclusive(async () => {
+  const place = locate(id);
+  if (!place)
+    return Promise.reject(
+      new Response('This conversation was on an agent box that is no longer configured.', {
+        status: 404,
+      }),
+    );
+  const { box, local } = place;
+  return box.exclusive(async () => {
+    const open = liveSession(id);
     if (
-      active?.sessionId === id &&
-      !active.closed &&
-      !options.reload &&
-      active.replayTail ===
-        (replayMetadata(agentName, options.replayTail)._meta
-          ? options.replayTail
-          : undefined)
+      open &&
+      // A reload or another replay window reopens the thread, but never under a running turn.
+      (open.busy ||
+        (!options.reload &&
+          open.replayTail ===
+            (replayMetadata(box.agentName, options.replayTail)._meta
+              ? options.replayTail
+              : undefined)))
     ) {
+      open.usedAt = Date.now();
       markActivity();
-      return active;
+      return open;
     }
-    if (demoEnabled() && active?.busy && active.sessionId !== id)
-      throw new Response(
-        'The agent is currently handling another demo. Please try again in a moment.',
-        { status: 409 },
-      );
-    await connectAgent();
-    if (!agentCapabilities.loadSession)
+    await box.connect();
+    if (!box.capabilities.loadSession)
       throw new Response(
         'The agent does not allow reopening saved conversations.',
 
         { status: 409 },
       );
-    await active?.close();
-    await connectAgent();
+    await open?.close();
+    await box.connect();
     if (!history.some((c) => c.id === id)) await listConversations();
     const row = history.find((c) => c.id === id);
-    const session = new GooseSession(id, row?.cwd ?? CWD);
+    const session = new GooseSession(box, local, row?.cwd ?? CWD);
     if (row) {
       session.title = row.title;
       session.createdAt = row.createdAt;
       session.updatedAt = row.updatedAt;
     }
-    active = session;
     try {
-      await session.initialize(true, options.replayTail);
+      await box.open(session, true, options.replayTail);
     } catch (error) {
-      // load may have reserved a slot before failing.
-      const conn = connection;
-      connection = undefined;
-      conn?.close();
-      session.disconnected();
+      if (error instanceof Response) throw error;
       throw new Response(
         'Could not retrieve this conversation from the agent.',
         {
@@ -1128,15 +1334,16 @@ export function loadConversation(
   });
 }
 export function getConversation(id: string) {
-  return active?.sessionId === id && !active.closed ? active : null;
+  return liveSession(id) ?? null;
 }
 export function getMessages(id: string): StoredMessage[] {
   return getConversation(id)?.messages ?? [];
 }
-export function closeConversation(id: string) {
-  return exclusive(async () => {
-    const s = getConversation(id);
-    if (!s) return false;
+export async function closeConversation(id: string) {
+  const s = getConversation(id);
+  if (!s) return false;
+  return s.box.exclusive(async () => {
+    if (s.closed) return false;
     await s.close();
     return true;
   });
@@ -1154,7 +1361,7 @@ export function askConversation(
 }
 
 /**
- * A turn requested from outside the browser (WhatsApp...). Goes to the open thread, or opens one if not available: a single live session, two clients, one conversation. Channels take turns: if the agent is answering (to the web chat or another group), the next one waits for it to finish.
+ * A turn requested from outside the browser (WhatsApp...). A demo guest's turn goes to that guest's thread; the owner's goes to the thread used most recently, or opens one. Channels take turns: if that thread is answering (the web chat or another group), the next one waits for it to finish.
  * Resolves with the full agent's response text and images returned by its tools.
  */
 let channelQueue = Promise.resolve();
@@ -1177,12 +1384,9 @@ export function askFromChannel(
         );
         session = await loadConversation(id);
       } else {
-        session = active && !active.closed && active.ready ? active : undefined;
+        session = latestSession();
       }
-      if (!session) {
-        await createConversation();
-        session = active;
-      }
+      if (!session) session = getConversation(await createConversation()) ?? undefined;
       if (!session || session.closed)
         throw new AgentError('There is no open thread with the agent.');
       // Simple queue: waits until the turn in progress is released and, if someone else slipped in, retries.
@@ -1216,9 +1420,8 @@ export function askFromChannel(
           // The box went to sleep and the WebSocket dropped with the turn in flight: the thread was closed.
           // Reopen one (that wakes the box) and retry just once.
           if (!owner && session.closed && attempt === 0) {
-            await createConversation();
-            session = active;
-            if (!session || session.closed) throw error;
+            session = getConversation(await createConversation()) ?? undefined;
+            if (!session) throw error;
             continue;
           }
           throw error;
@@ -1247,6 +1450,7 @@ export async function setConversationConfig(
 export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
   const s = getConversation(id);
   if (!s) return null;
+  s.usedAt = Date.now();
   s.on('event', onEvent);
   // Atomic snapshot on subscribe: covers tokens between loader and SSE, and reconnections.
   onEvent({
@@ -1255,7 +1459,7 @@ export function subscribe(id: string, onEvent: (e: AcpEvent) => void) {
     busy: s.busy,
     permissions: s.permissions.snapshot(),
   });
-  onEvent({ type: 'started', sessionId: s.sessionId });
+  onEvent({ type: 'started', sessionId: s.id });
   onEvent(s.configEvent());
   onEvent({ type: 'busy', busy: s.busy });
   return () => s.off('event', onEvent);
@@ -1272,14 +1476,14 @@ export function getLastAttachmentSupport() {
       ? raw.flatMap((g) => (g.options ?? []).map((v: any) => v.value))
       : raw.map((v) => v.value);
   return {
-    imageSupport: agentCapabilities.promptCapabilities?.image === true,
+    imageSupport: primary.capabilities.promptCapabilities?.image === true,
     visionModels: values.filter(isVisionModel),
   };
 }
 // The visible URL never includes agent credentials.
 const publicWsUrl = (() => {
   try {
-    const url = new URL(WS_URL);
+    const url = new URL(primary.url);
     url.search = '';
     url.username = '';
     url.password = '';
@@ -1291,7 +1495,7 @@ const publicWsUrl = (() => {
 export const config = {
   wsUrl: publicWsUrl,
   cwd: CWD,
-  agentBox: AGENT_BOX,
+  agentBox: primary.boxId,
   idleMs: IDLE_MS,
 };
 let lastActivity = Date.now();
@@ -1304,37 +1508,40 @@ export const openSse = () => {
 export const closeSse = () => {
   activeSse = Math.max(0, activeSse - 1);
 };
+const anyBusy = () => boxes.some((box) => box.busy());
 setInterval(() => {
-  if (activeSse === 0 && !active?.busy && Date.now() - lastActivity > IDLE_MS) {
+  if (activeSse === 0 && !anyBusy() && Date.now() - lastActivity > IDLE_MS) {
     lastActivity = Date.now();
-    void exclusive(async () => {
-      if (activeSse || active?.busy) return;
-      await active?.close();
-      const conn = connection;
-      connection = undefined;
-      conn?.close();
-      await suspendAgentBox();
-    }).catch(() => {});
+    for (const box of boxes)
+      void box
+        .exclusive(async () => {
+          if (activeSse || anyBusy()) return;
+          await box.sleep();
+        })
+        .catch(() => {});
   }
 }, 30_000).unref?.();
 
 /** Does not open a session to discover skills. Agents without the extension degrade to an empty list. */
 export async function listAgentSkills() {
-  try {
-    const conn = await connectAgent();
-    const result = await conn.agent.request('_goose/unstable/sources/list', {
-      projectDir: CWD,
-    });
-    return { skills: parseSkills(result), supported: true, error: null };
-  } catch (error) {
-    if ((error as { code?: number }).code === -32601)
-      return { skills: [], supported: false, error: null };
-    return {
-      skills: [],
-      supported: true,
-      error: 'Could not load skills. Please try again.',
-    };
+  // Every box runs the same agent: the first that answers speaks for all.
+  for (const box of boxesByRoom()) {
+    try {
+      const conn = await box.connect();
+      const result = await conn.agent.request('_goose/unstable/sources/list', {
+        projectDir: CWD,
+      });
+      return { skills: parseSkills(result), supported: true, error: null };
+    } catch (error) {
+      if ((error as { code?: number }).code === -32601)
+        return { skills: [], supported: false, error: null };
+    }
   }
+  return {
+    skills: [],
+    supported: true,
+    error: 'Could not load skills. Please try again.',
+  };
 }
 
 export async function listClientExtensions() {
@@ -1352,10 +1559,10 @@ export async function listClientExtensions() {
 }
 
 export async function listSessionExtensions() {
-  const session = active;
-  if (!session || session.closed || !session.ready) return null;
+  const session = latestSession();
+  if (!session) return null;
   try {
-    const conn = await connectAgent();
+    const conn = await session.box.connect();
     // goose returns each session extension flat (without wrapper or key): it is identified by its name, which is also what `extensions/remove` expects (`name`, not `extensionKey`).
     // The wrapped form `{ extensionKey, extension }` is also accepted in case it changes.
     type SessionExtension = { name?: string; server?: { name?: string } };
@@ -1383,7 +1590,7 @@ export async function listSessionExtensions() {
       }),
     });
     return {
-      id: session.sessionId,
+      id: session.id,
       title: session.title,
       busy: session.busy || session.configuringExtensions,
       extensions,
@@ -1391,7 +1598,7 @@ export async function listSessionExtensions() {
     };
   } catch (error) {
     return {
-      id: session.sessionId,
+      id: session.id,
       title: session.title,
       busy: session.busy,
       extensions: [],
@@ -1408,9 +1615,10 @@ export function changeSessionExtension(
   operation: 'add' | 'remove',
   key: string,
 ) {
-  return exclusive(async () => {
+  const box = getConversation(id)?.box ?? primary;
+  return box.exclusive(async () => {
     const session = getConversation(id);
-    if (!session || !session.ready)
+    if (!session || !session.ready || session.box !== box)
       throw new Response(
         'The active conversation has changed. Please refresh the page.',
         { status: 409 },
@@ -1423,21 +1631,21 @@ export function changeSessionExtension(
       );
     session.configuringExtensions = true;
     try {
-      const conn = await connectAgent();
+      const conn = await box.connect();
       if (operation === 'add') {
         const extension = extensionStore().get(key);
         if (!extension)
           throw new Response('The extension no longer exists', { status: 404 });
 
         await conn.agent.request('_goose/unstable/session/extensions/add', {
-          sessionId: id,
+          sessionId: session.sessionId,
           extension,
         });
       } else {
         // goose removes by name; the browser can send the client id (UUID) or the name.
         const name = extensionStore().get(key)?.server.name ?? key;
         await conn.agent.request('_goose/unstable/session/extensions/remove', {
-          sessionId: id,
+          sessionId: session.sessionId,
           name,
         });
       }
