@@ -50,6 +50,13 @@ test("route endpoints come from the directions link, matched to places of the tu
   const places = [{ id: "ChIJ1", name: "Café El Jarocho", lat: 0, lng: 0, url: "" }];
   assert.deepEqual(waypoint("Cafe El Jarocho", places), { placeId: "ChIJ1" });
   assert.deepEqual(waypoint("Zócalo, CDMX", places), { address: "Zócalo, CDMX" });
+  const latLng = { location: { latLng: { latitude: 41.896435, longitude: -87.626487 } } };
+  assert.deepEqual(waypoint("(41.896435,-87.626487)", places), latLng);
+  assert.deepEqual(waypoint("41.896435, -87.626487", places), latLng);
+  assert.deepEqual(
+    routeEndpoints({ ...route, url: "https://www.google.com/maps/dir/Chicago+O'Hare+International+Airport/(41.896435,-87.626487)" }),
+    ["Chicago O'Hare International Airport", "(41.896435,-87.626487)"],
+  );
   assert.equal(travelMode(route), "WALK");
   assert.equal(travelMode({ ...route, meters: 14290, seconds: 1836 }), "DRIVE");
   assert.ok(sameRoute(400, 379) && !sameRoute(14290, 379) && !sameRoute(1, 0));

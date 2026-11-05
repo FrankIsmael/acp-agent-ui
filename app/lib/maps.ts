@@ -358,9 +358,10 @@ export function routeEndpoints(route: MapRoute): [string, string] | null {
     const parts = new URL(route.url).pathname.split('/').filter(Boolean);
     const at = parts.indexOf('dir');
     if (at === -1 || parts.length < at + 3) return null;
+    // Maps links may encode spaces as `+`, which `decodeURIComponent` leaves alone.
     const [origin, destination] = parts
       .slice(at + 1, at + 3)
-      .map(decodeURIComponent);
+      .map((s) => decodeURIComponent(s.replace(/\+/g, ' ')));
     return origin && destination ? [origin, destination] : null;
   } catch {
     return null;
@@ -388,7 +389,17 @@ export function routeWaypoint(
   return waypoint(name, places);
 }
 
+// "41.896435,-87.626487", optionally in parentheses: Routes rejects coordinates sent as an address.
+const LAT_LNG = /^\(?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)?$/;
+
 export function waypoint(name: string, places: MapPlace[]): Waypoint {
+  const coords = LAT_LNG.exec(name.trim());
+  if (coords) {
+    const latitude = Number(coords[1]),
+      longitude = Number(coords[2]);
+    if (Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180)
+      return { location: { latLng: { latitude, longitude } } };
+  }
   const match = places.find((p) => normalize(p.name) === normalize(name));
   return match ? { placeId: match.id } : { address: name };
 }
