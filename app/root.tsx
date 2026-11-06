@@ -40,6 +40,10 @@ function publicOrigin(request: Request): string {
   return new URL(request.url).origin;
 }
 
+// Google tag (GTM container). Only loaded in production builds so dev traffic
+// stays out of the analytics.
+const GTM_ID = 'GTM-NBVDLCT6';
+
 const SITE_TITLE = 'Robbie · Your AI agent, on its own machine';
 const SITE_DESCRIPTION =
   'Robbie is an AI agent that works on its own machine: it runs tools, writes code, builds apps and researches the web. Chat with it from the web or WhatsApp.';
@@ -80,6 +84,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <I18nProvider locale={locale}>
       <html lang={locale} className={themeClass(data?.theme ?? DEFAULT_THEME)}>
         <head>
+          {import.meta.env.PROD && (
+            <>
+              <script async src={`https://www.googletagmanager.com/gtm.js?id=${GTM_ID}`} />
+              <script
+                dangerouslySetInnerHTML={{
+                  __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());`,
+                }}
+              />
+            </>
+          )}
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <Meta />
