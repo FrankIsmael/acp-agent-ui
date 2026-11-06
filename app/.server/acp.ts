@@ -374,9 +374,8 @@ class AgentBox {
         );
       await this.lifecycle.ensure(IDLE_MS);
       const target = new URL(this.url);
+      // Only in the Authorization header: a URL ends up in the box's and proxies' access logs.
       const token = this.token;
-      if (token && !target.searchParams.has('token'))
-        target.searchParams.set('token', token);
       const app = client({ name: 'acp-web3' } as any);
       app.onNotification('session/update', ({ params }: any) => {
         this.sessions.get(params.sessionId)?.update(params.update);
