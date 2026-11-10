@@ -9,7 +9,7 @@ id, URL and Linux user.
 
 | Box | id | Linux user | Prompt | Use |
 |---|---|---|---|---|
-| `robbie-agent` | `m_agqupf2nhgt5exp4trttq2fdme` | `user` | lathe job writer | `/lathe` experiment |
+| `robbie-agent` | `m_agqupf2nhgt5exp4trttq2fdme` | `user` | lathe job writer | `/lathe` experiment (moved to the `lathe` branch) |
 | `robbie-chat` | `m_agqyh42q2louic5pzo7sfvijka` | `ifrank` | `scripts/system-prompt.md` | Robbie chat (since Oct 28, 2026) |
 | `robbie-shop` | `m_agq24spwemabk664ldlyhdzfci` | | `scripts/shop/system-prompt.md` | Clothing-store sales assistant, reserved for one invite (`ACP_SHOP_INVITE`) |
 
