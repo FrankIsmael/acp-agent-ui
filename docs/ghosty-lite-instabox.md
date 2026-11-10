@@ -11,6 +11,7 @@ id, URL and Linux user.
 |---|---|---|---|---|
 | `robbie-agent` | `m_agqupf2nhgt5exp4trttq2fdme` | `user` | lathe job writer | `/lathe` experiment |
 | `robbie-chat` | `m_agqyh42q2louic5pzo7sfvijka` | `ifrank` | `scripts/system-prompt.md` | Robbie chat (since Oct 28, 2026) |
+| `robbie-shop` | `m_agq24spwemabk664ldlyhdzfci` | | `scripts/shop/system-prompt.md` | Clothing-store sales assistant, reserved for one invite (`ACP_SHOP_INVITE`) |
 
 `robbie-chat` has its own `ACP_AGENT_TOKEN` and `ACP_MAX_SESSIONS=4` (the relay's default,
 `/opt/goose/dist/relay.js`). It is on the free plan, so its idle pause is fixed at 30 min and
@@ -23,8 +24,10 @@ sessions alike (`20261028_1` exists on both), so every new conversation gets an 
 (`/c/k7f3q9`) and `.data/conversations.db` remembers its box; older links with an agent id open
 on the first box (`app/.server/conversation-ids.ts`). History merges
 `session/list` from every box; a box that is down keeps its last known rows, and they open
-again once it is back. Every box must run the same prompt, skills and model, or Robbie
-changes depending on where a user lands.
+again once it is back. Every shared box must run the same prompt, skills and model, or Robbie
+changes depending on where a user lands. A box with `ACP_<NAME>_INVITE=<label>` is the
+exception: it is out of the shared pool and only the guest of that demo invite lands there
+(`robbie-shop`), so it runs its own prompt.
 
 ```
 app ──wss + token──▶ https://3100-agqupf2nhgt5exp4trttq2fdme.instabox.tech/acp

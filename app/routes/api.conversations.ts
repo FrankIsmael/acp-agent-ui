@@ -22,7 +22,7 @@ export async function action({ request }: Route.ActionArgs) {
     const model = owner ? null : await readModelPreference(request);
     // The portfolio widget (/embed) asks for `{ via: "embed" }`: its turns get the scoped prompt.
     const body = (await request.json().catch(() => null)) as { via?: unknown } | null;
-    const id = owner ? await demoConversation(owner, () => createConversation(model)) : await createConversation(model);
+    const id = owner ? await demoConversation(owner, () => createConversation(model, owner)) : await createConversation(model);
     if (body?.via === "embed") markEmbedConversation(id);
     return data({ conversationId: id });
   } catch (e) {

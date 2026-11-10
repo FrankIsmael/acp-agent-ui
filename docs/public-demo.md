@@ -114,6 +114,18 @@ docker compose run --rm --no-deps -v ./scripts:/app/scripts:ro \
 
 `--url` defaults to `https://$APP_DOMAIN`. The link (`/?invite=<token>`) sets the `demo_guest` cookie and redirects to a URL without the token. Only the token's hash is stored. Invited guests' usage is tracked but does not count toward `DEMO_GLOBAL_TOKEN_LIMIT`, `DEMO_USER_LIMIT` or the per-IP chat/API limits. After an invite expires or is revoked, that guest falls back to normal demo limits.
 
+### An invite with its own agent box
+
+An invite can get a box of its own, running a different agent (for example a store's sales assistant, `scripts/shop/system-prompt.md`). Add the box to `ACP_BOXES` (not first) and set `ACP_<NAME>_INVITE` to the invite's label:
+
+```bash
+ACP_BOXES=easy,chat,shop
+ACP_SHOP_INVITE=tienda-ropa
+npm run invite -- create "tienda-ropa" --days 30 --url https://your.domain
+```
+
+That guest's new conversations, web and WhatsApp, open only on that box; nobody else lands there, even when the shared boxes are full. If the box is down, that guest gets the error instead of falling back to Robbie. Revoking or expiring the invite sends the guest back to the shared boxes. The label must match exactly (`app/.server/box-config.ts`, `boxesFor`).
+
 ## Disable or replace later
 
 Set `DEMO=false` and restart. Demo middleware and agent quota checks become no-ops; the original WhatsApp admin gate and shared owner channel return. Guest data remains on disk, and guest channels are not started. This toggle restores the existing app's access behavior; it does not add a site-wide admin gate.

@@ -65,6 +65,16 @@ export function isFullAccess(id: string) {
     )
     .get(id, Date.now());
 }
+/** The label of a guest's active invite (it picks a reserved box, box-config.ts); none for plain guests. */
+export function inviteLabel(id: string) {
+  if (!demoEnabled()) return undefined;
+  const row = demoDb()
+    .prepare(
+      'SELECT label FROM demo_guests WHERE id = ? AND full_access = 1 AND (expires_at IS NULL OR expires_at > ?)',
+    )
+    .get(id, Date.now()) as { label: string | null } | undefined;
+  return row?.label ?? undefined;
+}
 /**
  * The guest a server-side channel (Slack) speaks as in the demo: a full-access invite with this
  * label, created the first time. Nobody holds its link (the token is thrown away), so it is only

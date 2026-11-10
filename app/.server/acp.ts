@@ -6,6 +6,7 @@
  */
 import {
   demoEnabled,
+  inviteLabel,
   conversationOwner,
   beginDemoTurn,
   chargeDemoOutput,
@@ -21,7 +22,7 @@ import { WebSocket } from 'ws';
 import type { ConnectPhase } from '~/hooks/useAcpStream';
 import { parseSkills, replayMetadata } from './goose-adapter';
 import { boxLifecycle } from './agent-box';
-import { readBoxConfigs, type BoxConfig } from './box-config';
+import { boxesFor, readBoxConfigs, type BoxConfig } from './box-config';
 import { conversationIds } from './conversation-ids';
 import { AgentError } from './errors';
 import {
@@ -233,6 +234,8 @@ class AgentBox {
   readonly token: string;
   readonly boxId: string;
   readonly maxSessions: number;
+  /** Invite label this box is reserved for; empty when shared. */
+  readonly invite: string;
   private readonly lifecycle: ReturnType<typeof boxLifecycle>;
   connection: ClientConnection | undefined;
   private connecting: Promise<ClientConnection> | undefined;
@@ -254,6 +257,7 @@ class AgentBox {
     this.token = config.token;
     this.boxId = config.boxId;
     this.maxSessions = config.maxSessions;
+    this.invite = config.invite;
     this.lifecycle = boxLifecycle(config.boxId, config.snapshotId);
   }
 
@@ -491,9 +495,9 @@ function locate(id: string) {
   return box ? { box, local: place.session } : undefined;
 }
 
-// Roomiest reachable box first; config order breaks ties.
-function boxesByRoom() {
-  return [...boxes].sort(
+// Roomiest reachable box first; config order breaks ties. Only the boxes this guest may use.
+function boxesByRoom(owner?: string) {
+  return boxesFor(boxes, owner ? inviteLabel(owner) : null).sort(
     (a, b) =>
       Number(b.reachable()) - Number(a.reachable()) || b.free() - a.free(),
   );
@@ -514,7 +518,7 @@ function liveSession(id: string) {
 // The thread used most recently: where an owner's WhatsApp turn and the extensions page land.
 function latestSession() {
   let latest: GooseSession | undefined;
-  for (const box of boxes)
+  for (const box of boxesFor(boxes))
     for (const s of box.sessions.values())
       if (!s.closed && s.ready && (!latest || s.usedAt > latest.usedAt))
         latest = s;
@@ -1237,10 +1241,11 @@ export async function listConversations() {
 /**
  * Opens a thread on the reachable box with the most room. A box that is full of busy threads or
  * cannot be reached passes it to the next one; the last error is the answer when none can.
+ * `owner` (a demo guest) limits it to that guest's boxes: see `boxesFor`.
  */
-export async function createConversation(model?: string | null) {
+export async function createConversation(model?: string | null, owner?: string) {
   let failure: unknown;
-  for (const box of boxesByRoom()) {
+  for (const box of boxesByRoom(owner)) {
     try {
       return await box.exclusive(() => createOn(box, model));
     } catch (error) {
@@ -1379,7 +1384,7 @@ export function askFromChannel(
       let session: GooseSession | undefined;
       if (owner) {
         const id = await demoChannelConversation(owner, () =>
-          createConversation(),
+          createConversation(null, owner),
         );
         session = await loadConversation(id);
       } else {
