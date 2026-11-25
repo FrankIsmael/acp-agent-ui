@@ -52,14 +52,14 @@ commit ever adds a file at one of these paths, that merge fails: move the VM cop
 ### Endpoint and access
 
 ```
-https://render.140-84-190-139.sslip.io/<secret>/render/pdf
+https://render.140-84-167-70.sslip.io/<secret>/render/pdf
 ```
 
 render-svc has no auth of its own, and the SDK sends no auth header. The SDK builds every call as
 `${GS_RENDER_URL}/render/<endpoint>`, so a long random path prefix acts as the token: Caddy
 strips it (`handle_path`) and answers 404 to anything else. `sslip.io` resolves the hostname to
 the VM's IP, so no DNS record was needed. To use your own name, add an A record (e.g.
-`render.ismaelfrancisco.tech` → `140.84.190.139`), change the host in `Caddyfile.render`, and
+`render.ismaelfrancisco.tech` → `140.84.167.70`), change the host in `Caddyfile.render`, and
 update `GS_RENDER_URL` on the box.
 
 To rotate the secret: write a new one to `.render-secret`, put it in `Caddyfile.render`,
@@ -92,8 +92,8 @@ The agent (`ghosty-lite-runtime.service`) reads `/etc/ghosty-lite-runtime/.env` 
 
 ```bash
 # boxexec: see CURLS.md / the helper that wraps POST /sandboxes/$AGENT_BOX_ID/exec
-S=$(ssh -i ~/.ssh/oracle-app opc@140.84.190.139 'cat ~/acp-agent-ui/.render-secret')
-boxexec "f=/etc/ghosty-lite-runtime/.env; cp -p \$f \$f.bak-\$(date +%F-%H%M%S); sed -i '/^GS_RENDER_URL=/d' \$f; echo 'GS_RENDER_URL=https://render.140-84-190-139.sslip.io/$S' >> \$f; grep -c '^GS_RENDER_URL=' \$f"
+S=$(ssh -i ~/.ssh/oracle-app opc@140.84.167.70 'cat ~/acp-agent-ui/.render-secret')
+boxexec "f=/etc/ghosty-lite-runtime/.env; cp -p \$f \$f.bak-\$(date +%F-%H%M%S); sed -i '/^GS_RENDER_URL=/d' \$f; echo 'GS_RENDER_URL=https://render.140-84-167-70.sslip.io/$S' >> \$f; grep -c '^GS_RENDER_URL=' \$f"
 ```
 
 It prints `1`. The file is on the box's root disk: it survives a restart or reboot, **not** a
@@ -143,7 +143,7 @@ Then ask the agent in the app for a short PDF ("Hazme un PDF que diga hola"). A 
 ## On the VM
 
 ```bash
-ssh -i ~/.ssh/oracle-app opc@140.84.190.139
+ssh -i ~/.ssh/oracle-app opc@140.84.167.70
 cd ~/acp-agent-ui
 docker compose ps render                                  # Up
 docker compose exec -T caddy wget -qO- http://render:9300/health   # {"ok":true}
@@ -155,9 +155,9 @@ Rebuilding after a template update in `sandbox-host`:
 
 ```bash
 # from a machine with the sandbox-host checkout
-tar -C sandbox-host/templates -czf - render-svc | ssh -i ~/.ssh/oracle-app opc@140.84.190.139 \
+tar -C sandbox-host/templates -czf - render-svc | ssh -i ~/.ssh/oracle-app opc@140.84.167.70 \
   'rm -rf ~/render-svc-src && mkdir ~/render-svc-src && tar -C ~/render-svc-src --strip-components=1 -xzf -'
-ssh -i ~/.ssh/oracle-app opc@140.84.190.139 \
+ssh -i ~/.ssh/oracle-app opc@140.84.167.70 \
   'cd ~/render-svc-src && docker build -t render-svc:local . && cd ~/acp-agent-ui && docker compose up -d render'
 ```
 
