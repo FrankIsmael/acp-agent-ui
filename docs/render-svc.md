@@ -52,15 +52,15 @@ commit ever adds a file at one of these paths, that merge fails: move the VM cop
 ### Endpoint and access
 
 ```
-https://render.140-84-167-70.sslip.io/<secret>/render/pdf
+https://render.ismaelfrancisco.tech/<secret>/render/pdf
 ```
 
 render-svc has no auth of its own, and the SDK sends no auth header. The SDK builds every call as
 `${GS_RENDER_URL}/render/<endpoint>`, so a long random path prefix acts as the token: Caddy
-strips it (`handle_path`) and answers 404 to anything else. `sslip.io` resolves the hostname to
-the VM's IP, so no DNS record was needed. To use your own name, add an A record (e.g.
-`render.ismaelfrancisco.tech` → `140.84.167.70`), change the host in `Caddyfile.render`, and
-update `GS_RENDER_URL` on the box.
+strips it (`handle_path`) and answers 404 to anything else. `render.ismaelfrancisco.tech` is an
+A record at Namecheap pointing to the VM (`140.84.167.70`). If the IP changes, update that
+record; the boxes keep the same `GS_RENDER_URL`. `Caddyfile.render` also serves
+`render.140-84-167-70.sslip.io`, for sessions that still hold the old URL.
 
 To rotate the secret: write a new one to `.render-secret`, put it in `Caddyfile.render`,
 `docker compose up -d caddy`, then update `GS_RENDER_URL` on the box and restart the agent.
@@ -93,7 +93,7 @@ The agent (`ghosty-lite-runtime.service`) reads `/etc/ghosty-lite-runtime/.env` 
 ```bash
 # boxexec: see CURLS.md / the helper that wraps POST /sandboxes/$AGENT_BOX_ID/exec
 S=$(ssh -i ~/.ssh/oracle-app opc@140.84.167.70 'cat ~/acp-agent-ui/.render-secret')
-boxexec "f=/etc/ghosty-lite-runtime/.env; cp -p \$f \$f.bak-\$(date +%F-%H%M%S); sed -i '/^GS_RENDER_URL=/d' \$f; echo 'GS_RENDER_URL=https://render.140-84-167-70.sslip.io/$S' >> \$f; grep -c '^GS_RENDER_URL=' \$f"
+boxexec "f=/etc/ghosty-lite-runtime/.env; cp -p \$f \$f.bak-\$(date +%F-%H%M%S); sed -i '/^GS_RENDER_URL=/d' \$f; echo 'GS_RENDER_URL=https://render.ismaelfrancisco.tech/$S' >> \$f; grep -c '^GS_RENDER_URL=' \$f"
 ```
 
 It prints `1`. The file is on the box's root disk: it survives a restart or reboot, **not** a
